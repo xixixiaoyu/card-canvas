@@ -3,6 +3,7 @@ import { nextTick, onMounted, provide, ref } from 'vue'
 import {
   canvasCameraKey,
   useCanvas,
+  type CanvasCamera,
 } from '../../composables/useCanvas'
 import CanvasHUD from './CanvasHUD.vue'
 
@@ -48,13 +49,15 @@ const {
   maxScale: props.maxScale,
 })
 
-provide(canvasCameraKey, {
+const cameraApi: CanvasCamera = {
   getViewport,
   getContainerRect,
   screenToWorld,
   worldToScreen,
   isSpaceHeld,
-})
+}
+
+provide(canvasCameraKey, cameraApi)
 
 function handleBackgroundPointerDown(event: PointerEvent) {
   if (event.button !== 0) return
@@ -135,6 +138,7 @@ defineExpose({
   worldToScreen,
   getViewport,
   getContainerRect,
+  camera: cameraApi,
 })
 </script>
 

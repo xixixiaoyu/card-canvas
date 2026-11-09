@@ -11,6 +11,20 @@ export interface BoardEntry {
   card: Card
 }
 
+export interface CaptureCardInput {
+  title: string
+  content: string
+  tags: string[]
+}
+
+export interface PlaceCardPosition {
+  x: number
+  y: number
+  width?: number
+}
+
+const DEFAULT_CARD_WIDTH = 420
+
 /**
  * The board store owns the durable graph (cards + spatial projections) that
  * the canvas renders. During a card drag no store writes happen; the final
@@ -40,6 +54,22 @@ export const useBoardStore = defineStore('board', () => {
   )
 
   const isHydrated = computed(() => status.value === 'ready')
+
+  /**
+   * The inbox is derived, never stored: a card is "unsorted" exactly when it
+   * has no projection on the active board. No `isPlaced` flag can drift.
+   */
+  const placedCardIds = computed(
+    () => new Set(items.value.map((item) => item.cardId)),
+  )
+
+  const inboxCards = computed(() =>
+    cards.value
+      .filter((card) => !placedCardIds.value.has(card.id))
+      .sort((a, b) => b.createdAt - a.createdAt),
+  )
+
+  const inboxCount = computed(() => inboxCards.value.length)
 
   function initialize(boardId: string) {
     if (initialization) return initialization
@@ -86,6 +116,68 @@ export const useBoardStore = defineStore('board', () => {
     return initialization
   }
 
+  /**
+   * Capture writes a pure Card entity. No board id, no coordinates: placing it
+   * on a canvas is a separate, explicit gesture handled by `placeCard`.
+   */
+  function captureCard(input: CaptureCardInput): Card {
+    const now = Date.now()
+    const card: Card = {
+      id: `card-${crypto.randomUUID()}`,
+      title: input.title.trim(),
+      content: input.content.trim(),
+      tags: input.tags.map((tag) => tag.trim()).filter(Boolean),
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    // The UI closing and the inbox badge are more important than the disk
+    // round-trip, so the card is published first and persisted in background.
+    cards.value = [card, ...cards.value]
+    void db.cards.put(card).catch((cause) => {
+      cards.value = cards.value.filter((entry) => entry.id !== card.id)
+
+      console.error('[card-canvas] Unable to persist captured card', cause)
+    })
+
+    return card
+  }
+
+  /**
+   * Add a spatial projection for an existing card and mount it on the board.
+   * The derived inbox drops the card as soon as this item exists.
+   */
+  function placeCard(
+    cardId: string,
+    boardId: string,
+    position: PlaceCardPosition,
+  ): BoardItem | null {
+    if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return null
+    if (!cards.value.some((card) => card.id === cardId)) return null
+    if (items.value.some((item) => item.cardId === cardId)) return null
+
+    const item: BoardItem = {
+      id: `projection-${crypto.randomUUID()}`,
+      cardId,
+      boardId,
+      x: position.x,
+      y: position.y,
+      width: position.width ?? DEFAULT_CARD_WIDTH,
+    }
+
+    items.value = [...items.value, item]
+    selectItem(item.id)
+
+    void db.boardItems.put(item).catch((cause) => {
+      items.value = items.value.filter((entry) => entry.id !== item.id)
+      if (selectedItemId.value === item.id) selectedItemId.value = null
+
+      console.error('[card-canvas] Unable to persist board item', cause)
+    })
+
+    return item
+  }
+
   function selectItem(itemId: string) {
     selectedItemId.value = itemId
   }
@@ -117,9 +209,13 @@ export const useBoardStore = defineStore('board', () => {
     status,
     error,
     isHydrated,
+    inboxCards,
+    inboxCount,
     initialize,
     selectItem,
     clearSelection,
     commitItemPosition,
+    captureCard,
+    placeCard,
   }
 })

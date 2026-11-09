@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { Layers2, Moon, Sun } from '@lucide/vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Inbox, Layers2, Moon, PenLine, Sun } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
+import QuickCapture from './components/capture/QuickCapture.vue'
+import InboxShelf from './components/inbox/InboxShelf.vue'
 import { useTheme } from './composables/useTheme'
+import type { CanvasCamera } from './composables/useCanvas'
 import { FOCUS_BOARD_ITEM_ID } from './data/seed'
 import { useBoardStore } from './stores/board'
 import { useWorkspaceStore } from './stores/workspace'
@@ -11,6 +14,13 @@ import { useWorkspaceStore } from './stores/workspace'
 const { isDark, toggleTheme } = useTheme()
 const workspace = useWorkspaceStore()
 const board = useBoardStore()
+
+const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
+const isCaptureOpen = ref(false)
+
+const camera = computed<CanvasCamera | null>(
+  () => stageRef.value?.camera ?? null,
+)
 
 const databaseLabel = computed(() => {
   if (board.status === 'ready') return 'Dexie ready'
@@ -26,12 +36,81 @@ async function initializeBoard() {
   }
 }
 
-onMounted(initializeBoard)
+function openCapture() {
+  isCaptureOpen.value = true
+}
+
+function toggleInbox() {
+  if (workspace.isInboxOpen) workspace.closeInbox()
+  else workspace.openInbox()
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false
+
+  const editable = target.closest(
+    'input, textarea, select, [contenteditable], [role="textbox"]',
+  )
+  if (!editable) return false
+  if (editable instanceof HTMLElement && editable.isContentEditable) return true
+  if (editable.getAttribute('role') === 'textbox') return true
+
+  return (
+    editable.tagName === 'INPUT' ||
+    editable.tagName === 'TEXTAREA' ||
+    editable.tagName === 'SELECT'
+  )
+}
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing) return
+
+  if (event.key === 'Escape') {
+    if (
+      !isCaptureOpen.value &&
+      workspace.isInboxOpen &&
+      !isEditableTarget(event.target)
+    ) {
+      workspace.closeInbox()
+    }
+    return
+  }
+
+  if (isCaptureOpen.value) return
+  // Never steal shortcuts from inputs, textareas or future inline editors.
+  if (isEditableTarget(event.target)) return
+  // The store hydrates by replacing `cards`; capturing mid-hydration could be
+  // overwritten, so keep the shortcuts dormant until the board is ready.
+  if (!board.isHydrated) return
+
+  const mod = event.metaKey || event.ctrlKey
+
+  if (mod && !event.altKey && !event.shiftKey && event.code === 'KeyK') {
+    event.preventDefault()
+    openCapture()
+    return
+  }
+
+  if (event.altKey && !mod && !event.shiftKey && event.code === 'KeyN') {
+    event.preventDefault()
+    openCapture()
+  }
+}
+
+onMounted(() => {
+  void initializeBoard()
+  window.addEventListener('keydown', handleGlobalKeydown)
+})
+
+onBeforeUnmount(() =>
+  window.removeEventListener('keydown', handleGlobalKeydown),
+)
 </script>
 
 <template>
   <CanvasStage
     v-if="board.isHydrated"
+    ref="stageRef"
     @background-pointerdown="board.clearSelection()"
   >
     <h1 class="sr-only">Card Canvas 无限白板</h1>
@@ -75,46 +154,89 @@ onMounted(initializeBoard)
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 03 / Interaction
+              Phase 04 / Capture Loop
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          data-canvas-ui
-          class="pointer-events-auto group inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 py-1 pl-1 pr-2.5 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
-          :aria-label="isDark ? '切换到浅色主题' : '切换到深色主题'"
-          :aria-pressed="isDark"
-          :title="isDark ? '切换到浅色主题' : '切换到深色主题'"
-          @click="toggleTheme()"
-        >
-          <span
-            class="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-stone-100/80 text-stone-600 transition-colors duration-500 dark:bg-white/[0.06] dark:text-zinc-300"
+        <div class="pointer-events-auto flex items-center gap-2">
+          <button
+            type="button"
+            data-canvas-ui
+            class="group inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 pl-3 pr-2.5 text-[10px] font-medium uppercase tracking-[0.16em] text-stone-600 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
+            aria-label="打开速记"
+            title="速记 · ⌘K"
+            @click="openCapture()"
           >
-            <Transition name="theme-icon" mode="out-in">
-              <Sun
-                v-if="!isDark"
-                key="sun"
-                :size="15"
-                :stroke-width="1.7"
-                aria-hidden="true"
-              />
-              <Moon
-                v-else
-                key="moon"
-                :size="14"
-                :stroke-width="1.7"
-                aria-hidden="true"
-              />
-            </Transition>
-          </span>
-          <span
-            class="hidden text-[10px] font-medium uppercase tracking-[0.18em] sm:inline"
+            <PenLine :size="14" :stroke-width="1.7" aria-hidden="true" />
+            <span class="hidden sm:inline">速记</span>
+            <kbd
+              class="ml-0.5 hidden rounded-md border border-stone-200/80 bg-white/70 px-1.5 py-0.5 font-mono text-[9px] font-normal tracking-normal text-stone-500 md:inline dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400"
+            >
+              ⌘K
+            </kbd>
+          </button>
+
+          <button
+            type="button"
+            data-canvas-ui
+            class="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 pl-3 pr-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-stone-600 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
+            :aria-expanded="workspace.isInboxOpen"
+            aria-controls="inbox-shelf"
+            :aria-label="`待整理池，${board.inboxCount} 张未上板`"
+            title="待整理池"
+            @click="toggleInbox()"
           >
-            {{ isDark ? 'Dark' : 'Light' }}
-          </span>
-        </button>
+            <Inbox :size="14" :stroke-width="1.7" aria-hidden="true" />
+            <span class="hidden sm:inline">待整理</span>
+            <span
+              class="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 font-mono text-[9px] font-normal tracking-normal transition-colors"
+              :class="
+                board.inboxCount > 0
+                  ? 'bg-amber-600 text-white dark:bg-amber-500 dark:text-zinc-950'
+                  : 'bg-stone-200/70 text-stone-500 dark:bg-white/[0.06] dark:text-zinc-500'
+              "
+            >
+              {{ board.inboxCount > 99 ? '99+' : board.inboxCount }}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            data-canvas-ui
+            class="group inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 py-1 pl-1 pr-2.5 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
+            :aria-label="isDark ? '切换到浅色主题' : '切换到深色主题'"
+            :aria-pressed="isDark"
+            :title="isDark ? '切换到浅色主题' : '切换到深色主题'"
+            @click="toggleTheme()"
+          >
+            <span
+              class="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-stone-100/80 text-stone-600 transition-colors duration-500 dark:bg-white/[0.06] dark:text-zinc-300"
+            >
+              <Transition name="theme-icon" mode="out-in">
+                <Sun
+                  v-if="!isDark"
+                  key="sun"
+                  :size="15"
+                  :stroke-width="1.7"
+                  aria-hidden="true"
+                />
+                <Moon
+                  v-else
+                  key="moon"
+                  :size="14"
+                  :stroke-width="1.7"
+                  aria-hidden="true"
+                />
+              </Transition>
+            </span>
+            <span
+              class="hidden text-[10px] font-medium uppercase tracking-[0.18em] sm:inline"
+            >
+              {{ isDark ? 'Dark' : 'Light' }}
+            </span>
+          </button>
+        </div>
       </header>
 
       <footer
@@ -149,6 +271,8 @@ onMounted(initializeBoard)
           <span>Pinch to zoom</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
           <span>Drag card to move</span>
+          <span class="text-stone-300 dark:text-zinc-700">·</span>
+          <span>⌘K to capture</span>
         </div>
       </footer>
     </template>
@@ -210,6 +334,10 @@ onMounted(initializeBoard)
       </button>
     </div>
   </div>
+
+  <InboxShelf v-if="camera" :camera="camera" />
+
+  <QuickCapture v-model:open="isCaptureOpen" />
 </template>
 
 <style scoped>
