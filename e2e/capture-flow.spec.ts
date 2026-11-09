@@ -23,38 +23,51 @@ test('capture lands directly on the canvas and survives reload', async ({
   await expect(page.locator('[data-world-item]')).toHaveCount(4)
   await expect(placed).toHaveClass(/is-selected/)
 
-  const box = await placed.boundingBox()
-  const viewport = page.viewportSize()
-  expect(box).not.toBeNull()
-  expect(viewport).not.toBeNull()
-
-  // The capture lands in a visible empty slot, not under another card.
-  expect(box!.x).toBeGreaterThanOrEqual(0)
-  expect(box!.y).toBeGreaterThanOrEqual(0)
-  expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width)
-  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height)
-
-  const overlapArea = await page.evaluate(() => {
-    const selected = document.querySelector('[data-world-item].is-selected')
-    if (!selected) return -1
-    const a = selected.getBoundingClientRect()
-
-    return [...document.querySelectorAll('[data-world-item]')]
-      .filter((element) => element !== selected)
-      .reduce((total, element) => {
-        const b = element.getBoundingClientRect()
-        return (
-          total +
-          Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
-            Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))
-        )
-      }, 0)
-  })
-  expect(overlapArea).toBeLessThan(box!.width * box!.height * 0.35)
-
   await page.reload()
   await expect(page.locator('[data-world-item]')).toHaveCount(4)
   await expect(
     page.locator('[data-world-item]').filter({ hasText: 'E2E 速记' }),
   ).toHaveCount(1)
+})
+
+test('new captures land beside the selected card', async ({ page }) => {
+  await page.setViewportSize({ width: 1764, height: 965 })
+  await page.goto('/')
+
+  await page.getByRole('button', { name: '切换白板' }).click()
+  const menu = page.getByRole('menu', { name: '白板列表' })
+  await menu.getByLabel('新白板名称').fill('落位测试板')
+  await menu.getByRole('button', { name: '新建' }).click()
+  await expect(page.locator('[data-world-item]')).toHaveCount(0)
+  await page.waitForTimeout(350)
+
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.getByLabel('卡片标题').fill('第一张')
+  await page.keyboard.press('Control+Enter')
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(page.locator('[data-world-item]')).toHaveCount(1)
+  await page.waitForTimeout(350)
+
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByLabel('卡片标题')).toHaveValue('')
+  await page.getByLabel('卡片标题').fill('第二张')
+  await page.keyboard.press('Control+Enter')
+  await expect(page.locator('[data-world-item]')).toHaveCount(2)
+  await page.waitForTimeout(600)
+
+  const first = await page
+    .locator('[data-world-item]')
+    .filter({ hasText: '第一张' })
+    .boundingBox()
+  const second = await page
+    .locator('[data-world-item]')
+    .filter({ hasText: '第二张' })
+    .boundingBox()
+
+  expect(first).not.toBeNull()
+  expect(second).not.toBeNull()
+  expect(second!.x).toBeGreaterThan(first!.x + first!.width + 8)
+  expect(second!.x - (first!.x + first!.width)).toBeLessThan(120)
 })

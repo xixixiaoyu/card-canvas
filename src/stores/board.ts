@@ -72,6 +72,7 @@ export const useBoardStore = defineStore('board', () => {
   const connections = ref<Connection[]>([])
   const selectedItemId = ref<string | null>(null)
   const selectedConnectionId = ref<string | null>(null)
+  const landingItemId = ref<string | null>(null)
   const status = ref<BoardStatus>('idle')
   const error = ref<string | null>(null)
   const past = ref<HistoryEntry[]>([])
@@ -84,6 +85,15 @@ export const useBoardStore = defineStore('board', () => {
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
   let unsubscribeSync: (() => void) | null = null
   let applyingHistory = false
+  let landingTimer: ReturnType<typeof setTimeout> | null = null
+
+  function markLanding(itemId: string) {
+    landingItemId.value = itemId
+    if (landingTimer) clearTimeout(landingTimer)
+    landingTimer = setTimeout(() => {
+      if (landingItemId.value === itemId) landingItemId.value = null
+    }, 520)
+  }
 
   const entries = computed<BoardEntry[]>(() => {
     const cardsById = new Map(cards.value.map((card) => [card.id, card]))
@@ -432,6 +442,7 @@ export const useBoardStore = defineStore('board', () => {
     replaceLocalCard(card)
     replaceLocalItem(item)
     selectItem(item.id)
+    markLanding(item.id)
 
     try {
       await db.transaction('rw', db.cards, db.boardItems, async () => {
@@ -1101,6 +1112,7 @@ export const useBoardStore = defineStore('board', () => {
     entries,
     selectedItemId,
     selectedItem,
+    landingItemId,
     selectedConnectionId,
     selectedConnection,
     status,

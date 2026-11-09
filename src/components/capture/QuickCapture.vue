@@ -8,6 +8,7 @@ import {
   sameTag,
   splitTagInput,
 } from '../../lib/tags'
+import { chooseCapturePlacement } from '../../lib/capture-placement'
 import { getItemRect } from '../../lib/card-metrics'
 import type { CanvasCamera } from '../../composables/useCanvas'
 import { useBoardStore } from '../../stores/board'
@@ -142,72 +143,22 @@ function buildPlacement() {
     },
     rect,
   )
-  const viewport = {
-    left: topLeft.x,
-    top: topLeft.y + 88,
-    right: bottomRight.x,
-    bottom: bottomRight.y - 96,
-  }
-  const xs = [
-    viewport.left + 48,
-    viewport.right - width - 48,
-    (viewport.left + viewport.right - width) / 2,
-  ]
-  const ys = [
-    viewport.top,
-    viewport.bottom - reservedHeight,
-    (viewport.top + viewport.bottom - reservedHeight) / 2,
-  ]
-  const existing = board.items.map((item) => getItemRect(item))
+  const selected = board.selectedItem ? getItemRect(board.selectedItem) : null
+  const placement = chooseCapturePlacement({
+    viewport: {
+      left: topLeft.x,
+      top: topLeft.y + 88,
+      right: bottomRight.x,
+      bottom: bottomRight.y - 96,
+    },
+    center,
+    width,
+    height: reservedHeight,
+    selected,
+    existing: board.items.map((item) => getItemRect(item)),
+  })
 
-  const candidates = xs
-    .flatMap((x) => ys.map((y) => ({ x, y })))
-    .sort(
-      (a, b) =>
-        Math.hypot(
-          a.x + width / 2 - center.x,
-          a.y + reservedHeight / 2 - center.y,
-        ) -
-        Math.hypot(
-          b.x + width / 2 - center.x,
-          b.y + reservedHeight / 2 - center.y,
-        ),
-    )
-
-  let best = candidates[0]
-  let bestOverlap = Number.POSITIVE_INFINITY
-
-  for (const candidate of candidates) {
-    const next = {
-      x: candidate.x,
-      y: candidate.y,
-      width,
-      height: reservedHeight,
-    }
-    let overlapArea = 0
-
-    for (const item of existing) {
-      const overlapWidth = Math.max(
-        0,
-        Math.min(next.x + next.width, item.x + item.width) -
-          Math.max(next.x, item.x),
-      )
-      const overlapHeight = Math.max(
-        0,
-        Math.min(next.y + next.height, item.y + item.height) -
-          Math.max(next.y, item.y),
-      )
-      overlapArea += overlapWidth * overlapHeight
-    }
-
-    if (overlapArea === 0) return { x: candidate.x, y: candidate.y, width }
-    if (overlapArea < bestOverlap) {
-      best = candidate
-      bestOverlap = overlapArea
-    }
-  }
-
-  return { x: best.x, y: best.y, width }
+  return { ...placement, width }
 }
 
 function save() {

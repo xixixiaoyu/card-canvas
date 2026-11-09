@@ -176,6 +176,7 @@ onBeforeUnmount(() => {
       :item="entry.item"
       :card="entry.card"
       :selected="board.selectedItemId === entry.item.id"
+      :landing="board.landingItemId === entry.item.id"
       :index-label="`CARD / ${String(index + 1).padStart(3, '0')}`"
       :data-canvas-focus="
         entry.item.id === FOCUS_BOARD_ITEM_ID ? '' : undefined

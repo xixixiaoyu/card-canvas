@@ -12,10 +12,12 @@ const props = withDefaults(
     item: BoardItem
     card: Card
     selected?: boolean
+    landing?: boolean
     indexLabel?: string
   }>(),
   {
     selected: false,
+    landing: false,
     indexLabel: 'CARD',
   },
 )
@@ -121,6 +123,7 @@ function tagTone(index: number) {
     :class="{
       'is-selected': selected,
       'is-dragging': isDragging,
+      'is-landing': landing,
     }"
     :style="{
       left: `${item.x}px`,
@@ -318,6 +321,41 @@ function tagTone(index: number) {
 </template>
 
 <style scoped>
+.canvas-world-item.is-landing {
+  animation: card-land-fade 260ms ease-out both;
+}
+
+.canvas-world-item.is-landing .note-card {
+  animation: card-land-paper 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: 50% 18%;
+}
+
+@keyframes card-land-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes card-land-paper {
+  from {
+    opacity: 0.4;
+    transform: translateY(10px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-world-item.is-landing,
+  .canvas-world-item.is-landing .note-card {
+    animation: none;
+  }
+}
 .card-node {
   z-index: 1;
   cursor: grab;
