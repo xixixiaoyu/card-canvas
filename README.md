@@ -1,8 +1,8 @@
 # Card Canvas
 
-卡片笔记与无限白板工具 · **Phase 04 / Capture Loop**
+卡片笔记与无限白板工具 · **Phase 05 / Hardening**
 
-Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 待整理池 → 2D 白板投放** 的知识摄入闭环。
+Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 待整理池 → 2D 白板投放** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全。
 
 ## 技术栈
 
@@ -23,14 +23,16 @@ pnpm dev
 类型检查、单元测试、E2E 与生产构建：
 
 ```bash
+pnpm format:check       # Prettier
+pnpm lint               # ESLint
 pnpm typecheck          # vue-tsc
-pnpm test               # Vitest：标签、坐标、store、弹窗、toast
-pnpm test:e2e           # Playwright：速记 → 抽屉 → 投放 → 刷新
+pnpm test               # Vitest：标签、坐标、store、历史、备份、弹窗、toast
+pnpm test:e2e           # Playwright：投放 / 键盘 / 多标签 / 多白板 / 视口
 pnpm build              # typecheck + vite build
 pnpm preview
 ```
 
-本地 E2E 默认复用系统 Chrome；CI 使用 Playwright Chromium。`.github/workflows/ci.yml` 会依次跑 typecheck、单测、构建与 E2E。
+本地 E2E 默认复用系统 Chrome；CI 使用 Playwright Chromium。`.github/workflows/ci.yml` 会依次跑格式检查、lint、typecheck、单测、构建与 E2E。
 
 ## 画布操作
 
@@ -78,12 +80,34 @@ pnpm preview
   - `y = worldY - height / 2`
 - 投放后立即新增 `BoardItem`，差集自动把卡片从抽屉移除；刷新后位置从 Dexie 恢复
 
+## 键盘与无障碍
+
+- **速记**：`⌘K` / `⌥N` 打开；`Tab` 焦点锁定在弹窗内，背景 `inert`；`Esc` 关闭
+- **Inbox**：卡片可通过 `Tab` 聚焦，`Enter` / `Space` 直接投放到视口中心（离屏测量真实高度，仍保持几何居中）
+- **画布卡片**：可聚焦；方向键移动 `10px`，`Shift + 方向键` 移动 `1px`；`Enter` / `Space` 选中
+- **撤销 / 重做**：`⌘Z` / `⇧⌘Z`（Windows 支持 `Ctrl+Y`），顶栏也有按钮
+- **屏幕阅读器**：选中变化通过 `aria-live` 播报；字符漂移、焦点环、`aria-current` 均已补齐
+
+## 多白板
+
+- 顶栏白板切换器：新建、重命名、切换、两步确认删除
+- `boards` 表为 Dexie v2；删除白板级联删除其 `boardItems` 与 `connections`，卡片实体保留
+- 每块白板独立保存视口（`localStorage`），刷新/切板后恢复缩放与平移
+- 卡片内容全局复用；Inbox 差集按当前白板计算
+
+## 撤销与数据安全
+
+- 捕获、投放、移动、编辑、移出白板、删除均可撤销/重做（内存历史，最多 50 步）
+- 删除为软删除（`Card.isDeleted`），撤销可恢复卡片及其投影
+- 抽屉内可导出/导入完整 JSON 备份（cards / boardItems / connections / boards）；导入按 id 合并
+- 启动时申请 `navigator.storage.persist()`；写入失败会回滚并给出可重试 toast
+
 ## 本地数据
 
-- 首次启动且 Dexie 为空时自动写入 3 张示例卡片与 3 个空间投影
+- 首次启动且 Dexie 为空时自动写入 3 张示例卡片与 3 个空间投影，并创建第一块白板
+- 部分数据损坏（投影指向不存在的卡片）会在启动时清理，避免孤儿记录
 - 速记只写 `cards`；投放只新增 `boardItems`，实体的 `updatedAt` 不被空间操作污染
-- 所有拖拽后的最终世界坐标写入 `boardItems`
-- 刷新页面后从 IndexedDB 恢复位置，并从相机重新取景
+- 全量加载在数百张卡片内表现良好；Inbox 分页 30 条，画布卡片启用 `content-visibility`
 - 拖拽期间不写 Dexie，也不做大范围响应式更新
 
 ## 目录
@@ -96,23 +120,37 @@ src/
 │   │   ├── CanvasStage.vue      # 视口容器、世界层、相机上下文与初始取景
 │   │   ├── CanvasHUD.vue        # 缩放 / 居中悬浮胶囊
 │   │   └── CardNode.vue         # 世界卡片、拖拽手柄、状态矩阵
+│   ├── board/
+│   │   └── BoardSwitcher.vue    # 多白板新建 / 重命名 / 切换 / 删除
 │   ├── capture/
-│   │   └── QuickCapture.vue     # 1D 速记弹窗、标签解析、全局快捷键
-│   └── inbox/
-│       └── InboxShelf.vue       # 待整理抽屉、搜索 / 标签筛选、幽灵投放
+│   │   └── QuickCapture.vue     # 1D 速记 / 编辑弹窗、焦点陷阱、标签解析
+│   ├── inbox/
+│   │   └── InboxShelf.vue       # 待整理抽屉、搜索 / 标签筛选、幽灵投放
+│   └── ui/
+│       ├── HighlightText.vue    # 搜索命中高亮
+│       └── ToastStack.vue       # 错误 / 成功提示与重试
 ├── composables/
 │   ├── useCanvas.ts             # 相机、锚点缩放、坐标换算、手势状态机
 │   ├── useCardDrag.ts           # 卡片拖拽、死区、缩放补偿、落盘状态机
 │   ├── useInboxDrag.ts          # 抽屉 → 画布 Pointer 拖拽、幽灵与投放换算
 │   └── useTheme.ts              # useDark + useToggle 主题管理
 ├── data/seed.ts                 # 首次启动示例数据
-├── db/index.ts                  # Dexie 单例
+├── db/index.ts                  # Dexie 单例（v2：boards 表）
+├── lib/
+│   ├── backup.ts                # 全量导出 / 导入与校验
+│   ├── tab-sync.ts              # BroadcastChannel 跨标签页同步
+│   ├── tags.ts                  # 标签归一化 / 解析 / 合并
+│   └── view-state.ts            # 每块白板的视口持久化
 ├── stores/
-│   ├── board.ts                 # 卡片实体、空间投影、选中与持久化
-│   └── workspace.ts             # 白板 / 选择等轻量 UI 状态
-├── types/index.ts               # Card / BoardItem / Viewport / Connection
-├── App.vue                      # 数据加载、画布、卡片列表与屏幕 UI
+│   ├── board.ts                 # 卡片、投影、历史栈、跨标签同步
+│   ├── toast.ts                 # 瞬时提示队列
+│   └── workspace.ts             # 白板列表 / 当前白板 / 选择
+├── types/index.ts               # Card / Board / BoardItem / Viewport / Connection
+├── App.vue                      # 启动、画布、卡片与屏幕 UI
 └── main.ts                      # 应用入口（挂载 Pinia）
+
+tests/                           # Vitest 单元测试
+e2e/                             # Playwright 端到端测试
 ```
 
 ## 架构约定
@@ -124,5 +162,8 @@ src/
 - **投放换算**：幽灵卡片按真实世界宽度布局，因此 `offsetHeight` 就是世界高度；落点用 `screenToWorld(clientX, clientY)` 后再减去半宽 / 半高，几何中心严格对齐光标。
 - **绝对不动点缩放**：缩放动画每一帧都以固定世界锚点重算 pan，而非只在 wheel 事件里计算一次。
 - **性能隔离**：卡片拖拽期间使用普通对象 + rAF + 直接 DOM transform；只有 `pointerup` 提交一次 Pinia 与一次 Dexie update。
+- **响应式 → Dexie 边界**：所有写入前通过 `plainRecord` 深拷贝，避免把 Vue Proxy 交给 IndexedDB 结构化克隆。
+- **历史栈**：每个用户动作记录 `{ label, undo, redo }` 闭包，内存最多 50 步；撤销/重做本身不再入栈。
+- **跨标签页**：`BroadcastChannel` 广播 cards / items / boards 变更，接收端重读 IndexedDB；`visibilitychange` 兜底。
 - **主题持久化**：首次访问跟随系统；手动切换后明确写入 `light` / `dark`；首屏内联脚本恢复，避免闪烁。
-- **可访问性**：屏幕阅读器可获知画布操作说明；HUD 与主题按钮有完整标签；减少动态效果时关闭飞行动画与平滑过渡。
+- **可访问性**：焦点陷阱、`inert` 背景、键盘投放/移动、`aria-live` 选中播报与可见焦点环。

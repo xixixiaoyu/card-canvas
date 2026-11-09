@@ -1,12 +1,5 @@
 <script setup lang="ts">
-import {
-  computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CornerDownLeft, Hash, PenLine, X } from '@lucide/vue'
 import {
   mergeTags,
@@ -17,9 +10,11 @@ import {
 } from '../../lib/tags'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
+import type { Card } from '../../types'
 
 const props = defineProps<{
   open: boolean
+  card?: Card | null
 }>()
 
 const emit = defineEmits<{
@@ -33,12 +28,15 @@ const title = ref('')
 const content = ref('')
 const tags = ref<string[]>([])
 const tagDraft = ref('')
+const isEditing = computed(() => Boolean(props.card))
 const titleEl = ref<HTMLInputElement | null>(null)
 const contentEl = ref<HTMLTextAreaElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
 
 let restoreFocus: HTMLElement | null = null
 let saveAttempt = 0
+let lastMode: 'capture' | 'edit' = 'capture'
+let suppressModeSync = false
 
 const canSave = computed(
   () => Boolean(title.value.trim()) || Boolean(content.value.trim()),
@@ -108,8 +106,7 @@ function save() {
       .split('\n')
       .map((line) => line.trim())
       .find(Boolean) ?? ''
-  const resolvedTitle =
-    rawTitle || firstLine.slice(0, 48) || '未命名卡片'
+  const resolvedTitle = rawTitle || firstLine.slice(0, 48) || '未命名卡片'
 
   const uniqueTags = mergeTags(
     tags.value,
@@ -122,6 +119,7 @@ function save() {
     tags: uniqueTags,
   }
   const attempt = ++saveAttempt
+  const editingCard = props.card
 
   // Store publishes the card synchronously and persists in the background;
   // the modal closes before IndexedDB resolves. If the write fails, the draft
@@ -129,19 +127,32 @@ function save() {
   reset()
   close()
 
-  void board.captureCard(draft).catch((cause) => {
+  const restoreAfterFailure = (cause: unknown) => {
     console.error('[card-canvas] Unable to save capture', cause)
     if (attempt !== saveAttempt) return
 
     if (!props.open) {
+      suppressModeSync = true
       title.value = draft.title
       content.value = draft.content
       tags.value = [...draft.tags]
       emit('update:open', true)
     }
 
-    toast.push('速记保存失败，草稿已恢复。', { tone: 'error' })
-  })
+    toast.push(
+      editingCard ? '卡片更新失败，草稿已恢复。' : '速记保存失败，草稿已恢复。',
+      { tone: 'error' },
+    )
+  }
+
+  if (editingCard) {
+    void board.updateCard(editingCard.id, draft).then(() => {
+      toast.push('卡片已更新。', { tone: 'success', timeout: 2200 })
+    }, restoreAfterFailure)
+    return
+  }
+
+  void board.captureCard(draft).catch(restoreAfterFailure)
 }
 
 function setBackgroundInert(inert: boolean) {
@@ -216,6 +227,20 @@ watch(
           ? document.activeElement
           : null
       setBackgroundInert(true)
+
+      if (suppressModeSync) {
+        suppressModeSync = false
+      } else if (props.card) {
+        lastMode = 'edit'
+        title.value = props.card.title
+        content.value = props.card.content
+        tags.value = [...props.card.tags]
+        tagDraft.value = ''
+      } else if (lastMode === 'edit') {
+        lastMode = 'capture'
+        reset()
+      }
+
       await nextTick()
       titleEl.value?.focus()
       return
@@ -271,12 +296,16 @@ onBeforeUnmount(() => {
                   id="quick-capture-heading"
                   class="font-serif text-[15px] font-medium tracking-[-0.01em] text-stone-800 dark:text-zinc-100"
                 >
-                  速记
+                  {{ isEditing ? '编辑卡片' : '速记' }}
                 </h2>
                 <p
                   class="mt-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-400 dark:text-zinc-500"
                 >
-                  Quick Capture · 不打断心流
+                  {{
+                    isEditing
+                      ? 'Edit · 更新内容与标签'
+                      : 'Quick Capture · 不打断心流'
+                  }}
                 </p>
               </div>
             </div>
@@ -365,7 +394,9 @@ onBeforeUnmount(() => {
                 Esc
               </kbd>
               <span>退出</span>
-              <span class="hidden text-stone-300 sm:inline dark:text-zinc-700">·</span>
+              <span class="hidden text-stone-300 sm:inline dark:text-zinc-700"
+                >·</span
+              >
               <span class="hidden sm:inline">#标签自动解析</span>
             </div>
 
@@ -375,8 +406,12 @@ onBeforeUnmount(() => {
               :disabled="!canSave"
               @click="save"
             >
-              <CornerDownLeft :size="13" :stroke-width="1.8" aria-hidden="true" />
-              保存卡片
+              <CornerDownLeft
+                :size="13"
+                :stroke-width="1.8"
+                aria-hidden="true"
+              />
+              {{ isEditing ? '保存修改' : '保存卡片' }}
             </button>
           </footer>
         </section>

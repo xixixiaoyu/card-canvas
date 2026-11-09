@@ -26,6 +26,13 @@ export interface BoardItem {
   color?: string
 }
 
+export interface Board {
+  id: string
+  name: string
+  createdAt: number
+  updatedAt: number
+}
+
 export interface Viewport {
   panX: number
   panY: number

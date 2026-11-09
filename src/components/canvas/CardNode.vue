@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue'
-import { Grip } from '@lucide/vue'
+import { Grip, Inbox, Pencil, Trash2 } from '@lucide/vue'
 import { useCardDrag } from '../../composables/useCardDrag'
-import {
-  canvasCameraKey,
-  type CanvasCamera,
-} from '../../composables/useCanvas'
+import { canvasCameraKey, type CanvasCamera } from '../../composables/useCanvas'
 import type { BoardItem, Card } from '../../types'
 
 const props = withDefaults(
@@ -25,6 +22,9 @@ const emit = defineEmits<{
   select: []
   positionCommit: [position: { x: number; y: number }]
   nudge: [delta: { x: number; y: number }]
+  edit: []
+  unplace: []
+  delete: []
 }>()
 
 const identityCamera: CanvasCamera = {
@@ -42,8 +42,7 @@ const compact = computed(() => (props.item.width ?? 420) < 360)
 const highlights = computed(() => props.card.highlights ?? [])
 const titleId = computed(() => `card-title-${props.card.id}`)
 const noteCountLabel = computed(
-  () =>
-    `${highlights.value.length.toString().padStart(2, '0')} ATOMIC NOTES`,
+  () => `${highlights.value.length.toString().padStart(2, '0')} ATOMIC NOTES`,
 )
 
 const { isDragging, onPointerDown } = useCardDrag({
@@ -142,21 +141,59 @@ function tagTone(index: number) {
               </span>
             </div>
 
-            <span
-              class="card-index flex shrink-0 cursor-grab items-center gap-1.5 rounded-full border border-stone-200/70 bg-stone-50/60 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-zinc-400"
-              data-card-drag-handle
-              title="拖动卡片"
-            >
-              <Grip
-                :size="13"
-                :stroke-width="1.6"
-                class="text-stone-400 dark:text-zinc-500"
-                aria-hidden="true"
-              />
-              <span v-if="!compact" class="card-index-label">
-                {{ indexLabel }}
+            <div class="flex shrink-0 items-center gap-1">
+              <div class="card-actions flex items-center gap-0.5">
+                <button
+                  type="button"
+                  class="card-action"
+                  data-card-interactive
+                  aria-label="编辑卡片"
+                  title="编辑"
+                  @pointerdown.stop
+                  @click.stop="emit('edit')"
+                >
+                  <Pencil :size="11" :stroke-width="1.7" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="card-action"
+                  data-card-interactive
+                  aria-label="移出白板"
+                  title="移出白板"
+                  @pointerdown.stop
+                  @click.stop="emit('unplace')"
+                >
+                  <Inbox :size="11" :stroke-width="1.7" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="card-action card-action--danger"
+                  data-card-interactive
+                  aria-label="删除卡片"
+                  title="删除"
+                  @pointerdown.stop
+                  @click.stop="emit('delete')"
+                >
+                  <Trash2 :size="11" :stroke-width="1.7" aria-hidden="true" />
+                </button>
+              </div>
+
+              <span
+                class="card-index flex cursor-grab items-center gap-1.5 rounded-full border border-stone-200/70 bg-stone-50/60 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-zinc-400"
+                data-card-drag-handle
+                title="拖动卡片"
+              >
+                <Grip
+                  :size="13"
+                  :stroke-width="1.6"
+                  class="text-stone-400 dark:text-zinc-500"
+                  aria-hidden="true"
+                />
+                <span v-if="!compact" class="card-index-label">
+                  {{ indexLabel }}
+                </span>
               </span>
-            </span>
+            </div>
           </header>
 
           <h2
@@ -197,13 +234,14 @@ function tagTone(index: number) {
                   class="card-highlight-text card-selectable text-[0.8125rem] leading-6 text-stone-600 dark:text-zinc-400"
                   data-card-selectable
                 >
-                  <span
-                    class="font-medium text-stone-800 dark:text-zinc-200"
-                  >{{ highlight.label }}</span>
+                  <span class="font-medium text-stone-800 dark:text-zinc-200">{{
+                    highlight.label
+                  }}</span>
                   <span
                     class="mx-1.5 text-stone-300 dark:text-zinc-700"
                     aria-hidden="true"
-                  >/</span>
+                    >/</span
+                  >
                   <span>{{ highlight.text }}</span>
                 </p>
               </li>
@@ -224,7 +262,9 @@ function tagTone(index: number) {
                   class="relative h-1.5 w-1.5 rounded-full bg-emerald-500/80"
                 />
               </span>
-              <span>{{ isDragging ? '拖动中 · 待落盘' : '本地草稿 · 已保存' }}</span>
+              <span>{{
+                isDragging ? '拖动中 · 待落盘' : '本地草稿 · 已保存'
+              }}</span>
             </div>
             <span
               class="font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400"
@@ -243,6 +283,54 @@ function tagTone(index: number) {
   z-index: 1;
   cursor: grab;
   outline: none;
+}
+
+.card-actions {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.card-node:hover .card-actions,
+.card-node:focus-within .card-actions,
+.card-node.is-selected .card-actions {
+  opacity: 1;
+}
+
+.card-action {
+  display: flex;
+  width: 1.35rem;
+  height: 1.35rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: rgb(168 162 158);
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.card-action:hover {
+  background: rgba(214, 211, 209, 0.55);
+  color: rgb(68 64 60);
+}
+
+.card-action--danger:hover {
+  background: rgba(254, 226, 226, 0.8);
+  color: rgb(190 18 60);
+}
+
+:global(.dark) .card-action {
+  color: rgb(113 113 122);
+}
+
+:global(.dark) .card-action:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgb(228 228 231);
+}
+
+:global(.dark) .card-action--danger:hover {
+  background: rgba(136, 19, 55, 0.35);
+  color: rgb(253 164 175);
 }
 
 .card-node:focus-visible .card-surface {

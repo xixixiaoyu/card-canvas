@@ -24,8 +24,7 @@
     --card-selected-border: rgba(180, 83, 9, 0.38);
     --card-selection-border: rgba(217, 119, 6, 0.34);
     --card-selection-glow:
-      0 0 0 1px rgba(217, 119, 6, 0.16),
-      0 0 30px -10px rgba(217, 119, 6, 0.28);
+      0 0 0 1px rgba(217, 119, 6, 0.16), 0 0 30px -10px rgba(217, 119, 6, 0.28);
     --font-sans:
       -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
       'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
@@ -156,6 +155,10 @@
 
   .canvas-world-item {
     position: absolute;
+    /* Browser-native offscreen rendering skip; intrinsic size keeps fitting
+       approximate for boards far larger than the viewport. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 420px auto 300px;
   }
 
   .canvas-world,
@@ -297,14 +300,15 @@
   .note-card,
   .tag-pill,
   .ghost-card {
-    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-property:
+      color, background-color, border-color, box-shadow, opacity;
     transition-duration: 550ms;
     transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .note-card :where(h1, h2, p, span, li, div, footer, svg) {
-    transition-property: color, background-color, border-color, box-shadow, fill,
-      stroke;
+    transition-property:
+      color, background-color, border-color, box-shadow, fill, stroke;
     transition-duration: 550ms;
     transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }

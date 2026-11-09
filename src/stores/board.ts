@@ -23,18 +23,48 @@ export interface CaptureCardInput {
   tags: string[]
 }
 
+export interface UpdateCardInput {
+  title: string
+  content: string
+  tags: string[]
+}
+
 export interface PlaceCardPosition {
   x: number
   y: number
   width?: number
 }
 
+export interface HistoryEntry {
+  id: string
+  label: string
+  undo: () => Promise<void>
+  redo: () => Promise<void>
+}
+
 const DEFAULT_CARD_WIDTH = 420
+const HISTORY_LIMIT = 50
+
+function normalizeCard(card: Card): Card {
+  return { ...card, tags: normalizeTags(card.tags ?? []) }
+}
+
+/**
+ * IndexedDB structured-clones values before writing. Vue reactive proxies (and
+ * proxied nested arrays) are not cloneable, so every store -> Dexie write goes
+ * through a plain snapshot.
+ */
+function plainRecord<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
 
 /**
  * The board store owns the durable graph (cards + spatial projections) that
  * the canvas renders. During a card drag no store writes happen; the final
  * position is committed exactly once on pointerup.
+ *
+ * Every user-visible mutation is represented by an in-memory history entry so
+ * it can be undone/redone without persisting a second command log.
  */
 export const useBoardStore = defineStore('board', () => {
   const cards = ref<Card[]>([])
@@ -42,12 +72,16 @@ export const useBoardStore = defineStore('board', () => {
   const selectedItemId = ref<string | null>(null)
   const status = ref<BoardStatus>('idle')
   const error = ref<string | null>(null)
+  const past = ref<HistoryEntry[]>([])
+  const future = ref<HistoryEntry[]>([])
 
+  const activeBoardId = ref<string | null>(null)
   let initialization: Promise<void> | null = null
-  let loadedBoardId: string | null = null
+  let loadToken = 0
   let syncStarted = false
   let refreshTimer: ReturnType<typeof setTimeout> | null = null
   let unsubscribeSync: (() => void) | null = null
+  let applyingHistory = false
 
   const entries = computed<BoardEntry[]>(() => {
     const cardsById = new Map(cards.value.map((card) => [card.id, card]))
@@ -59,16 +93,11 @@ export const useBoardStore = defineStore('board', () => {
   })
 
   const selectedItem = computed(
-    () =>
-      items.value.find((item) => item.id === selectedItemId.value) ?? null,
+    () => items.value.find((item) => item.id === selectedItemId.value) ?? null,
   )
 
   const isHydrated = computed(() => status.value === 'ready')
 
-  /**
-   * The inbox is derived, never stored: a card is "unsorted" exactly when it
-   * has no projection on the active board. No `isPlaced` flag can drift.
-   */
   const placedCardIds = computed(
     () => new Set(items.value.map((item) => item.cardId)),
   )
@@ -80,10 +109,109 @@ export const useBoardStore = defineStore('board', () => {
   )
 
   const inboxCount = computed(() => inboxCards.value.length)
+  const canUndo = computed(() => past.value.length > 0)
+  const canRedo = computed(() => future.value.length > 0)
+  const undoLabel = computed(() => past.value.at(-1)?.label ?? '')
+  const redoLabel = computed(() => future.value.at(-1)?.label ?? '')
+
+  // --- local graph helpers -------------------------------------------------
+
+  function replaceLocalCard(card: Card) {
+    const index = cards.value.findIndex((entry) => entry.id === card.id)
+    cards.value =
+      index === -1
+        ? [card, ...cards.value]
+        : cards.value.map((entry) => (entry.id === card.id ? card : entry))
+  }
+
+  function removeLocalCard(cardId: string) {
+    cards.value = cards.value.filter((card) => card.id !== cardId)
+  }
+
+  function replaceLocalItem(item: BoardItem) {
+    const index = items.value.findIndex((entry) => entry.id === item.id)
+    items.value =
+      index === -1
+        ? [...items.value, item]
+        : items.value.map((entry) => (entry.id === item.id ? item : entry))
+  }
+
+  function removeLocalItem(itemId: string) {
+    items.value = items.value.filter((item) => item.id !== itemId)
+  }
+
+  function record(entry: Omit<HistoryEntry, 'id'>) {
+    if (applyingHistory) return
+
+    const next: HistoryEntry = {
+      ...entry,
+      id: `history-${crypto.randomUUID()}`,
+    }
+
+    past.value = [...past.value.slice(-(HISTORY_LIMIT - 1)), next]
+    future.value = []
+  }
+
+  function notifyFailure(
+    message: string,
+    action?: { label: string; run: () => void | Promise<void> },
+  ) {
+    useToastStore().push(message, { tone: 'error', action })
+  }
+
+  // --- bootstrap -----------------------------------------------------------
+
+  async function readBoard(boardId: string) {
+    const [storedCards, storedItems] = await Promise.all([
+      db.cards.toArray(),
+      db.boardItems.where('boardId').equals(boardId).toArray(),
+    ])
+
+    return {
+      cards: storedCards.filter((card) => !card.isDeleted).map(normalizeCard),
+      items: storedItems.sort((a, b) => a.id.localeCompare(b.id)),
+    }
+  }
+
+  /**
+   * Switch the store to another board without re-seeding. Status flips to
+   * `loading` so the stage unmounts, fits the new board and restores its own
+   * saved viewport instead of briefly framing the previous board.
+   */
+  async function loadBoard(boardId: string) {
+    if (!boardId) return
+    if (activeBoardId.value === boardId && status.value === 'ready') return
+
+    const token = ++loadToken
+    status.value = 'loading'
+    error.value = null
+
+    try {
+      await db.open()
+      const snapshot = await readBoard(boardId)
+      if (token !== loadToken) return
+
+      cards.value = snapshot.cards
+      items.value = snapshot.items
+      selectedItemId.value = null
+      activeBoardId.value = boardId
+      past.value = []
+      future.value = []
+      status.value = 'ready'
+    } catch (cause) {
+      if (token === loadToken) {
+        status.value = 'error'
+        error.value = cause instanceof Error ? cause.message : String(cause)
+      }
+      throw cause
+    }
+  }
 
   function initialize(boardId: string) {
     if (initialization) return initialization
-    if (status.value === 'ready') return Promise.resolve()
+    if (status.value === 'ready' && activeBoardId.value === boardId) {
+      return Promise.resolve()
+    }
 
     const task = (async () => {
       status.value = 'loading'
@@ -104,17 +232,24 @@ export const useBoardStore = defineStore('board', () => {
           })
         }
 
-        const [storedCards, storedItems] = await Promise.all([
+        // Repair partial databases: projections whose card no longer exists
+        // are invisible in the UI and would otherwise linger forever.
+        const [allCards, allItems] = await Promise.all([
           db.cards.toArray(),
-          db.boardItems.where('boardId').equals(boardId).toArray(),
+          db.boardItems.toArray(),
         ])
+        const liveCardIds = new Set(
+          allCards.filter((card) => !card.isDeleted).map((card) => card.id),
+        )
+        const orphanItemIds = allItems
+          .filter((item) => !liveCardIds.has(item.cardId))
+          .map((item) => item.id)
 
-        cards.value = storedCards
-          .filter((card) => !card.isDeleted)
-          .map((card) => ({ ...card, tags: normalizeTags(card.tags ?? []) }))
-        items.value = storedItems.sort((a, b) => a.id.localeCompare(b.id))
-        loadedBoardId = boardId
-        status.value = 'ready'
+        if (orphanItemIds.length) {
+          await db.boardItems.bulkDelete(orphanItemIds)
+        }
+
+        await loadBoard(boardId)
       } catch (cause) {
         status.value = 'error'
         error.value = cause instanceof Error ? cause.message : String(cause)
@@ -129,10 +264,8 @@ export const useBoardStore = defineStore('board', () => {
     return initialization
   }
 
-  /**
-   * Capture writes a pure Card entity. No board id, no coordinates: placing it
-   * on a canvas is a separate, explicit gesture handled by `placeCard`.
-   */
+  // --- capture -------------------------------------------------------------
+
   async function captureCard(input: CaptureCardInput): Promise<Card> {
     const now = Date.now()
     const card: Card = {
@@ -144,33 +277,92 @@ export const useBoardStore = defineStore('board', () => {
       updatedAt: now,
     }
 
-    // The UI closing and the inbox badge are more important than the disk
-    // round-trip, so the card is published first and persisted in background.
-    cards.value = [card, ...cards.value]
+    replaceLocalCard(card)
+
+    const snapshot = plainRecord(card)
 
     try {
-      await db.cards.put(card)
+      await db.cards.put(snapshot)
       broadcastWorkspaceChange('cards')
     } catch (cause) {
-      cards.value = cards.value.filter((entry) => entry.id !== card.id)
+      removeLocalCard(card.id)
 
       console.error('[card-canvas] Unable to persist captured card', cause)
       throw cause instanceof Error ? cause : new Error(String(cause))
     }
 
+    record({
+      label: '速记',
+      undo: async () => {
+        await db.cards.delete(card.id)
+        removeLocalCard(card.id)
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.cards.put(snapshot)
+        replaceLocalCard(snapshot)
+        broadcastWorkspaceChange('all')
+      },
+    })
+
     return card
   }
 
-  /**
-   * Add a spatial projection for an existing card and mount it on the board.
-   * The derived inbox drops the card as soon as this item exists.
-   */
-  function placeCard(
+  async function updateCard(
+    cardId: string,
+    input: UpdateCardInput,
+  ): Promise<Card | null> {
+    const previous = cards.value.find((card) => card.id === cardId)
+    if (!previous) return null
+
+    const before = plainRecord(previous)
+    const next: Card = normalizeCard({
+      ...before,
+      title: input.title.trim(),
+      content: input.content.trim(),
+      tags: normalizeTags(input.tags),
+      updatedAt: Date.now(),
+    })
+    const after = plainRecord(next)
+
+    replaceLocalCard(next)
+
+    try {
+      await db.cards.put(after)
+      broadcastWorkspaceChange('cards')
+    } catch (cause) {
+      replaceLocalCard(previous)
+
+      console.error('[card-canvas] Unable to update card', cause)
+      throw cause instanceof Error ? cause : new Error(String(cause))
+    }
+
+    record({
+      label: '编辑卡片',
+      undo: async () => {
+        await db.cards.put(before)
+        replaceLocalCard(before)
+        broadcastWorkspaceChange('cards')
+      },
+      redo: async () => {
+        await db.cards.put(after)
+        replaceLocalCard(after)
+        broadcastWorkspaceChange('cards')
+      },
+    })
+
+    return next
+  }
+
+  // --- projections ---------------------------------------------------------
+
+  async function placeCard(
     cardId: string,
     boardId: string,
     position: PlaceCardPosition,
-  ): BoardItem | null {
-    if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return null
+  ): Promise<BoardItem | null> {
+    if (!Number.isFinite(position.x) || !Number.isFinite(position.y))
+      return null
     if (!cards.value.some((card) => card.id === cardId)) return null
     if (items.value.some((item) => item.cardId === cardId)) return null
 
@@ -183,31 +375,261 @@ export const useBoardStore = defineStore('board', () => {
       width: position.width ?? DEFAULT_CARD_WIDTH,
     }
 
-    items.value = [...items.value, item]
+    const snapshot = plainRecord(item)
+
+    replaceLocalItem(item)
     selectItem(item.id)
 
-    void db.boardItems
-      .put(item)
-      .then(() => broadcastWorkspaceChange('items', boardId))
-      .catch((cause) => {
-        items.value = items.value.filter((entry) => entry.id !== item.id)
-        if (selectedItemId.value === item.id) selectedItemId.value = null
+    try {
+      await db.boardItems.put(snapshot)
+      broadcastWorkspaceChange('items', boardId)
+    } catch (cause) {
+      removeLocalItem(item.id)
+      if (selectedItemId.value === item.id) selectedItemId.value = null
 
-        console.error('[card-canvas] Unable to persist board item', cause)
-        useToastStore().push('投放未能写入本地库，已撤销。', {
-          tone: 'error',
-          action: {
-            label: '重试',
-            run: () => {
-              if (loadedBoardId !== boardId) return
-              placeCard(cardId, boardId, position)
-            },
-          },
-        })
+      console.error('[card-canvas] Unable to persist board item', cause)
+      notifyFailure('投放未能写入本地库，已撤销。', {
+        label: '重试',
+        run: () => {
+          if (activeBoardId.value !== boardId) return
+          void placeCard(cardId, boardId, position)
+        },
       })
+      return null
+    }
+
+    record({
+      label: '投放卡片',
+      undo: async () => {
+        await db.boardItems.delete(item.id)
+        removeLocalItem(item.id)
+        if (selectedItemId.value === item.id) selectedItemId.value = null
+        broadcastWorkspaceChange('items', boardId)
+      },
+      redo: async () => {
+        await db.boardItems.put(snapshot)
+        replaceLocalItem(snapshot)
+        selectItem(snapshot.id)
+        broadcastWorkspaceChange('items', boardId)
+      },
+    })
 
     return item
   }
+
+  async function unplaceItem(itemId: string): Promise<boolean> {
+    const found = items.value.find((entry) => entry.id === itemId)
+    if (!found) return false
+
+    const item = plainRecord(found)
+
+    removeLocalItem(item.id)
+    if (selectedItemId.value === item.id) selectedItemId.value = null
+
+    try {
+      await db.boardItems.delete(item.id)
+      broadcastWorkspaceChange('items', item.boardId)
+    } catch (cause) {
+      replaceLocalItem(item)
+
+      console.error('[card-canvas] Unable to unplace card', cause)
+      notifyFailure('移出白板失败，卡片仍在画布上。')
+      return false
+    }
+
+    record({
+      label: '移出白板',
+      undo: async () => {
+        await db.boardItems.put(item)
+        replaceLocalItem(item)
+        selectItem(item.id)
+        broadcastWorkspaceChange('items', item.boardId)
+      },
+      redo: async () => {
+        await db.boardItems.delete(item.id)
+        removeLocalItem(item.id)
+        if (selectedItemId.value === item.id) selectedItemId.value = null
+        broadcastWorkspaceChange('items', item.boardId)
+      },
+    })
+
+    return true
+  }
+
+  async function deleteCard(cardId: string): Promise<boolean> {
+    const card = cards.value.find((entry) => entry.id === cardId)
+    if (!card) return false
+
+    const cardSnapshot = plainRecord(card)
+    const deleted: Card = {
+      ...cardSnapshot,
+      isDeleted: true,
+      updatedAt: Date.now(),
+    }
+    const relatedItems = await db.boardItems
+      .where('cardId')
+      .equals(cardId)
+      .toArray()
+    const localItems = items.value.filter((item) => item.cardId === cardId)
+
+    removeLocalCard(cardId)
+    for (const item of localItems) removeLocalItem(item.id)
+    if (
+      selectedItemId.value &&
+      !items.value.some((item) => item.id === selectedItemId.value)
+    ) {
+      selectedItemId.value = null
+    }
+
+    try {
+      await db.transaction('rw', db.cards, db.boardItems, async () => {
+        await db.cards.put(deleted)
+        await db.boardItems.where('cardId').equals(cardId).delete()
+      })
+      broadcastWorkspaceChange('all')
+    } catch (cause) {
+      replaceLocalCard(cardSnapshot)
+      for (const item of localItems) replaceLocalItem(plainRecord(item))
+
+      console.error('[card-canvas] Unable to delete card', cause)
+      notifyFailure('删除卡片失败，已恢复。')
+      return false
+    }
+
+    record({
+      label: '删除卡片',
+      undo: async () => {
+        const restored: Card = { ...cardSnapshot }
+        delete restored.isDeleted
+
+        await db.transaction('rw', db.cards, db.boardItems, async () => {
+          await db.cards.put(restored)
+          if (relatedItems.length) {
+            await db.boardItems.bulkPut(plainRecord(relatedItems))
+          }
+        })
+
+        replaceLocalCard(restored)
+        for (const item of relatedItems) {
+          if (item.boardId === activeBoardId.value) replaceLocalItem(item)
+        }
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.transaction('rw', db.cards, db.boardItems, async () => {
+          await db.cards.put(deleted)
+          await db.boardItems.where('cardId').equals(cardId).delete()
+        })
+
+        removeLocalCard(cardId)
+        for (const item of relatedItems) removeLocalItem(item.id)
+        broadcastWorkspaceChange('all')
+      },
+    })
+
+    return true
+  }
+
+  // --- positioning ---------------------------------------------------------
+
+  function nudgeItem(itemId: string, dx: number, dy: number) {
+    const item = items.value.find((entry) => entry.id === itemId)
+    if (!item) return
+
+    void commitItemPosition(itemId, item.x + dx, item.y + dy)
+  }
+
+  async function commitItemPosition(itemId: string, x: number, y: number) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+
+    const item = items.value.find((entry) => entry.id === itemId)
+    if (!item || (item.x === x && item.y === y)) return
+
+    const previous = { x: item.x, y: item.y }
+    const moved = { ...item, x, y }
+
+    replaceLocalItem(moved)
+
+    try {
+      await db.boardItems.update(itemId, { x, y })
+      broadcastWorkspaceChange('items', item.boardId)
+    } catch (cause) {
+      replaceLocalItem(item)
+
+      console.error(
+        '[card-canvas] Unable to persist board item position',
+        cause,
+      )
+      notifyFailure('卡片位置保存失败，已恢复。', {
+        label: '重试',
+        run: () => commitItemPosition(itemId, x, y),
+      })
+      return
+    }
+
+    record({
+      label: '移动卡片',
+      undo: async () => {
+        await db.boardItems.update(itemId, previous)
+        replaceLocalItem({ ...item, ...previous })
+        broadcastWorkspaceChange('items', item.boardId)
+      },
+      redo: async () => {
+        await db.boardItems.update(itemId, { x, y })
+        replaceLocalItem({ ...item, x, y })
+        broadcastWorkspaceChange('items', item.boardId)
+      },
+    })
+  }
+
+  // --- history -------------------------------------------------------------
+
+  async function undo() {
+    if (applyingHistory) return
+    const entry = past.value.at(-1)
+    if (!entry) return
+
+    applyingHistory = true
+    past.value = past.value.slice(0, -1)
+
+    try {
+      await entry.undo()
+      future.value = [...future.value, entry]
+    } catch (cause) {
+      past.value = [...past.value, entry]
+      console.error('[card-canvas] Unable to undo', cause)
+      notifyFailure(`撤销「${entry.label}」失败。`)
+    } finally {
+      applyingHistory = false
+    }
+  }
+
+  async function redo() {
+    if (applyingHistory) return
+    const entry = future.value.at(-1)
+    if (!entry) return
+
+    applyingHistory = true
+    future.value = future.value.slice(0, -1)
+
+    try {
+      await entry.redo()
+      past.value = [...past.value, entry]
+    } catch (cause) {
+      future.value = [...future.value, entry]
+      console.error('[card-canvas] Unable to redo', cause)
+      notifyFailure(`重做「${entry.label}」失败。`)
+    } finally {
+      applyingHistory = false
+    }
+  }
+
+  function clearHistory() {
+    past.value = []
+    future.value = []
+  }
+
+  // --- cross-tab sync ------------------------------------------------------
 
   function scheduleRefresh() {
     if (refreshTimer !== null) return
@@ -219,7 +641,7 @@ export const useBoardStore = defineStore('board', () => {
   }
 
   async function refreshFromDb() {
-    const boardId = loadedBoardId
+    const boardId = activeBoardId.value
     if (!boardId || status.value !== 'ready') return
 
     try {
@@ -228,11 +650,11 @@ export const useBoardStore = defineStore('board', () => {
         db.boardItems.where('boardId').equals(boardId).toArray(),
       ])
 
-      if (loadedBoardId !== boardId || status.value !== 'ready') return
+      if (activeBoardId.value !== boardId || status.value !== 'ready') return
 
       cards.value = storedCards
         .filter((card) => !card.isDeleted)
-        .map((card) => ({ ...card, tags: normalizeTags(card.tags ?? []) }))
+        .map(normalizeCard)
       items.value = storedItems.sort((a, b) => a.id.localeCompare(b.id))
 
       if (
@@ -250,17 +672,14 @@ export const useBoardStore = defineStore('board', () => {
     if (document.visibilityState === 'visible') scheduleRefresh()
   }
 
-  /**
-   * Start cross-tab synchronisation once the board has hydrated. Keeping this
-   * explicit avoids subscribing in short-lived test stores.
-   */
   function startSync() {
     if (syncStarted) return
     syncStarted = true
 
     unsubscribeSync = subscribeWorkspaceChange((change) => {
-      if (!loadedBoardId) return
-      if (change.boardId && change.boardId !== loadedBoardId) return
+      if (change.type === 'boards') return
+      if (!activeBoardId.value) return
+      if (change.boardId && change.boardId !== activeBoardId.value) return
       scheduleRefresh()
     })
 
@@ -279,61 +698,14 @@ export const useBoardStore = defineStore('board', () => {
     }
   }
 
+  // --- selection -----------------------------------------------------------
+
   function selectItem(itemId: string) {
     selectedItemId.value = itemId
   }
 
   function clearSelection() {
     selectedItemId.value = null
-  }
-
-  function nudgeItem(itemId: string, dx: number, dy: number) {
-    const item = items.value.find((entry) => entry.id === itemId)
-    if (!item) return
-
-    commitItemPosition(itemId, item.x + dx, item.y + dy)
-  }
-
-  function commitItemPosition(itemId: string, x: number, y: number) {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return
-
-    const index = items.value.findIndex((item) => item.id === itemId)
-    const item = items.value[index]
-    if (!item || (item.x === x && item.y === y)) return
-
-    // One reactive store write per drop, then a single asynchronous DB update.
-    items.value[index] = { ...item, x, y }
-    void db.boardItems
-      .update(itemId, { x, y })
-      .then(() => broadcastWorkspaceChange('items', loadedBoardId ?? undefined))
-      .catch((cause) => {
-        console.error(
-          '[card-canvas] Unable to persist board item position',
-          cause,
-        )
-        useToastStore().push('卡片位置未能写入本地库。', {
-          tone: 'error',
-          action: {
-            label: '重试',
-            run: () => {
-              void db.boardItems
-                .update(itemId, { x, y })
-                .then(() =>
-                  broadcastWorkspaceChange(
-                    'items',
-                    loadedBoardId ?? undefined,
-                  ),
-                )
-                .catch((retryCause) => {
-                  console.error(
-                    '[card-canvas] Unable to persist board item position',
-                    retryCause,
-                  )
-                })
-            },
-          },
-        })
-      })
   }
 
   return {
@@ -347,7 +719,13 @@ export const useBoardStore = defineStore('board', () => {
     isHydrated,
     inboxCards,
     inboxCount,
+    activeBoardId,
+    canUndo,
+    canRedo,
+    undoLabel,
+    redoLabel,
     initialize,
+    loadBoard,
     refresh: refreshFromDb,
     startSync,
     stopSync,
@@ -356,6 +734,12 @@ export const useBoardStore = defineStore('board', () => {
     commitItemPosition,
     nudgeItem,
     captureCard,
+    updateCard,
     placeCard,
+    unplaceItem,
+    deleteCard,
+    undo,
+    redo,
+    clearHistory,
   }
 })

@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  screenToWorld,
-  worldToScreen,
-} from '../src/composables/useCanvas'
+import { screenToWorld, worldToScreen } from '../src/composables/useCanvas'
 import type { Viewport } from '../src/types'
 
 const viewport: Viewport = { panX: 321.5, panY: -87.25, scale: 1.75 }
@@ -40,11 +37,11 @@ describe('canvas coordinates', () => {
   })
 
   it('treats a zero scale as identity instead of dividing by zero', () => {
-    const result = screenToWorld(
-      { x: 100, y: 100 },
-      rect,
-      { panX: 0, panY: 0, scale: 0 },
-    )
+    const result = screenToWorld({ x: 100, y: 100 }, rect, {
+      panX: 0,
+      panY: 0,
+      scale: 0,
+    })
 
     expect(Number.isFinite(result.x)).toBe(true)
     expect(Number.isFinite(result.y)).toBe(true)

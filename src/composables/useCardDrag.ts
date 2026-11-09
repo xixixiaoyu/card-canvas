@@ -1,10 +1,4 @@
-import {
-  nextTick,
-  onBeforeUnmount,
-  readonly,
-  ref,
-  type Ref,
-} from 'vue'
+import { nextTick, onBeforeUnmount, readonly, ref, type Ref } from 'vue'
 import type { BoardItem } from '../types'
 import type { CanvasCamera } from './useCanvas'
 
@@ -41,13 +35,10 @@ const DRAG_THRESHOLD = 3
  * grab offset is captured once, so cursor and card remain locked together even
  * if the canvas scale changes mid-gesture.
  */
-export function useCardDrag(
-  options: UseCardDragOptions,
-): UseCardDragReturn {
+export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
   const isDragging = ref(false)
   const ignoreSelector =
-    options.ignoreSelector ??
-    '[data-card-selectable], [data-card-interactive]'
+    options.ignoreSelector ?? '[data-card-selectable], [data-card-interactive]'
 
   let activePointerId: number | null = null
   let startClient = { x: 0, y: 0 }

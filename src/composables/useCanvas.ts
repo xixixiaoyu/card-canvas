@@ -14,8 +14,8 @@ export interface Point {
   y: number
 }
 
-export interface ScreenPoint extends Point {}
-export interface WorldPoint extends Point {}
+export type ScreenPoint = Point
+export type WorldPoint = Point
 
 /** The geometry needed by the coordinate conversion contract. */
 export type CanvasContainerRect = Pick<DOMRectReadOnly, 'left' | 'top'> &
@@ -70,6 +70,8 @@ export interface UseCanvasOptions {
   grid?: Ref<HTMLElement | null>
   minScale?: number
   maxScale?: number
+  /** Called after every camera transform; consumers persist at their own pace. */
+  onViewportChange?: (viewport: Viewport) => void
 }
 
 export interface UseCanvasReturn {
@@ -94,6 +96,7 @@ export interface UseCanvasReturn {
   resetZoom: () => void
   fitToContent: (options?: FitOptions) => void
   focusElement: (selector: string, options?: FitOptions) => void
+  restoreViewport: (viewport: Viewport) => void
   destroy: () => void
 }
 
@@ -271,7 +274,10 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     return worldToScreen(worldPoint, containerRect, current)
   }
 
-  function localScreenPoint(screenPoint: ScreenPoint, rect: DOMRect): ScreenPoint {
+  function localScreenPoint(
+    screenPoint: ScreenPoint,
+    rect: DOMRect,
+  ): ScreenPoint {
     return {
       x: screenPoint.x - rect.left,
       y: screenPoint.y - rect.top,
@@ -331,6 +337,11 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
     applyGrid()
     syncFeedback()
+    options.onViewportChange?.({
+      panX: current.panX,
+      panY: current.panY,
+      scale: current.scale,
+    })
   }
 
   function stopFrame() {
@@ -445,6 +456,18 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
       lastFrameTime = 0
       mode = 'idle'
     }
+  }
+
+  function restoreViewport(next: Viewport) {
+    if (
+      !Number.isFinite(next.panX) ||
+      !Number.isFinite(next.panY) ||
+      !Number.isFinite(next.scale)
+    ) {
+      return
+    }
+
+    commitViewport(next)
   }
 
   function commitViewport(next: Viewport) {
@@ -946,11 +969,9 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
       handleGestureChange as EventListener,
       { passive: false },
     )
-    stageEl.addEventListener(
-      'gestureend',
-      handleGestureEnd as EventListener,
-      { passive: false },
-    )
+    stageEl.addEventListener('gestureend', handleGestureEnd as EventListener, {
+      passive: false,
+    })
 
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
@@ -1046,6 +1067,7 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     resetZoom,
     fitToContent,
     focusElement,
+    restoreViewport,
     destroy,
   }
 }

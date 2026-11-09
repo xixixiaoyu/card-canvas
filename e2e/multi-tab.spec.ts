@@ -18,7 +18,9 @@ test('capture and keyboard placement sync across tabs', async ({ context }) => {
   await expect(inboxB).toContainText('1')
 
   await inboxB.click()
-  const card = pageB.locator('[data-inbox-card]').filter({ hasText: '跨标签页同步' })
+  const card = pageB
+    .locator('[data-inbox-card]')
+    .filter({ hasText: '跨标签页同步' })
   await expect(card).toHaveCount(1)
   await card.focus()
   await pageB.keyboard.press('Enter')
@@ -29,4 +31,19 @@ test('capture and keyboard placement sync across tabs', async ({ context }) => {
 
   await pageA.reload()
   await expect(pageA.locator('[data-world-item]')).toHaveCount(4)
+
+  await pageA.getByRole('button', { name: '切换白板' }).click()
+  const menuA = pageA.getByRole('menu', { name: '白板列表' })
+  await menuA.getByLabel('新白板名称').fill('同步板')
+  await menuA.getByRole('button', { name: '新建' }).click()
+  await expect(pageA.getByRole('button', { name: '切换白板' })).toContainText(
+    '同步板',
+  )
+
+  await pageB.getByRole('button', { name: '切换白板' }).click()
+  await expect(
+    pageB
+      .getByRole('menu', { name: '白板列表' })
+      .getByRole('button', { name: '同步板' }),
+  ).toHaveCount(1)
 })

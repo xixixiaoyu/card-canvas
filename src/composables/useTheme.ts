@@ -1,10 +1,5 @@
 import { computed, watchEffect } from 'vue'
-import {
-  useDark,
-  usePreferredDark,
-  useStorage,
-  useToggle,
-} from '@vueuse/core'
+import { useDark, usePreferredDark, useStorage, useToggle } from '@vueuse/core'
 
 type ThemePreference = 'auto' | 'light' | 'dark'
 

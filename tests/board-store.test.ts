@@ -65,7 +65,7 @@ describe('board store', () => {
       tags: [],
     })
 
-    const item = board.placeCard(card.id, 'board-main', {
+    const item = await board.placeCard(card.id, 'board-main', {
       x: 10,
       y: 20,
       width: 420,
@@ -87,7 +87,9 @@ describe('board store', () => {
     const board = await freshBoard()
     const card = board.cards[0]
 
-    expect(board.placeCard(card.id, 'board-main', { x: 0, y: 0 })).toBeNull()
+    expect(
+      await board.placeCard(card.id, 'board-main', { x: 0, y: 0 }),
+    ).toBeNull()
     expect(board.items).toHaveLength(3)
   })
 
@@ -95,7 +97,7 @@ describe('board store', () => {
     const board = await freshBoard()
     const item = board.items[0]
 
-    board.commitItemPosition(item.id, 123.5, -45.25)
+    await board.commitItemPosition(item.id, 123.5, -45.25)
 
     expect(board.items[0]).toMatchObject({ x: 123.5, y: -45.25 })
     await vi.waitFor(async () => {
@@ -104,6 +106,114 @@ describe('board store', () => {
         y: -45.25,
       })
     })
+  })
+
+  it('undoes and redoes a capture', async () => {
+    const board = await freshBoard()
+    const card = await board.captureCard({
+      title: '可撤销',
+      content: '',
+      tags: [],
+    })
+
+    expect(board.canUndo).toBe(true)
+    await board.undo()
+    expect(board.cards.map((entry) => entry.id)).not.toContain(card.id)
+    expect(await db.cards.get(card.id)).toBeUndefined()
+
+    await board.redo()
+    expect(board.cards.map((entry) => entry.id)).toContain(card.id)
+    expect(await db.cards.get(card.id)).toBeDefined()
+  })
+
+  it('undoes and redoes a placement', async () => {
+    const board = await freshBoard()
+    const card = await board.captureCard({
+      title: '投影撤销',
+      content: '',
+      tags: [],
+    })
+    const item = await board.placeCard(card.id, 'board-main', { x: 5, y: 6 })
+    expect(item).not.toBeNull()
+
+    await board.undo()
+    expect(board.items).toHaveLength(3)
+    expect(board.inboxCards.map((entry) => entry.id)).toContain(card.id)
+    expect(await db.boardItems.get(item!.id)).toBeUndefined()
+
+    await board.redo()
+    expect(board.items).toHaveLength(4)
+    expect(await db.boardItems.get(item!.id)).toBeDefined()
+  })
+
+  it('undoes and redoes an edit', async () => {
+    const board = await freshBoard()
+    const card = board.cards[0]
+    const originalTitle = card.title
+    const updated = await board.updateCard(card.id, {
+      title: '新标题',
+      content: '新正文',
+      tags: ['Edit'],
+    })
+
+    expect(updated?.title).toBe('新标题')
+    await board.undo()
+    expect(board.cards.find((entry) => entry.id === card.id)?.title).toBe(
+      originalTitle,
+    )
+
+    await board.redo()
+    expect(board.cards.find((entry) => entry.id === card.id)?.title).toBe(
+      '新标题',
+    )
+  })
+
+  it('unplaces a card back into the inbox and restores it on undo', async () => {
+    const board = await freshBoard()
+    const card = board.cards[0]
+    const item = board.items.find((entry) => entry.cardId === card.id)
+
+    expect(await board.unplaceItem(item!.id)).toBe(true)
+    expect(board.items).toHaveLength(2)
+    expect(board.inboxCards.map((entry) => entry.id)).toContain(card.id)
+
+    await board.undo()
+    expect(board.items).toHaveLength(3)
+    expect(board.inboxCards.map((entry) => entry.id)).not.toContain(card.id)
+  })
+
+  it('soft-deletes a card with its projections and restores it on undo', async () => {
+    const board = await freshBoard()
+    const card = board.cards[0]
+
+    expect(await board.deleteCard(card.id)).toBe(true)
+    expect(board.cards.map((entry) => entry.id)).not.toContain(card.id)
+    expect(board.items.some((item) => item.cardId === card.id)).toBe(false)
+    expect((await db.cards.get(card.id))?.isDeleted).toBe(true)
+
+    await board.undo()
+    expect(board.cards.map((entry) => entry.id)).toContain(card.id)
+    expect(board.items.some((item) => item.cardId === card.id)).toBe(true)
+    expect((await db.cards.get(card.id))?.isDeleted).toBeUndefined()
+  })
+
+  it('cleans orphan projections left by a partial database', async () => {
+    await db.delete()
+    await db.open()
+    await db.boardItems.put({
+      id: 'projection-orphan',
+      cardId: 'missing-card',
+      boardId: 'board-main',
+      x: 0,
+      y: 0,
+    })
+
+    setActivePinia(createPinia())
+    const board = useBoardStore()
+    await board.initialize('board-main')
+
+    expect(board.items).toHaveLength(0)
+    expect(await db.boardItems.count()).toBe(0)
   })
 
   it('rolls back a failed capture and surfaces the error', async () => {
@@ -120,10 +230,14 @@ describe('board store', () => {
 
   it('rolls back a failed placement and offers a retry toast', async () => {
     const board = await freshBoard()
-    const card = await board.captureCard({ title: '投放失败', content: '', tags: [] })
+    const card = await board.captureCard({
+      title: '投放失败',
+      content: '',
+      tags: [],
+    })
     vi.spyOn(db.boardItems, 'put').mockRejectedValueOnce(new Error('quota'))
 
-    board.placeCard(card.id, 'board-main', { x: 1, y: 2 })
+    void board.placeCard(card.id, 'board-main', { x: 1, y: 2 })
     await vi.waitFor(() => {
       expect(board.items).toHaveLength(3)
       expect(useToastStore().toasts).toHaveLength(1)

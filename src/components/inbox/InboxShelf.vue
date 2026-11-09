@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { useDebounce } from '@vueuse/core'
 import {
+  Download,
   GripVertical,
   Inbox,
   Search,
   Sparkles,
+  Upload,
   X,
 } from '@lucide/vue'
 import CardNode from '../canvas/CardNode.vue'
+import HighlightText from '../ui/HighlightText.vue'
+import { downloadBackup, importBackupFile } from '../../lib/backup'
+import { broadcastWorkspaceChange } from '../../lib/tab-sync'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -27,28 +33,52 @@ const board = useBoardStore()
 const workspace = useWorkspaceStore()
 const toast = useToastStore()
 
+const PAGE_SIZE = 30
+
 const search = ref('')
+const debouncedSearch = useDebounce(search, 150)
 const activeTags = ref<string[]>([])
+const visibleCount = ref(PAGE_SIZE)
+const showAllTags = ref(false)
 const measureCard = ref<Card | null>(null)
 const measureEl = ref<HTMLElement | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+const isImporting = ref(false)
 
 const tagFrequency = computed(() => {
-  const counts = new Map<string, number>()
+  const counts = new Map<string, { label: string; count: number }>()
 
   for (const card of board.inboxCards) {
     for (const tag of card.tags) {
-      counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      const key = tag.toLowerCase()
+      const entry = counts.get(key)
+      if (entry) entry.count += 1
+      else counts.set(key, { label: tag, count: 1 })
     }
   }
 
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 10)
-    .map(([tag]) => tag)
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .map((entry) => entry.label)
 })
 
+const displayedTags = computed(() => {
+  const base = showAllTags.value
+    ? tagFrequency.value
+    : tagFrequency.value.slice(0, 10)
+  const missing = activeTags.value.filter(
+    (tag) => !base.some((entry) => entry.toLowerCase() === tag.toLowerCase()),
+  )
+
+  return [...base, ...missing]
+})
+
+const hiddenTagCount = computed(() =>
+  Math.max(0, tagFrequency.value.length - displayedTags.value.length),
+)
+
 const filteredCards = computed(() => {
-  const query = search.value.trim().toLowerCase()
+  const query = debouncedSearch.value.trim().toLowerCase()
 
   return board.inboxCards.filter((card) => {
     if (query) {
@@ -69,7 +99,23 @@ const filteredCards = computed(() => {
 })
 
 const hasFilters = computed(
-  () => Boolean(search.value.trim()) || activeTags.value.length > 0,
+  () => Boolean(debouncedSearch.value.trim()) || activeTags.value.length > 0,
+)
+
+const visibleCards = computed(() =>
+  filteredCards.value.slice(0, visibleCount.value),
+)
+
+const hasMoreCards = computed(
+  () => filteredCards.value.length > visibleCount.value,
+)
+
+watch(
+  [debouncedSearch, activeTags],
+  () => {
+    visibleCount.value = PAGE_SIZE
+  },
+  { deep: true },
 )
 
 function isTagActive(tag: string) {
@@ -87,6 +133,49 @@ function toggleTag(tag: string) {
 function clearFilters() {
   search.value = ''
   activeTags.value = []
+}
+
+async function handleExport() {
+  try {
+    const counts = await downloadBackup()
+    toast.push(`已导出 ${counts.cards} 张卡片`, {
+      tone: 'success',
+      timeout: 3000,
+    })
+  } catch (cause) {
+    console.error('[card-canvas] Unable to export backup', cause)
+    toast.push('导出备份失败。', { tone: 'error' })
+  }
+}
+
+function pickImportFile() {
+  fileInput.value?.click()
+}
+
+async function handleImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || isImporting.value) return
+
+  isImporting.value = true
+
+  try {
+    const counts = await importBackupFile(file)
+    await board.refresh()
+    broadcastWorkspaceChange('all')
+    toast.push(`已导入 ${counts.cards} 张卡片、${counts.boardItems} 个投影。`, {
+      tone: 'success',
+      timeout: 4000,
+    })
+  } catch (cause) {
+    console.error('[card-canvas] Unable to import backup', cause)
+    toast.push(cause instanceof Error ? cause.message : '导入备份失败。', {
+      tone: 'error',
+    })
+  } finally {
+    isImporting.value = false
+  }
 }
 
 function handleSearchEscape() {
@@ -116,7 +205,7 @@ function formatTime(timestamp: number) {
 const drag = useInboxDrag({
   camera: props.camera,
   onDrop: (payload: InboxDropPayload) => {
-    board.placeCard(payload.card.id, workspace.activeBoardId, {
+    void board.placeCard(payload.card.id, workspace.activeBoardId, {
       x: payload.x,
       y: payload.y,
       width: payload.width,
@@ -174,7 +263,7 @@ async function placeAtCenter(card: Card) {
       rect,
     )
 
-    const placed = board.placeCard(card.id, workspace.activeBoardId, {
+    const placed = await board.placeCard(card.id, workspace.activeBoardId, {
       x: world.x - GHOST_CARD_WIDTH / 2,
       y: world.y - height / 2,
       width: GHOST_CARD_WIDTH,
@@ -271,14 +360,35 @@ function startDrag(event: PointerEvent, card: Card) {
           </div>
         </div>
 
-        <button
-          type="button"
-          class="flex h-7 w-7 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
-          aria-label="收起待整理池"
-          @click="workspace.closeInbox()"
-        >
-          <X :size="14" :stroke-width="1.6" aria-hidden="true" />
-        </button>
+        <div class="flex items-center gap-0.5">
+          <button
+            type="button"
+            class="flex h-7 w-7 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 disabled:opacity-40 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
+            aria-label="导出工作区备份"
+            title="导出工作区备份"
+            @click="handleExport"
+          >
+            <Download :size="13" :stroke-width="1.7" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="flex h-7 w-7 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 disabled:opacity-40 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
+            aria-label="导入工作区备份"
+            title="导入工作区备份"
+            :disabled="isImporting"
+            @click="pickImportFile"
+          >
+            <Upload :size="13" :stroke-width="1.7" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="flex h-7 w-7 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
+            aria-label="收起待整理池"
+            @click="workspace.closeInbox()"
+          >
+            <X :size="14" :stroke-width="1.6" aria-hidden="true" />
+          </button>
+        </div>
       </header>
 
       <div class="px-4 py-3">
@@ -314,7 +424,7 @@ function startDrag(event: PointerEvent, card: Card) {
           aria-label="按标签筛选"
         >
           <button
-            v-for="tag in tagFrequency"
+            v-for="tag in displayedTags"
             :key="tag"
             type="button"
             class="rounded-full border px-2 py-0.5 text-[10px] transition-colors"
@@ -330,19 +440,30 @@ function startDrag(event: PointerEvent, card: Card) {
           </button>
         </div>
 
-        <button
-          v-if="hasFilters"
-          type="button"
-          class="mt-2 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-400 transition-colors hover:text-stone-700 dark:text-zinc-500 dark:hover:text-zinc-200"
-          @click="clearFilters"
-        >
-          清除筛选
-        </button>
+        <div class="mt-2 flex flex-wrap items-center gap-3">
+          <button
+            v-if="hasFilters"
+            type="button"
+            class="font-mono text-[9px] uppercase tracking-[0.14em] text-stone-400 transition-colors hover:text-stone-700 dark:text-zinc-500 dark:hover:text-zinc-200"
+            @click="clearFilters"
+          >
+            清除筛选
+          </button>
+          <button
+            v-if="tagFrequency.length > 10"
+            type="button"
+            class="font-mono text-[9px] uppercase tracking-[0.14em] text-stone-400 transition-colors hover:text-stone-700 dark:text-zinc-500 dark:hover:text-zinc-200"
+            :aria-expanded="showAllTags"
+            @click="showAllTags = !showAllTags"
+          >
+            {{ showAllTags ? '收起标签' : `+${hiddenTagCount} 个标签` }}
+          </button>
+        </div>
       </div>
 
       <div class="flex-1 overflow-y-auto overscroll-contain px-3 pb-3">
         <ul v-if="filteredCards.length" class="flex flex-col gap-2">
-          <li v-for="card in filteredCards" :key="card.id">
+          <li v-for="card in visibleCards" :key="card.id">
             <article
               class="inbox-card group relative cursor-grab select-none rounded-2xl border border-stone-200/70 bg-white/70 p-3 transition-[border-color,background-color,box-shadow,opacity] duration-200 hover:border-stone-300/90 hover:bg-white hover:shadow-[0_8px_24px_-14px_rgba(41,37,36,0.3)] dark:border-white/[0.08] dark:bg-white/[0.025] dark:hover:border-white/15 dark:hover:bg-white/[0.045]"
               :class="{
@@ -387,26 +508,37 @@ function startDrag(event: PointerEvent, card: Card) {
               <h3
                 class="mt-2 line-clamp-2 font-serif text-[13px] font-medium leading-snug tracking-[-0.01em] text-stone-800 dark:text-zinc-200"
               >
-                {{ card.title }}
+                <HighlightText :text="card.title" :query="debouncedSearch" />
               </h3>
               <p
                 v-if="card.content"
                 class="mt-1 line-clamp-2 text-[11px] leading-[1.7] text-stone-500 dark:text-zinc-500"
               >
-                {{ card.content }}
+                <HighlightText :text="card.content" :query="debouncedSearch" />
               </p>
 
               <div
                 class="mt-2 flex items-center justify-between gap-2 font-mono text-[8px] uppercase tracking-[0.16em] text-stone-400 dark:text-zinc-600"
               >
                 <span>{{ formatTime(card.createdAt) }}</span>
-                <span class="opacity-0 transition-opacity group-hover:opacity-100">
+                <span
+                  class="opacity-0 transition-opacity group-hover:opacity-100"
+                >
                   拖到画布
                 </span>
               </div>
             </article>
           </li>
         </ul>
+
+        <button
+          v-if="hasMoreCards"
+          type="button"
+          class="mt-2 w-full rounded-xl border border-dashed border-stone-300/80 py-2 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-400 transition-colors hover:border-stone-400/80 hover:text-stone-700 dark:border-white/10 dark:text-zinc-500 dark:hover:border-white/20 dark:hover:text-zinc-200"
+          @click="visibleCount += PAGE_SIZE"
+        >
+          加载更多 · 剩余 {{ filteredCards.length - visibleCount }} 张
+        </button>
 
         <div
           v-else-if="board.inboxCards.length === 0"
@@ -417,10 +549,14 @@ function startDrag(event: PointerEvent, card: Card) {
           >
             <Sparkles :size="17" :stroke-width="1.4" aria-hidden="true" />
           </span>
-          <p class="mt-3 font-serif text-[13px] text-stone-700 dark:text-zinc-300">
+          <p
+            class="mt-3 font-serif text-[13px] text-stone-700 dark:text-zinc-300"
+          >
             所有灵感均已上板
           </p>
-          <p class="mt-1 text-[10px] leading-5 text-stone-400 dark:text-zinc-600">
+          <p
+            class="mt-1 text-[10px] leading-5 text-stone-400 dark:text-zinc-600"
+          >
             按 <kbd class="font-mono">⌘K</kbd> 记录新的想法
           </p>
         </div>
@@ -445,9 +581,18 @@ function startDrag(event: PointerEvent, card: Card) {
       <footer
         class="flex items-center justify-between gap-2 border-t border-stone-200/70 px-4 py-2.5 font-mono text-[8px] uppercase tracking-[0.16em] text-stone-400 dark:border-white/[0.08] dark:text-zinc-600"
       >
-        <span>Pointer · 拖入画布</span>
+        <span>Pointer · 拖入画布 · Enter 投放</span>
         <span>{{ filteredCards.length }} / {{ board.inboxCount }}</span>
       </footer>
+
+      <input
+        ref="fileInput"
+        type="file"
+        accept="application/json,.json"
+        class="sr-only"
+        aria-label="选择要导入的备份文件"
+        @change="handleImportFile"
+      />
     </aside>
   </Transition>
 

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { nextTick, onMounted, provide, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
 import {
   canvasCameraKey,
   useCanvas,
   type CanvasCamera,
 } from '../../composables/useCanvas'
+import { readViewport, writeViewport } from '../../lib/view-state'
+import type { Viewport } from '../../types'
 import CanvasHUD from './CanvasHUD.vue'
 
 const emit = defineEmits<{
@@ -13,10 +15,12 @@ const emit = defineEmits<{
 
 const props = withDefaults(
   defineProps<{
+    boardId?: string
     minScale?: number
     maxScale?: number
   }>(),
   {
+    boardId: 'board-main',
     minScale: 0.1,
     maxScale: 3,
   },
@@ -26,6 +30,28 @@ const stageEl = ref<HTMLElement | null>(null)
 const worldEl = ref<HTMLElement | null>(null)
 const gridEl = ref<HTMLElement | null>(null)
 const isReady = ref(false)
+let hasRestoredView = false
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+let pendingViewport: Viewport | null = null
+
+function scheduleViewportSave(next: Viewport) {
+  if (!hasRestoredView) return
+
+  pendingViewport = next
+  if (saveTimer !== null) return
+
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    if (!pendingViewport) return
+
+    writeViewport(props.boardId, {
+      ...pendingViewport,
+      width: stageEl.value?.clientWidth,
+      height: stageEl.value?.clientHeight,
+    })
+    pendingViewport = null
+  }, 250)
+}
 
 const {
   zoomPercent,
@@ -41,12 +67,14 @@ const {
   worldToScreen,
   getViewport,
   getContainerRect,
+  restoreViewport,
 } = useCanvas({
   stage: stageEl,
   world: worldEl,
   grid: gridEl,
   minScale: props.minScale,
   maxScale: props.maxScale,
+  onViewportChange: scheduleViewportSave,
 })
 
 const cameraApi: CanvasCamera = {
@@ -110,7 +138,21 @@ onMounted(async () => {
     })
   })
 
-  if (window.matchMedia('(max-width: 1100px), (max-height: 680px)').matches) {
+  const savedView = readViewport(props.boardId)
+  const width = stageEl.value?.clientWidth ?? 0
+  const height = stageEl.value?.clientHeight ?? 0
+  const sizeChanged =
+    savedView?.width !== undefined &&
+    savedView?.height !== undefined &&
+    (Math.abs(savedView.width - width) / Math.max(savedView.width, 1) > 0.25 ||
+      Math.abs(savedView.height - height) / Math.max(savedView.height, 1) >
+        0.25)
+
+  if (savedView && !sizeChanged) {
+    restoreViewport(savedView)
+  } else if (
+    window.matchMedia('(max-width: 1100px), (max-height: 680px)').matches
+  ) {
     focusElement('[data-canvas-focus]', {
       maxScale: 1,
       animate: false,
@@ -125,7 +167,23 @@ onMounted(async () => {
     fitAll(false)
   }
 
+  hasRestoredView = true
   isReady.value = true
+})
+
+onBeforeUnmount(() => {
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+
+  if (hasRestoredView) {
+    writeViewport(props.boardId, {
+      ...getViewport(),
+      width: stageEl.value?.clientWidth,
+      height: stageEl.value?.clientHeight,
+    })
+  }
 })
 
 defineExpose({
@@ -138,6 +196,7 @@ defineExpose({
   worldToScreen,
   getViewport,
   getContainerRect,
+  restoreViewport,
   camera: cameraApi,
 })
 </script>
@@ -158,7 +217,11 @@ defineExpose({
       画布操作：双指滑动平移，捏合缩放；按住空格并拖动鼠标，或使用鼠标中键拖动画布。拖动卡片标题或右上角把手可以移动卡片；正文可选择文字；点击空白取消选中。
     </p>
 
-    <div ref="gridEl" class="canvas-dots absolute inset-0 z-0" aria-hidden="true" />
+    <div
+      ref="gridEl"
+      class="canvas-dots absolute inset-0 z-0"
+      aria-hidden="true"
+    />
     <div class="canvas-glow-light absolute inset-0 z-0" aria-hidden="true" />
     <div class="canvas-glow-dark absolute inset-0 z-0" aria-hidden="true" />
     <div class="canvas-noise absolute inset-0 z-0" aria-hidden="true" />

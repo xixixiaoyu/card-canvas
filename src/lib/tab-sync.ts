@@ -1,4 +1,4 @@
-export type WorkspaceChangeType = 'cards' | 'items' | 'all'
+export type WorkspaceChangeType = 'cards' | 'items' | 'boards' | 'all'
 
 interface WorkspaceChangeMessage {
   source: string

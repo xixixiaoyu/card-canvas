@@ -50,7 +50,8 @@ export const useToastStore = defineStore('toast', () => {
   function push(message: string, options: ToastOptions = {}) {
     const id = `toast-${++sequence}`
     const timeout =
-      options.timeout ?? (options.action ? 10_000 : options.tone === 'error' ? 6_000 : 4_000)
+      options.timeout ??
+      (options.action ? 10_000 : options.tone === 'error' ? 6_000 : 4_000)
 
     const toast: ToastItem = {
       id,

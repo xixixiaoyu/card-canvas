@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Inbox, Layers2, Moon, PenLine, Sun } from '@lucide/vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Inbox, Layers2, Moon, PenLine, Redo2, Sun, Undo2 } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
+import BoardSwitcher from './components/board/BoardSwitcher.vue'
 import QuickCapture from './components/capture/QuickCapture.vue'
 import InboxShelf from './components/inbox/InboxShelf.vue'
 import ToastStack from './components/ui/ToastStack.vue'
@@ -10,14 +11,19 @@ import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
 import { FOCUS_BOARD_ITEM_ID } from './data/seed'
 import { useBoardStore } from './stores/board'
+import { useToastStore } from './stores/toast'
 import { useWorkspaceStore } from './stores/workspace'
+import type { Card } from './types'
 
 const { isDark, toggleTheme } = useTheme()
 const workspace = useWorkspaceStore()
 const board = useBoardStore()
+const toast = useToastStore()
 
 const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
 const isCaptureOpen = ref(false)
+const editingCard = ref<Card | null>(null)
+let booting = true
 
 const camera = computed<CanvasCamera | null>(
   () => stageRef.value?.camera ?? null,
@@ -39,15 +45,58 @@ const databaseLabel = computed(() => {
 
 async function initializeBoard() {
   try {
+    await workspace.loadBoards()
     await board.initialize(workspace.activeBoardId)
     board.startSync()
+    workspace.startSync()
   } catch (error) {
     console.error('[card-canvas] Unable to initialize the board', error)
+  } finally {
+    booting = false
   }
 }
 
+watch(
+  () => workspace.activeBoardId,
+  (boardId, previous) => {
+    if (booting || !previous || boardId === previous) return
+
+    void board.loadBoard(boardId).catch((error) => {
+      console.error('[card-canvas] Unable to switch board', error)
+    })
+  },
+)
+
 function openCapture() {
+  editingCard.value = null
   isCaptureOpen.value = true
+}
+
+function openEdit(card: Card) {
+  editingCard.value = card
+  isCaptureOpen.value = true
+}
+
+async function handleUnplace(itemId: string) {
+  const ok = await board.unplaceItem(itemId)
+  if (!ok) return
+
+  toast.push('已移回待整理池。', {
+    tone: 'info',
+    timeout: 3500,
+    action: { label: '撤销', run: () => board.undo() },
+  })
+}
+
+async function handleDelete(card: Card) {
+  const ok = await board.deleteCard(card.id)
+  if (!ok) return
+
+  toast.push(`已删除「${card.title}」。`, {
+    tone: 'info',
+    timeout: 5000,
+    action: { label: '撤销', run: () => board.undo() },
+  })
 }
 
 function toggleInbox() {
@@ -95,6 +144,19 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
   const mod = event.metaKey || event.ctrlKey
 
+  if (mod && !event.altKey && event.code === 'KeyZ') {
+    event.preventDefault()
+    if (event.shiftKey) void board.redo()
+    else void board.undo()
+    return
+  }
+
+  if (mod && !event.altKey && !event.shiftKey && event.code === 'KeyY') {
+    event.preventDefault()
+    void board.redo()
+    return
+  }
+
   if (mod && !event.altKey && !event.shiftKey && event.code === 'KeyK') {
     event.preventDefault()
     openCapture()
@@ -110,10 +172,16 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 onMounted(() => {
   void initializeBoard()
   window.addEventListener('keydown', handleGlobalKeydown)
+
+  // Best-effort durable storage: browsers may ignore or deny the request.
+  if (navigator.storage?.persist) {
+    void navigator.storage.persist().catch(() => {})
+  }
 })
 
 onBeforeUnmount(() => {
   board.stopSync()
+  workspace.stopSync()
   window.removeEventListener('keydown', handleGlobalKeydown)
 })
 </script>
@@ -121,7 +189,9 @@ onBeforeUnmount(() => {
 <template>
   <CanvasStage
     v-if="board.isHydrated"
+    :key="workspace.activeBoardId"
     ref="stageRef"
+    :board-id="workspace.activeBoardId"
     @background-pointerdown="board.clearSelection()"
   >
     <h1 class="sr-only">Card Canvas 无限白板</h1>
@@ -142,6 +212,9 @@ onBeforeUnmount(() => {
         board.commitItemPosition(entry.item.id, $event.x, $event.y)
       "
       @nudge="board.nudgeItem(entry.item.id, $event.x, $event.y)"
+      @edit="openEdit(entry.card)"
+      @unplace="handleUnplace(entry.item.id)"
+      @delete="handleDelete(entry.card)"
     />
 
     <template #overlay>
@@ -158,7 +231,7 @@ onBeforeUnmount(() => {
               aria-hidden="true"
             />
           </div>
-          <div class="select-none">
+          <div class="hidden select-none sm:block">
             <p
               class="font-serif text-[13px] font-medium tracking-[0.01em] text-stone-800 dark:text-zinc-200"
             >
@@ -167,12 +240,51 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 04 / Capture Loop
+              Phase 05 / Hardening
             </p>
           </div>
+
+          <span
+            class="h-4 w-px bg-stone-300/70 dark:bg-white/10"
+            aria-hidden="true"
+          />
+          <BoardSwitcher />
         </div>
 
         <div class="pointer-events-auto flex items-center gap-2">
+          <div class="hidden items-center gap-1 md:flex">
+            <button
+              type="button"
+              data-canvas-ui
+              class="flex h-10 w-10 items-center justify-center rounded-full border border-stone-200/80 bg-white/60 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,opacity] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-stone-200/80 disabled:hover:bg-white/60 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:disabled:hover:border-white/10 dark:disabled:hover:bg-zinc-900/60"
+              :disabled="!board.canUndo"
+              :title="
+                board.canUndo
+                  ? `撤销：${board.undoLabel}（⌘Z）`
+                  : '没有可撤销的操作'
+              "
+              aria-label="撤销"
+              @click="board.undo()"
+            >
+              <Undo2 :size="14" :stroke-width="1.7" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              data-canvas-ui
+              class="flex h-10 w-10 items-center justify-center rounded-full border border-stone-200/80 bg-white/60 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,opacity] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-stone-200/80 disabled:hover:bg-white/60 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:disabled:hover:border-white/10 dark:disabled:hover:bg-zinc-900/60"
+              :disabled="!board.canRedo"
+              :title="
+                board.canRedo
+                  ? `重做：${board.redoLabel}（⇧⌘Z）`
+                  : '没有可重做的操作'
+              "
+              aria-label="重做"
+              @click="board.redo()"
+            >
+              <Redo2 :size="14" :stroke-width="1.7" aria-hidden="true" />
+            </button>
+          </div>
+
           <button
             type="button"
             data-canvas-ui
@@ -182,9 +294,9 @@ onBeforeUnmount(() => {
             @click="openCapture()"
           >
             <PenLine :size="14" :stroke-width="1.7" aria-hidden="true" />
-            <span class="hidden sm:inline">速记</span>
+            <span class="hidden md:inline">速记</span>
             <kbd
-              class="ml-0.5 hidden rounded-md border border-stone-200/80 bg-white/70 px-1.5 py-0.5 font-mono text-[9px] font-normal tracking-normal text-stone-500 md:inline dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400"
+              class="ml-0.5 hidden rounded-md border border-stone-200/80 bg-white/70 px-1.5 py-0.5 font-mono text-[9px] font-normal tracking-normal text-stone-500 lg:inline dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400"
             >
               ⌘K
             </kbd>
@@ -201,7 +313,7 @@ onBeforeUnmount(() => {
             @click="toggleInbox()"
           >
             <Inbox :size="14" :stroke-width="1.7" aria-hidden="true" />
-            <span class="hidden sm:inline">待整理</span>
+            <span class="hidden md:inline">待整理</span>
             <span
               class="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 font-mono text-[9px] font-normal tracking-normal transition-colors"
               :class="
@@ -244,7 +356,7 @@ onBeforeUnmount(() => {
               </Transition>
             </span>
             <span
-              class="hidden text-[10px] font-medium uppercase tracking-[0.18em] sm:inline"
+              class="hidden text-[10px] font-medium uppercase tracking-[0.18em] lg:inline"
             >
               {{ isDark ? 'Dark' : 'Light' }}
             </span>
@@ -318,9 +430,7 @@ onBeforeUnmount(() => {
       >
         {{ board.status === 'error' ? 'Local board offline' : 'Opening board' }}
       </p>
-      <p
-        class="mt-2 font-serif text-xl text-stone-800 dark:text-zinc-200"
-      >
+      <p class="mt-2 font-serif text-xl text-stone-800 dark:text-zinc-200">
         {{
           board.status === 'error'
             ? '本地白板暂时无法打开'
@@ -348,9 +458,9 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <InboxShelf v-if="camera" :camera="camera" />
+  <InboxShelf v-if="camera" :key="workspace.activeBoardId" :camera="camera" />
 
-  <QuickCapture v-model:open="isCaptureOpen" />
+  <QuickCapture v-model:open="isCaptureOpen" :card="editingCard" />
 
   <ToastStack />
 </template>

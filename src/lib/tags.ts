@@ -35,10 +35,7 @@ export function normalizeTags(tags: Iterable<string>): string[] {
 
 /** Split a free-form tag input into individual tags. */
 export function splitTagInput(raw: string): string[] {
-  return raw
-    .split(TAG_SPLIT)
-    .map(normalizeTag)
-    .filter(Boolean)
+  return raw.split(TAG_SPLIT).map(normalizeTag).filter(Boolean)
 }
 
 /** Extract `#hashtag` tokens from arbitrary text. */

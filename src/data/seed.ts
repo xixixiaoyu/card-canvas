@@ -34,8 +34,7 @@ export const seedCards: Card[] = [
   {
     id: 'card-demo-002',
     title: '边界不是墙，是可移动的膜',
-    content:
-      '真正稳定的关系，不靠无限靠近，也不靠彻底隔离，而靠可协商的距离。',
+    content: '真正稳定的关系，不靠无限靠近，也不靠彻底隔离，而靠可协商的距离。',
     tags: ['心理学/边界', '关系'],
     createdAt: seededAt,
     updatedAt: seededAt,

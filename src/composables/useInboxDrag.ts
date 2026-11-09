@@ -82,9 +82,7 @@ export function useInboxDrag(options: UseInboxDragOptions) {
     if (!(target instanceof Element)) return false
 
     if (
-      target.closest(
-        '[data-inbox-ui], [data-canvas-ui], [data-quick-capture]',
-      )
+      target.closest('[data-inbox-ui], [data-canvas-ui], [data-quick-capture]')
     ) {
       return false
     }

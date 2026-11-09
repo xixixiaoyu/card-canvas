@@ -21,7 +21,9 @@ test('capture, inbox and drop survive a reload', async ({ page }) => {
   await inboxButton.click()
   const drawer = page.locator('#inbox-shelf')
   await expect(drawer).toBeVisible()
-  const drawerCard = drawer.locator('[data-inbox-card]').filter({ hasText: 'E2E 速记' })
+  const drawerCard = drawer
+    .locator('[data-inbox-card]')
+    .filter({ hasText: 'E2E 速记' })
   await expect(drawerCard).toHaveCount(1)
 
   const source = await drawerCard.boundingBox()
@@ -34,7 +36,9 @@ test('capture, inbox and drop survive a reload', async ({ page }) => {
   await page.mouse.move(drop.x, drop.y, { steps: 10 })
   await page.mouse.up()
 
-  const placed = page.locator('[data-world-item]').filter({ hasText: 'E2E 速记' })
+  const placed = page
+    .locator('[data-world-item]')
+    .filter({ hasText: 'E2E 速记' })
   await expect(placed).toHaveCount(1)
   await expect(inboxButton).toContainText('0')
 
@@ -45,5 +49,7 @@ test('capture, inbox and drop survive a reload', async ({ page }) => {
 
   await page.reload()
   await expect(page.locator('[data-world-item]')).toHaveCount(4)
-  await expect(page.locator('button[aria-label^="待整理池，"]')).toContainText('0')
+  await expect(page.locator('button[aria-label^="待整理池，"]')).toContainText(
+    '0',
+  )
 })
