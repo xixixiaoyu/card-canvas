@@ -23,6 +23,14 @@ const camera = computed<CanvasCamera | null>(
   () => stageRef.value?.camera ?? null,
 )
 
+const selectionAnnouncement = computed(() => {
+  const item = board.selectedItem
+  if (!item) return '未选中任何卡片'
+
+  const card = board.cards.find((entry) => entry.id === item.cardId)
+  return card ? `已选中：${card.title}` : '已选中卡片'
+})
+
 const databaseLabel = computed(() => {
   if (board.status === 'ready') return 'Dexie ready'
   if (board.status === 'error') return 'Dexie unavailable'
@@ -32,6 +40,7 @@ const databaseLabel = computed(() => {
 async function initializeBoard() {
   try {
     await board.initialize(workspace.activeBoardId)
+    board.startSync()
   } catch (error) {
     console.error('[card-canvas] Unable to initialize the board', error)
   }
@@ -103,9 +112,10 @@ onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeydown)
 })
 
-onBeforeUnmount(() =>
-  window.removeEventListener('keydown', handleGlobalKeydown),
-)
+onBeforeUnmount(() => {
+  board.stopSync()
+  window.removeEventListener('keydown', handleGlobalKeydown)
+})
 </script>
 
 <template>
@@ -115,6 +125,7 @@ onBeforeUnmount(() =>
     @background-pointerdown="board.clearSelection()"
   >
     <h1 class="sr-only">Card Canvas 无限白板</h1>
+    <p class="sr-only" aria-live="polite">{{ selectionAnnouncement }}</p>
 
     <CardNode
       v-for="(entry, index) in board.entries"
@@ -130,6 +141,7 @@ onBeforeUnmount(() =>
       @position-commit="
         board.commitItemPosition(entry.item.id, $event.x, $event.y)
       "
+      @nudge="board.nudgeItem(entry.item.id, $event.x, $event.y)"
     />
 
     <template #overlay>

@@ -24,6 +24,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: []
   positionCommit: [position: { x: number; y: number }]
+  nudge: [delta: { x: number; y: number }]
 }>()
 
 const identityCamera: CanvasCamera = {
@@ -54,6 +55,31 @@ const { isDragging, onPointerDown } = useCardDrag({
   onCommit: (position) => emit('positionCommit', position),
 })
 
+function handleKeydown(event: KeyboardEvent) {
+  if (event.target !== event.currentTarget) return
+
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('select')
+    return
+  }
+
+  const step = event.shiftKey ? 1 : 10
+  const delta = {
+    ArrowLeft: { x: -step, y: 0 },
+    ArrowRight: { x: step, y: 0 },
+    ArrowUp: { x: 0, y: -step },
+    ArrowDown: { x: 0, y: step },
+  }[event.key]
+
+  if (!delta) return
+
+  event.preventDefault()
+  event.stopPropagation()
+  emit('nudge', delta)
+}
+
 function tagTone(index: number) {
   return index % 2 === 0 ? 'tag-amber' : 'tag-sage'
 }
@@ -74,8 +100,12 @@ function tagTone(index: number) {
     }"
     :data-card-id="card.id"
     :aria-labelledby="titleId"
+    :aria-current="selected ? 'true' : undefined"
     data-world-item
+    tabindex="0"
     @pointerdown="onPointerDown"
+    @focus="emit('select')"
+    @keydown="handleKeydown"
     @dragstart.prevent
   >
     <div ref="liftEl" class="card-lift relative w-full">
@@ -212,6 +242,14 @@ function tagTone(index: number) {
 .card-node {
   z-index: 1;
   cursor: grab;
+  outline: none;
+}
+
+.card-node:focus-visible .card-surface {
+  border-color: var(--card-selected-border);
+  box-shadow:
+    var(--card-shadow-hover),
+    0 0 0 2px var(--card-selection-border);
 }
 
 .card-node.is-selected {

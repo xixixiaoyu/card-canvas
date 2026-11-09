@@ -35,6 +35,7 @@ const tags = ref<string[]>([])
 const tagDraft = ref('')
 const titleEl = ref<HTMLInputElement | null>(null)
 const contentEl = ref<HTMLTextAreaElement | null>(null)
+const panelEl = ref<HTMLElement | null>(null)
 
 let restoreFocus: HTMLElement | null = null
 let saveAttempt = 0
@@ -143,10 +144,53 @@ function save() {
   })
 }
 
+function setBackgroundInert(inert: boolean) {
+  const app = document.getElementById('app')
+  if (!app) return
+
+  if (inert) app.setAttribute('inert', '')
+  else app.removeAttribute('inert')
+}
+
+function trapTabFocus(event: KeyboardEvent) {
+  const panel = panelEl.value
+  if (!panel) return
+
+  const focusables = [
+    ...panel.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ].filter((element) => element.getClientRects().length > 0)
+
+  if (!focusables.length) return
+
+  const first = focusables[0]
+  const last = focusables[focusables.length - 1]
+  const active = document.activeElement
+
+  if (event.shiftKey) {
+    if (active === first || !panel.contains(active)) {
+      event.preventDefault()
+      last.focus()
+    }
+    return
+  }
+
+  if (active === last || !panel.contains(active)) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
 function handleWindowKeydown(event: KeyboardEvent) {
   if (!props.open) return
   // Let the IME cancel its own composition before Escape closes the modal.
   if (event.isComposing) return
+
+  if (event.key === 'Tab') {
+    trapTabFocus(event)
+    return
+  }
 
   if (event.key === 'Escape') {
     event.preventDefault()
@@ -171,20 +215,23 @@ watch(
         document.activeElement instanceof HTMLElement
           ? document.activeElement
           : null
+      setBackgroundInert(true)
       await nextTick()
       titleEl.value?.focus()
       return
     }
 
+    setBackgroundInert(false)
     restoreFocus?.focus()
     restoreFocus = null
   },
 )
 
 onMounted(() => window.addEventListener('keydown', handleWindowKeydown))
-onBeforeUnmount(() =>
-  window.removeEventListener('keydown', handleWindowKeydown),
-)
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleWindowKeydown)
+  setBackgroundInert(false)
+})
 </script>
 
 <template>
@@ -198,6 +245,7 @@ onBeforeUnmount(() =>
         @click.self="close"
       >
         <section
+          ref="panelEl"
           role="dialog"
           aria-modal="true"
           aria-labelledby="quick-capture-heading"

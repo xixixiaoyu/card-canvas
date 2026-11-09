@@ -2,6 +2,10 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { db } from '../db'
 import { seedBoardItems, seedCards } from '../data/seed'
+import {
+  broadcastWorkspaceChange,
+  subscribeWorkspaceChange,
+} from '../lib/tab-sync'
 import { normalizeTags } from '../lib/tags'
 import type { BoardItem, Card } from '../types'
 import { useToastStore } from './toast'
@@ -41,6 +45,9 @@ export const useBoardStore = defineStore('board', () => {
 
   let initialization: Promise<void> | null = null
   let loadedBoardId: string | null = null
+  let syncStarted = false
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
+  let unsubscribeSync: (() => void) | null = null
 
   const entries = computed<BoardEntry[]>(() => {
     const cardsById = new Map(cards.value.map((card) => [card.id, card]))
@@ -143,6 +150,7 @@ export const useBoardStore = defineStore('board', () => {
 
     try {
       await db.cards.put(card)
+      broadcastWorkspaceChange('cards')
     } catch (cause) {
       cards.value = cards.value.filter((entry) => entry.id !== card.id)
 
@@ -178,24 +186,97 @@ export const useBoardStore = defineStore('board', () => {
     items.value = [...items.value, item]
     selectItem(item.id)
 
-    void db.boardItems.put(item).catch((cause) => {
-      items.value = items.value.filter((entry) => entry.id !== item.id)
-      if (selectedItemId.value === item.id) selectedItemId.value = null
+    void db.boardItems
+      .put(item)
+      .then(() => broadcastWorkspaceChange('items', boardId))
+      .catch((cause) => {
+        items.value = items.value.filter((entry) => entry.id !== item.id)
+        if (selectedItemId.value === item.id) selectedItemId.value = null
 
-      console.error('[card-canvas] Unable to persist board item', cause)
-      useToastStore().push('投放未能写入本地库，已撤销。', {
-        tone: 'error',
-        action: {
-          label: '重试',
-          run: () => {
-            if (loadedBoardId !== boardId) return
-            placeCard(cardId, boardId, position)
+        console.error('[card-canvas] Unable to persist board item', cause)
+        useToastStore().push('投放未能写入本地库，已撤销。', {
+          tone: 'error',
+          action: {
+            label: '重试',
+            run: () => {
+              if (loadedBoardId !== boardId) return
+              placeCard(cardId, boardId, position)
+            },
           },
-        },
+        })
       })
-    })
 
     return item
+  }
+
+  function scheduleRefresh() {
+    if (refreshTimer !== null) return
+
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      void refreshFromDb()
+    }, 80)
+  }
+
+  async function refreshFromDb() {
+    const boardId = loadedBoardId
+    if (!boardId || status.value !== 'ready') return
+
+    try {
+      const [storedCards, storedItems] = await Promise.all([
+        db.cards.toArray(),
+        db.boardItems.where('boardId').equals(boardId).toArray(),
+      ])
+
+      if (loadedBoardId !== boardId || status.value !== 'ready') return
+
+      cards.value = storedCards
+        .filter((card) => !card.isDeleted)
+        .map((card) => ({ ...card, tags: normalizeTags(card.tags ?? []) }))
+      items.value = storedItems.sort((a, b) => a.id.localeCompare(b.id))
+
+      if (
+        selectedItemId.value &&
+        !items.value.some((item) => item.id === selectedItemId.value)
+      ) {
+        selectedItemId.value = null
+      }
+    } catch (cause) {
+      console.error('[card-canvas] Unable to refresh from another tab', cause)
+    }
+  }
+
+  function handleVisibilityChange() {
+    if (document.visibilityState === 'visible') scheduleRefresh()
+  }
+
+  /**
+   * Start cross-tab synchronisation once the board has hydrated. Keeping this
+   * explicit avoids subscribing in short-lived test stores.
+   */
+  function startSync() {
+    if (syncStarted) return
+    syncStarted = true
+
+    unsubscribeSync = subscribeWorkspaceChange((change) => {
+      if (!loadedBoardId) return
+      if (change.boardId && change.boardId !== loadedBoardId) return
+      scheduleRefresh()
+    })
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+  }
+
+  function stopSync() {
+    if (!syncStarted) return
+    syncStarted = false
+    unsubscribeSync?.()
+    unsubscribeSync = null
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+    if (refreshTimer !== null) {
+      clearTimeout(refreshTimer)
+      refreshTimer = null
+    }
   }
 
   function selectItem(itemId: string) {
@@ -204,6 +285,13 @@ export const useBoardStore = defineStore('board', () => {
 
   function clearSelection() {
     selectedItemId.value = null
+  }
+
+  function nudgeItem(itemId: string, dx: number, dy: number) {
+    const item = items.value.find((entry) => entry.id === itemId)
+    if (!item) return
+
+    commitItemPosition(itemId, item.x + dx, item.y + dy)
   }
 
   function commitItemPosition(itemId: string, x: number, y: number) {
@@ -215,23 +303,37 @@ export const useBoardStore = defineStore('board', () => {
 
     // One reactive store write per drop, then a single asynchronous DB update.
     items.value[index] = { ...item, x, y }
-    void db.boardItems.update(itemId, { x, y }).catch((cause) => {
-      console.error('[card-canvas] Unable to persist board item position', cause)
-      useToastStore().push('卡片位置未能写入本地库。', {
-        tone: 'error',
-        action: {
-          label: '重试',
-          run: () => {
-            void db.boardItems.update(itemId, { x, y }).catch((retryCause) => {
-              console.error(
-                '[card-canvas] Unable to persist board item position',
-                retryCause,
-              )
-            })
+    void db.boardItems
+      .update(itemId, { x, y })
+      .then(() => broadcastWorkspaceChange('items', loadedBoardId ?? undefined))
+      .catch((cause) => {
+        console.error(
+          '[card-canvas] Unable to persist board item position',
+          cause,
+        )
+        useToastStore().push('卡片位置未能写入本地库。', {
+          tone: 'error',
+          action: {
+            label: '重试',
+            run: () => {
+              void db.boardItems
+                .update(itemId, { x, y })
+                .then(() =>
+                  broadcastWorkspaceChange(
+                    'items',
+                    loadedBoardId ?? undefined,
+                  ),
+                )
+                .catch((retryCause) => {
+                  console.error(
+                    '[card-canvas] Unable to persist board item position',
+                    retryCause,
+                  )
+                })
+            },
           },
-        },
+        })
       })
-    })
   }
 
   return {
@@ -246,9 +348,13 @@ export const useBoardStore = defineStore('board', () => {
     inboxCards,
     inboxCount,
     initialize,
+    refresh: refreshFromDb,
+    startSync,
+    stopSync,
     selectItem,
     clearSelection,
     commitItemPosition,
+    nudgeItem,
     captureCard,
     placeCard,
   }

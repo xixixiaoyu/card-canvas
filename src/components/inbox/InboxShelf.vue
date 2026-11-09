@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import {
   GripVertical,
   Inbox,
@@ -9,6 +9,7 @@ import {
 } from '@lucide/vue'
 import CardNode from '../canvas/CardNode.vue'
 import { useBoardStore } from '../../stores/board'
+import { useToastStore } from '../../stores/toast'
 import { useWorkspaceStore } from '../../stores/workspace'
 import {
   GHOST_CARD_WIDTH,
@@ -24,9 +25,12 @@ const props = defineProps<{
 
 const board = useBoardStore()
 const workspace = useWorkspaceStore()
+const toast = useToastStore()
 
 const search = ref('')
 const activeTags = ref<string[]>([])
+const measureCard = ref<Card | null>(null)
+const measureEl = ref<HTMLElement | null>(null)
 
 const tagFrequency = computed(() => {
   const counts = new Map<string, number>()
@@ -136,6 +140,63 @@ const ghostItem = computed<BoardItem>(() => ({
   y: 0,
   width: GHOST_CARD_WIDTH,
 }))
+
+const measureItem = computed<BoardItem>(() => ({
+  id: 'projection-inbox-measure',
+  cardId: measureCard.value?.id ?? 'inbox-measure',
+  boardId: workspace.activeBoardId,
+  x: 0,
+  y: 0,
+  width: GHOST_CARD_WIDTH,
+}))
+
+/**
+ * Keyboard equivalent of the pointer drop: measure the real card offscreen,
+ * then place its center at the viewport center and move focus onto it.
+ */
+async function placeAtCenter(card: Card) {
+  if (measureCard.value) return
+
+  measureCard.value = card
+
+  try {
+    await nextTick()
+
+    const height = measureEl.value?.offsetHeight || 280
+    const rect = props.camera.getContainerRect()
+    if (!rect) return
+
+    const world = props.camera.screenToWorld(
+      {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      },
+      rect,
+    )
+
+    const placed = board.placeCard(card.id, workspace.activeBoardId, {
+      x: world.x - GHOST_CARD_WIDTH / 2,
+      y: world.y - height / 2,
+      width: GHOST_CARD_WIDTH,
+    })
+
+    if (!placed) return
+
+    toast.push(`已投放「${card.title}」到画布中心`, {
+      tone: 'success',
+      timeout: 2500,
+    })
+
+    await nextTick()
+    document
+      .querySelector<HTMLElement>(
+        `.canvas-world [data-world-item][data-card-id="${card.id}"]`,
+      )
+      ?.focus()
+  } finally {
+    measureCard.value = null
+  }
+}
 
 function bindGhostRef(element: unknown) {
   drag.setGhostElement(element)
@@ -288,9 +349,14 @@ function startDrag(event: PointerEvent, card: Card) {
                 'is-dragging opacity-40': draggingCardId === card.id,
               }"
               :data-card-id="card.id"
+              :aria-label="`${card.title}${card.tags.length ? `，标签 ${card.tags.join('、')}` : ''}。按 Enter 投放到画布中心`"
               data-inbox-card
               draggable="false"
+              role="button"
+              tabindex="0"
               @pointerdown="startDrag($event, card)"
+              @keydown.enter.prevent.stop="placeAtCenter(card)"
+              @keydown.space.prevent.stop="placeAtCenter(card)"
               @dragstart.prevent
             >
               <div class="flex items-start justify-between gap-2">
@@ -385,6 +451,16 @@ function startDrag(event: PointerEvent, card: Card) {
     </aside>
   </Transition>
 
+  <div ref="measureEl" class="inbox-measure" aria-hidden="true">
+    <CardNode
+      v-if="measureCard"
+      :item="measureItem"
+      :card="measureCard"
+      :selected="false"
+      index-label="MEASURE"
+    />
+  </div>
+
   <Teleport to="body">
     <div
       v-if="ghostCard"
@@ -431,8 +507,31 @@ function startDrag(event: PointerEvent, card: Card) {
 }
 
 .inbox-card {
-  touch-action: none;
+  touch-action: pan-y;
   -webkit-touch-callout: none;
+}
+
+.inbox-card:focus-visible {
+  outline: none;
+  border-color: rgba(168, 162, 158, 0.9);
+  box-shadow:
+    0 0 0 2px rgba(168, 162, 158, 0.35),
+    0 8px 24px -14px rgba(41, 37, 36, 0.3);
+}
+
+.inbox-measure {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  width: 420px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.inbox-measure :deep(.canvas-world-item) {
+  position: relative !important;
+  left: 0 !important;
+  top: 0 !important;
 }
 
 .inbox-card:active {

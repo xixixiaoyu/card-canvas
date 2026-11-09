@@ -48,6 +48,7 @@ export function useInboxDrag(options: UseInboxDragOptions) {
   let frameId = 0
   let startClient = { x: 0, y: 0 }
   let latestClient = { x: 0, y: 0 }
+  let touchPointer = false
 
   function setGhostElement(element: unknown) {
     ghostEl = element instanceof HTMLElement ? element : null
@@ -119,11 +120,17 @@ export function useInboxDrag(options: UseInboxDragOptions) {
     latestClient = { x: event.clientX, y: event.clientY }
 
     if (!armed) {
-      const distance = Math.hypot(
-        event.clientX - startClient.x,
-        event.clientY - startClient.y,
-      )
-      if (distance < DRAG_THRESHOLD) return
+      const dx = event.clientX - startClient.x
+      const dy = event.clientY - startClient.y
+
+      // Touch is allowed to keep its native vertical scroll; only a
+      // horizontal intent is promoted into a card drag.
+      if (touchPointer && Math.abs(dy) > Math.abs(dx) * 1.2) {
+        finish()
+        return
+      }
+
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return
       beginDrag()
     }
 
@@ -261,6 +268,7 @@ export function useInboxDrag(options: UseInboxDragOptions) {
     armed = false
     dropping = false
     cancelling = false
+    touchPointer = false
     ghostCard.value = null
     draggingCardId.value = null
     isDragging.value = false
@@ -272,9 +280,10 @@ export function useInboxDrag(options: UseInboxDragOptions) {
     if (cancelling) finish()
     if (activePointerId !== null || dropping) return
 
-    event.preventDefault()
+    if (event.pointerType !== 'touch') event.preventDefault()
     event.stopPropagation()
 
+    touchPointer = event.pointerType === 'touch'
     activePointerId = event.pointerId
     pendingCard = card
     startClient = { x: event.clientX, y: event.clientY }
