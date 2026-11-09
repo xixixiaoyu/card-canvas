@@ -1,23 +1,16 @@
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { Viewport } from '../types'
 
 /**
- * Workspace UI state. Persistent entities deliberately live in Dexie; this
- * store only keeps ephemeral viewport and selection state.
+ * Workspace UI state. Persistent entities live in Dexie; high-frequency
+ * viewport motion lives in useCanvas; this store only keeps board and
+ * selection state that changes at human speed.
  */
 export const useWorkspaceStore = defineStore('workspace', () => {
   const activeBoardId = ref('board-main')
   const activeBoardName = ref('未命名白板')
-  const viewport = ref<Viewport>({ panX: 0, panY: 0, scale: 1 })
   const selectedCardId = ref<string | null>(null)
   const isInboxOpen = ref(false)
-
-  const zoomLabel = computed(() => `${Math.round(viewport.value.scale * 100)}%`)
-
-  function resetViewport() {
-    viewport.value = { panX: 0, panY: 0, scale: 1 }
-  }
 
   function selectCard(cardId: string | null) {
     selectedCardId.value = cardId
@@ -34,11 +27,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   return {
     activeBoardId,
     activeBoardName,
-    viewport,
     selectedCardId,
     isInboxOpen,
-    zoomLabel,
-    resetViewport,
     selectCard,
     openInbox,
     closeInbox,

@@ -7,9 +7,11 @@ const props = withDefaults(
     card: Card
     highlights: CardHighlight[]
     indexLabel?: string
+    compact?: boolean
   }>(),
   {
     indexLabel: 'CARD / 001',
+    compact: false,
   },
 )
 
@@ -27,7 +29,9 @@ function tagTone(index: number) {
 <template>
   <article
     :aria-labelledby="titleId"
+    :data-card-id="card.id"
     class="note-card relative w-full overflow-hidden rounded-[26px] border border-stone-200/80 bg-white/95 shadow-note-light backdrop-blur-md dark:border-white/10 dark:bg-zinc-900/80 dark:shadow-note-dark"
+    :class="{ 'note-card--compact': compact }"
   >
     <!-- A hairline of light along the top edge keeps the paper feeling physical. -->
     <div
@@ -39,7 +43,7 @@ function tagTone(index: number) {
       aria-hidden="true"
     />
 
-    <div class="card-body relative p-6 sm:p-9">
+    <div class="card-body relative p-8">
       <header class="flex items-start justify-between gap-4">
         <div class="flex flex-wrap items-center gap-1.5">
           <span
@@ -59,15 +63,15 @@ function tagTone(index: number) {
         </span>
       </header>
 
-      <h1
+      <h2
         :id="titleId"
-        class="card-title mt-7 font-serif text-[clamp(1.4rem,6vw,1.65rem)] font-medium leading-[1.36] tracking-[-0.02em] text-stone-900 sm:text-[1.95rem] dark:text-zinc-100"
+        class="card-title mt-7 font-serif text-[1.7rem] font-medium leading-[1.36] tracking-[-0.02em] text-stone-900 dark:text-zinc-100"
       >
         {{ card.title }}
-      </h1>
+      </h2>
 
       <p
-        class="card-content mt-3.5 text-[0.875rem] leading-[1.9] text-stone-600 sm:text-[0.9375rem] dark:text-zinc-400"
+        class="card-content mt-3.5 text-[0.9375rem] leading-[1.9] text-stone-600 dark:text-zinc-400"
       >
         {{ card.content }}
       </p>
@@ -92,7 +96,7 @@ function tagTone(index: number) {
             {{ highlight.order }}
           </span>
           <p
-            class="card-highlight-text text-[0.8125rem] leading-6 text-stone-600 sm:text-sm dark:text-zinc-400"
+            class="card-highlight-text text-[0.8125rem] leading-6 text-stone-600 dark:text-zinc-400"
           >
             <span
               class="font-medium text-stone-800 dark:text-zinc-200"
@@ -133,67 +137,55 @@ function tagTone(index: number) {
 </template>
 
 <style scoped>
-@media (max-width: 420px) {
-  .card-index {
-    display: none;
-  }
+.note-card--compact {
+  border-radius: 22px;
 }
 
-@media (max-height: 720px) and (max-width: 640px) {
-  .card-body {
-    padding: 1.25rem;
-  }
-
-  .card-title {
-    margin-top: 1.1rem;
-    font-size: 1.35rem;
-  }
-
-  .card-content {
-    margin-top: 0.6rem;
-    font-size: 0.8125rem;
-    line-height: 1.7;
-  }
-
-  .card-divider {
-    margin-top: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  .card-highlights {
-    gap: 0.625rem;
-  }
-
-  .card-highlight {
-    gap: 0.75rem;
-  }
-
-  .card-highlight-icon {
-    width: 1.35rem;
-    height: 1.35rem;
-  }
-
-  .card-highlight-text {
-    font-size: 0.75rem;
-    line-height: 1.45rem;
-  }
-
-  .card-footer {
-    margin-top: 1rem;
-    padding-top: 0.75rem;
-  }
+.note-card--compact .card-body {
+  padding: 1.5rem;
 }
 
-@media (max-width: 340px) {
-  .card-title {
-    font-size: 1.2rem;
-    letter-spacing: -0.03em;
-  }
+.note-card--compact .card-index {
+  display: none;
 }
 
-@media (max-height: 620px) and (max-width: 380px) {
-  .card-footer {
-    display: none;
-  }
+.note-card--compact .card-title {
+  margin-top: 1.4rem;
+  font-size: 1.3rem;
+  letter-spacing: -0.03em;
+}
+
+.note-card--compact .card-content {
+  margin-top: 0.7rem;
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
+.note-card--compact .card-divider {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.note-card--compact .card-highlights {
+  gap: 0.625rem;
+}
+
+.note-card--compact .card-highlight {
+  gap: 0.75rem;
+}
+
+.note-card--compact .card-highlight-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.note-card--compact .card-highlight-text {
+  font-size: 0.75rem;
+  line-height: 1.45rem;
+}
+
+.note-card--compact .card-footer {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
 }
 </style>

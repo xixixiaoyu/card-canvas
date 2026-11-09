@@ -6,7 +6,7 @@ import CardNode from './components/canvas/CardNode.vue'
 import { useTheme } from './composables/useTheme'
 import { db } from './db'
 import { useWorkspaceStore } from './stores/workspace'
-import type { Card, CardHighlight } from './types'
+import type { BoardItem, Card, CardHighlight } from './types'
 
 const { isDark, toggleTheme } = useTheme()
 const workspace = useWorkspaceStore()
@@ -30,50 +30,157 @@ onMounted(async () => {
   }
 })
 
-const sampleCard: Card = {
-  id: 'card-demo-001',
-  title: '声音的支点，与防御的回声',
-  content:
-    '咽音不是把声音推得更响，而是让气息、共鸣与喉位重新协作。防御也一样：它保护自我，也悄悄决定哪些话不被说出口。',
-  tags: ['声乐/咽音', '心理学/防御机制'],
-  createdAt: 0,
-  updatedAt: 0,
+interface CanvasCard {
+  item: BoardItem
+  card: Card
+  highlights: CardHighlight[]
+  compact: boolean
+  indexLabel: string
+  focus?: boolean
 }
 
-const sampleHighlights: CardHighlight[] = [
+const canvasCards: CanvasCard[] = [
   {
-    order: '01',
-    label: '身体',
-    text: '抬软腭、沉喉位，让共鸣落在面罩，而不是挤在声带。',
+    item: {
+      id: 'projection-voice-001',
+      cardId: 'card-demo-001',
+      boardId: 'board-main',
+      x: -190,
+      y: -150,
+      width: 400,
+    },
+    card: {
+      id: 'card-demo-001',
+      title: '声音的支点，与防御的回声',
+      content:
+        '咽音不是把声音推得更响，而是让气息、共鸣与喉位重新协作。防御也一样：它保护自我，也悄悄决定哪些话不被说出口。',
+      tags: ['声乐/咽音', '心理学/防御机制'],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    highlights: [
+      {
+        order: '01',
+        label: '身体',
+        text: '抬软腭、沉喉位，让共鸣落在面罩，而不是挤在声带。',
+      },
+      {
+        order: '02',
+        label: '心理',
+        text: '防御像声音的“代偿”：短时保护，长期锁住真实表达。',
+      },
+      {
+        order: '03',
+        label: '练习',
+        text: '先呼气到尽头，再让声音落在气息上，保持三秒不塌。',
+      },
+    ],
+    compact: false,
+    indexLabel: 'CARD / 001',
+    focus: true,
   },
   {
-    order: '02',
-    label: '心理',
-    text: '防御像声音的“代偿”：短时保护，长期锁住真实表达。',
+    item: {
+      id: 'projection-boundary-002',
+      cardId: 'card-demo-002',
+      boardId: 'board-main',
+      x: -600,
+      y: -60,
+      width: 300,
+    },
+    card: {
+      id: 'card-demo-002',
+      title: '边界不是墙，是可移动的膜',
+      content:
+        '真正稳定的关系，不靠无限靠近，也不靠彻底隔离，而靠可协商的距离。',
+      tags: ['心理学/边界', '关系'],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    highlights: [
+      {
+        order: '01',
+        label: '识别',
+        text: '先分清“我的感受”与“你的责任”。',
+      },
+      {
+        order: '02',
+        label: '表达',
+        text: '用请求代替指责，让边界可以被听见。',
+      },
+    ],
+    compact: true,
+    indexLabel: 'CARD / 002',
   },
   {
-    order: '03',
-    label: '练习',
-    text: '先呼气到尽头，再让声音落在气息上，保持三秒不塌。',
+    item: {
+      id: 'projection-breath-003',
+      cardId: 'card-demo-003',
+      boardId: 'board-main',
+      x: 390,
+      y: 140,
+      width: 320,
+    },
+    card: {
+      id: 'card-demo-003',
+      title: '先让气息落下，再让声音升起',
+      content:
+        '高音不是向上够，而是让气息稳定下沉，把空间留给共鸣。',
+      tags: ['声乐/咽音', '练习'],
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    highlights: [
+      {
+        order: '01',
+        label: '坐稳',
+        text: '肩颈松开，肋骨保持弹性。',
+      },
+      {
+        order: '02',
+        label: '落气',
+        text: '呼气到尽头，再让声音落在气息上。',
+      },
+    ],
+    compact: true,
+    indexLabel: 'CARD / 003',
   },
 ]
 </script>
 
 <template>
   <CanvasStage>
-    <div class="relative flex h-full flex-col overflow-hidden">
+    <h1 class="sr-only">Card Canvas 无限白板</h1>
+
+    <div
+      v-for="entry in canvasCards"
+      :key="entry.item.id"
+      class="canvas-world-item"
+      :style="{
+        left: `${entry.item.x}px`,
+        top: `${entry.item.y}px`,
+        width: `${entry.item.width ?? 420}px`,
+      }"
+      :data-canvas-focus="entry.focus ? '' : undefined"
+      data-world-item
+    >
+      <CardNode
+        :card="entry.card"
+        :highlights="entry.highlights"
+        :compact="entry.compact"
+        :index-label="entry.indexLabel"
+      />
+    </div>
+
+    <template #overlay>
       <header
-        class="stage-header relative z-20 flex shrink-0 items-start justify-between gap-4 px-5 pb-2 pt-5 sm:px-8 sm:pb-3 sm:pt-7"
+        class="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 px-5 py-5 sm:px-8 sm:py-7"
       >
         <div class="flex items-center gap-3">
           <div
             class="relative flex h-9 w-9 items-center justify-center rounded-[11px] border border-stone-300/70 bg-white/60 text-stone-600 shadow-[0_1px_1px_rgba(41,37,36,0.04)] backdrop-blur-md dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
           >
-            <Layers2
-              :size="15"
-              :stroke-width="1.5"
-              aria-hidden="true"
-            />
+            <Layers2 :size="15" :stroke-width="1.5" aria-hidden="true" />
             <span
               class="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full border border-paper bg-amber-500/80 dark:border-zinc-950"
               aria-hidden="true"
@@ -86,16 +193,17 @@ const sampleHighlights: CardHighlight[] = [
               Card Canvas
             </p>
             <p
-              class="mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
+              class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 01 / Foundation
+              Phase 02 / Infinite Canvas
             </p>
           </div>
         </div>
 
         <button
           type="button"
-          class="group inline-flex h-10 items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 py-1 pl-1 pr-2.5 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
+          data-canvas-ui
+          class="pointer-events-auto group inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 py-1 pl-1 pr-2.5 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
           :aria-label="isDark ? '切换到浅色主题' : '切换到深色主题'"
           :aria-pressed="isDark"
           :title="isDark ? '切换到浅色主题' : '切换到深色主题'"
@@ -129,45 +237,8 @@ const sampleHighlights: CardHighlight[] = [
         </button>
       </header>
 
-      <main
-        class="stage-main relative flex min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-8 sm:py-6"
-      >
-        <div class="card-rig relative m-auto w-full max-w-[31rem]">
-          <!-- Ghost projections hint at the canvas without implementing it yet. -->
-          <div
-            class="ghost-card pointer-events-none absolute inset-x-3 inset-y-8 -rotate-[3.5deg] rounded-[26px] border border-stone-300/40 bg-white/25 shadow-[0_18px_50px_-30px_rgba(41,37,36,0.2)] dark:border-white/[0.05] dark:bg-white/[0.015] dark:shadow-none"
-            aria-hidden="true"
-          />
-          <div
-            class="ghost-card pointer-events-none absolute inset-x-1.5 inset-y-6 rotate-[1.6deg] rounded-[26px] border border-stone-300/30 bg-white/20 dark:border-white/[0.04] dark:bg-white/[0.01]"
-            aria-hidden="true"
-          />
-
-          <div class="relative z-10">
-            <div class="board-meta mb-3 flex items-center justify-between px-1">
-              <span
-                class="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
-              >
-                <span
-                  class="h-1 w-1 rounded-full bg-stone-400 dark:bg-zinc-500"
-                  aria-hidden="true"
-                />
-                Freeboard / Draft 01
-              </span>
-              <span
-                class="font-mono text-[9px] uppercase tracking-[0.16em] text-stone-500 dark:text-zinc-500"
-              >
-                {{ workspace.zoomLabel }}
-              </span>
-            </div>
-
-            <CardNode :card="sampleCard" :highlights="sampleHighlights" />
-          </div>
-        </div>
-      </main>
-
       <footer
-        class="stage-footer pointer-events-none relative z-20 flex shrink-0 items-center justify-between gap-6 px-5 pb-5 pt-2 font-mono text-[9px] uppercase tracking-[0.16em] text-stone-500 dark:text-zinc-500 sm:px-8 sm:pb-7 sm:pt-3"
+        class="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden items-center justify-between gap-6 px-8 pb-6 font-mono text-[9px] uppercase tracking-[0.16em] text-stone-500 dark:text-zinc-500 lg:flex"
       >
         <div class="flex items-center gap-2.5" aria-live="polite">
           <span class="relative flex h-1.5 w-1.5" aria-hidden="true">
@@ -185,20 +256,31 @@ const sampleHighlights: CardHighlight[] = [
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
         </div>
-        <div class="hidden items-center gap-4 sm:flex">
+
+        <div class="hidden items-center gap-3 xl:flex">
           <span>{{ workspace.activeBoardName }}</span>
           <span
             class="h-3 w-px bg-stone-300/70 dark:bg-white/10"
             aria-hidden="true"
           />
-          <span>Entity ↔ Projection</span>
+          <span>Scroll to pan</span>
+          <span class="text-stone-300 dark:text-zinc-700">·</span>
+          <span>Pinch to zoom</span>
+          <span class="text-stone-300 dark:text-zinc-700">·</span>
+          <span>Space + drag</span>
         </div>
       </footer>
-    </div>
+    </template>
   </CanvasStage>
 </template>
 
 <style scoped>
+@media (max-width: 380px) {
+  .brand-subtitle {
+    display: none;
+  }
+}
+
 .theme-icon-enter-active,
 .theme-icon-leave-active {
   transition:
@@ -214,41 +296,5 @@ const sampleHighlights: CardHighlight[] = [
 .theme-icon-leave-to {
   opacity: 0;
   transform: rotate(25deg) scale(0.8);
-}
-
-/* The main stage is the only possible scroll container: the page itself never
-   scrolls. Its scrollbar stays hidden to preserve the infinite-canvas illusion. */
-.stage-main {
-  scrollbar-width: none;
-}
-
-.stage-main::-webkit-scrollbar {
-  display: none;
-}
-
-@media (max-height: 720px) {
-  .stage-header {
-    padding-top: 0.9rem;
-    padding-bottom: 0.4rem;
-  }
-
-  .stage-main {
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
-  }
-
-  .stage-footer {
-    padding-top: 0.4rem;
-    padding-bottom: 0.9rem;
-  }
-}
-
-/* On unusually short screens, progressive disclosure keeps the note legible
-   instead of letting the chrome squeeze the canvas. */
-@media (max-height: 620px) and (max-width: 640px) {
-  .stage-footer,
-  .board-meta {
-    display: none;
-  }
 }
 </style>
