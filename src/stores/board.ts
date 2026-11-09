@@ -7,7 +7,7 @@ import {
   subscribeWorkspaceChange,
 } from '../lib/tab-sync'
 import { normalizeTags } from '../lib/tags'
-import type { BoardItem, Card } from '../types'
+import type { BoardItem, Card, Connection } from '../types'
 import { useToastStore } from './toast'
 
 export type BoardStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -69,7 +69,9 @@ function plainRecord<T>(value: T): T {
 export const useBoardStore = defineStore('board', () => {
   const cards = ref<Card[]>([])
   const items = ref<BoardItem[]>([])
+  const connections = ref<Connection[]>([])
   const selectedItemId = ref<string | null>(null)
+  const selectedConnectionId = ref<string | null>(null)
   const status = ref<BoardStatus>('idle')
   const error = ref<string | null>(null)
   const past = ref<HistoryEntry[]>([])
@@ -94,6 +96,13 @@ export const useBoardStore = defineStore('board', () => {
 
   const selectedItem = computed(
     () => items.value.find((item) => item.id === selectedItemId.value) ?? null,
+  )
+
+  const selectedConnection = computed(
+    () =>
+      connections.value.find(
+        (connection) => connection.id === selectedConnectionId.value,
+      ) ?? null,
   )
 
   const isHydrated = computed(() => status.value === 'ready')
@@ -140,6 +149,35 @@ export const useBoardStore = defineStore('board', () => {
     items.value = items.value.filter((item) => item.id !== itemId)
   }
 
+  function replaceLocalConnection(connection: Connection) {
+    const index = connections.value.findIndex(
+      (entry) => entry.id === connection.id,
+    )
+    connections.value =
+      index === -1
+        ? [...connections.value, connection]
+        : connections.value.map((entry) =>
+            entry.id === connection.id ? connection : entry,
+          )
+  }
+
+  function removeLocalConnection(connectionId: string) {
+    connections.value = connections.value.filter(
+      (connection) => connection.id !== connectionId,
+    )
+  }
+
+  function isSameCardPair(
+    first: Connection,
+    fromCardId: string,
+    toCardId: string,
+  ) {
+    return (
+      (first.fromCardId === fromCardId && first.toCardId === toCardId) ||
+      (first.fromCardId === toCardId && first.toCardId === fromCardId)
+    )
+  }
+
   function record(entry: Omit<HistoryEntry, 'id'>) {
     if (applyingHistory) return
 
@@ -162,14 +200,16 @@ export const useBoardStore = defineStore('board', () => {
   // --- bootstrap -----------------------------------------------------------
 
   async function readBoard(boardId: string) {
-    const [storedCards, storedItems] = await Promise.all([
+    const [storedCards, storedItems, storedConnections] = await Promise.all([
       db.cards.toArray(),
       db.boardItems.where('boardId').equals(boardId).toArray(),
+      db.connections.where('boardId').equals(boardId).toArray(),
     ])
 
     return {
       cards: storedCards.filter((card) => !card.isDeleted).map(normalizeCard),
       items: storedItems.sort((a, b) => a.id.localeCompare(b.id)),
+      connections: storedConnections.sort((a, b) => a.id.localeCompare(b.id)),
     }
   }
 
@@ -193,7 +233,9 @@ export const useBoardStore = defineStore('board', () => {
 
       cards.value = snapshot.cards
       items.value = snapshot.items
+      connections.value = snapshot.connections
       selectedItemId.value = null
+      selectedConnectionId.value = null
       activeBoardId.value = boardId
       past.value = []
       future.value = []
@@ -422,15 +464,37 @@ export const useBoardStore = defineStore('board', () => {
     if (!found) return false
 
     const item = plainRecord(found)
+    const relatedConnections = connectionsForCard(item.cardId)
 
     removeLocalItem(item.id)
+    for (const connection of relatedConnections) {
+      removeLocalConnection(connection.id)
+    }
     if (selectedItemId.value === item.id) selectedItemId.value = null
+    if (
+      selectedConnectionId.value &&
+      relatedConnections.some(
+        (connection) => connection.id === selectedConnectionId.value,
+      )
+    ) {
+      selectedConnectionId.value = null
+    }
 
     try {
-      await db.boardItems.delete(item.id)
+      await db.transaction('rw', db.boardItems, db.connections, async () => {
+        await db.boardItems.delete(item.id)
+        if (relatedConnections.length) {
+          await db.connections.bulkDelete(
+            relatedConnections.map((connection) => connection.id),
+          )
+        }
+      })
       broadcastWorkspaceChange('items', item.boardId)
     } catch (cause) {
       replaceLocalItem(item)
+      for (const connection of relatedConnections) {
+        replaceLocalConnection(connection)
+      }
 
       console.error('[card-canvas] Unable to unplace card', cause)
       notifyFailure('移出白板失败，卡片仍在画布上。')
@@ -440,14 +504,36 @@ export const useBoardStore = defineStore('board', () => {
     record({
       label: '移出白板',
       undo: async () => {
-        await db.boardItems.put(item)
+        await db.transaction('rw', db.boardItems, db.connections, async () => {
+          await db.boardItems.put(item)
+          if (relatedConnections.length) {
+            await db.connections.bulkPut(relatedConnections)
+          }
+        })
+
         replaceLocalItem(item)
+        for (const connection of relatedConnections) {
+          if (connection.boardId === activeBoardId.value) {
+            replaceLocalConnection(connection)
+          }
+        }
         selectItem(item.id)
         broadcastWorkspaceChange('items', item.boardId)
       },
       redo: async () => {
-        await db.boardItems.delete(item.id)
+        await db.transaction('rw', db.boardItems, db.connections, async () => {
+          await db.boardItems.delete(item.id)
+          if (relatedConnections.length) {
+            await db.connections.bulkDelete(
+              relatedConnections.map((connection) => connection.id),
+            )
+          }
+        })
+
         removeLocalItem(item.id)
+        for (const connection of relatedConnections) {
+          removeLocalConnection(connection.id)
+        }
         if (selectedItemId.value === item.id) selectedItemId.value = null
         broadcastWorkspaceChange('items', item.boardId)
       },
@@ -470,26 +556,67 @@ export const useBoardStore = defineStore('board', () => {
       .where('cardId')
       .equals(cardId)
       .toArray()
+    const [outgoing, incoming] = await Promise.all([
+      db.connections.where('fromCardId').equals(cardId).toArray(),
+      db.connections.where('toCardId').equals(cardId).toArray(),
+    ])
+    const relatedConnections = [
+      ...new Map(
+        [...outgoing, ...incoming].map((connection) => [
+          connection.id,
+          plainRecord(connection),
+        ]),
+      ).values(),
+    ]
     const localItems = items.value.filter((item) => item.cardId === cardId)
+    const localConnections = connections.value.filter(
+      (connection) =>
+        connection.fromCardId === cardId || connection.toCardId === cardId,
+    )
 
     removeLocalCard(cardId)
     for (const item of localItems) removeLocalItem(item.id)
+    for (const connection of localConnections) {
+      removeLocalConnection(connection.id)
+    }
     if (
       selectedItemId.value &&
       !items.value.some((item) => item.id === selectedItemId.value)
     ) {
       selectedItemId.value = null
     }
+    if (
+      selectedConnectionId.value &&
+      !connections.value.some(
+        (connection) => connection.id === selectedConnectionId.value,
+      )
+    ) {
+      selectedConnectionId.value = null
+    }
 
     try {
-      await db.transaction('rw', db.cards, db.boardItems, async () => {
-        await db.cards.put(deleted)
-        await db.boardItems.where('cardId').equals(cardId).delete()
-      })
+      await db.transaction(
+        'rw',
+        db.cards,
+        db.boardItems,
+        db.connections,
+        async () => {
+          await db.cards.put(deleted)
+          await db.boardItems.where('cardId').equals(cardId).delete()
+          if (relatedConnections.length) {
+            await db.connections.bulkDelete(
+              relatedConnections.map((connection) => connection.id),
+            )
+          }
+        },
+      )
       broadcastWorkspaceChange('all')
     } catch (cause) {
       replaceLocalCard(cardSnapshot)
       for (const item of localItems) replaceLocalItem(plainRecord(item))
+      for (const connection of localConnections) {
+        replaceLocalConnection(plainRecord(connection))
+      }
 
       console.error('[card-canvas] Unable to delete card', cause)
       notifyFailure('删除卡片失败，已恢复。')
@@ -502,32 +629,232 @@ export const useBoardStore = defineStore('board', () => {
         const restored: Card = { ...cardSnapshot }
         delete restored.isDeleted
 
-        await db.transaction('rw', db.cards, db.boardItems, async () => {
-          await db.cards.put(restored)
-          if (relatedItems.length) {
-            await db.boardItems.bulkPut(plainRecord(relatedItems))
-          }
-        })
+        await db.transaction(
+          'rw',
+          db.cards,
+          db.boardItems,
+          db.connections,
+          async () => {
+            await db.cards.put(restored)
+            if (relatedItems.length) {
+              await db.boardItems.bulkPut(plainRecord(relatedItems))
+            }
+            if (relatedConnections.length) {
+              await db.connections.bulkPut(relatedConnections)
+            }
+          },
+        )
 
         replaceLocalCard(restored)
         for (const item of relatedItems) {
           if (item.boardId === activeBoardId.value) replaceLocalItem(item)
         }
+        for (const connection of relatedConnections) {
+          if (connection.boardId === activeBoardId.value) {
+            replaceLocalConnection(connection)
+          }
+        }
         broadcastWorkspaceChange('all')
       },
       redo: async () => {
-        await db.transaction('rw', db.cards, db.boardItems, async () => {
-          await db.cards.put(deleted)
-          await db.boardItems.where('cardId').equals(cardId).delete()
-        })
+        await db.transaction(
+          'rw',
+          db.cards,
+          db.boardItems,
+          db.connections,
+          async () => {
+            await db.cards.put(deleted)
+            await db.boardItems.where('cardId').equals(cardId).delete()
+            if (relatedConnections.length) {
+              await db.connections.bulkDelete(
+                relatedConnections.map((connection) => connection.id),
+              )
+            }
+          },
+        )
 
         removeLocalCard(cardId)
         for (const item of relatedItems) removeLocalItem(item.id)
+        for (const connection of relatedConnections) {
+          removeLocalConnection(connection.id)
+        }
         broadcastWorkspaceChange('all')
       },
     })
 
     return true
+  }
+
+  // --- connections ---------------------------------------------------------
+
+  async function createConnection(
+    fromCardId: string,
+    toCardId: string,
+  ): Promise<Connection | null> {
+    const boardId = activeBoardId.value
+    if (!boardId) return null
+    if (fromCardId === toCardId) return null
+
+    const hasFrom = items.value.some((item) => item.cardId === fromCardId)
+    const hasTo = items.value.some((item) => item.cardId === toCardId)
+    if (!hasFrom || !hasTo) return null
+
+    if (
+      connections.value.some((connection) =>
+        isSameCardPair(connection, fromCardId, toCardId),
+      )
+    ) {
+      useToastStore().push('这两张卡片之间已有连线。', {
+        tone: 'info',
+        timeout: 2500,
+      })
+      return null
+    }
+
+    const connection: Connection = {
+      id: `connection-${crypto.randomUUID()}`,
+      boardId,
+      fromCardId,
+      toCardId,
+    }
+    const snapshot = plainRecord(connection)
+
+    replaceLocalConnection(connection)
+    selectConnection(connection.id)
+
+    try {
+      await db.connections.put(snapshot)
+      broadcastWorkspaceChange('connections', boardId)
+    } catch (cause) {
+      removeLocalConnection(connection.id)
+      if (selectedConnectionId.value === connection.id) {
+        selectedConnectionId.value = null
+      }
+
+      console.error('[card-canvas] Unable to persist connection', cause)
+      notifyFailure('连线未能写入本地库，已撤销。')
+      return null
+    }
+
+    record({
+      label: '建立连线',
+      undo: async () => {
+        await db.connections.delete(connection.id)
+        removeLocalConnection(connection.id)
+        if (selectedConnectionId.value === connection.id) {
+          selectedConnectionId.value = null
+        }
+        broadcastWorkspaceChange('connections', boardId)
+      },
+      redo: async () => {
+        await db.connections.put(snapshot)
+        replaceLocalConnection(snapshot)
+        selectConnection(snapshot.id)
+        broadcastWorkspaceChange('connections', boardId)
+      },
+    })
+
+    return connection
+  }
+
+  async function deleteConnection(connectionId: string): Promise<boolean> {
+    const found = connections.value.find(
+      (connection) => connection.id === connectionId,
+    )
+    if (!found) return false
+
+    const connection = plainRecord(found)
+
+    removeLocalConnection(connection.id)
+    if (selectedConnectionId.value === connection.id) {
+      selectedConnectionId.value = null
+    }
+
+    try {
+      await db.connections.delete(connection.id)
+      broadcastWorkspaceChange('connections', connection.boardId)
+    } catch (cause) {
+      replaceLocalConnection(connection)
+
+      console.error('[card-canvas] Unable to delete connection', cause)
+      notifyFailure('删除连线失败，已恢复。')
+      return false
+    }
+
+    record({
+      label: '删除连线',
+      undo: async () => {
+        await db.connections.put(connection)
+        replaceLocalConnection(connection)
+        selectConnection(connection.id)
+        broadcastWorkspaceChange('connections', connection.boardId)
+      },
+      redo: async () => {
+        await db.connections.delete(connection.id)
+        removeLocalConnection(connection.id)
+        if (selectedConnectionId.value === connection.id) {
+          selectedConnectionId.value = null
+        }
+        broadcastWorkspaceChange('connections', connection.boardId)
+      },
+    })
+
+    return true
+  }
+
+  async function updateConnectionLabel(
+    connectionId: string,
+    label: string,
+  ): Promise<Connection | null> {
+    const found = connections.value.find(
+      (connection) => connection.id === connectionId,
+    )
+    if (!found) return null
+
+    const normalized = label.trim() || undefined
+    if (found.label === normalized) return found
+
+    const before = plainRecord(found)
+    const after: Connection = { ...before, label: normalized }
+    if (normalized === undefined) delete after.label
+
+    replaceLocalConnection(after)
+
+    try {
+      await db.connections.put(after)
+      broadcastWorkspaceChange('connections', after.boardId)
+    } catch (cause) {
+      replaceLocalConnection(before)
+
+      console.error('[card-canvas] Unable to update connection label', cause)
+      notifyFailure('连线说明保存失败，已恢复。')
+      return null
+    }
+
+    record({
+      label: '编辑连线说明',
+      undo: async () => {
+        await db.connections.put(before)
+        replaceLocalConnection(before)
+        broadcastWorkspaceChange('connections', before.boardId)
+      },
+      redo: async () => {
+        await db.connections.put(after)
+        replaceLocalConnection(after)
+        broadcastWorkspaceChange('connections', after.boardId)
+      },
+    })
+
+    return after
+  }
+
+  function connectionsForCard(cardId: string) {
+    return connections.value
+      .filter(
+        (connection) =>
+          connection.fromCardId === cardId || connection.toCardId === cardId,
+      )
+      .map((connection) => plainRecord(connection))
   }
 
   // --- positioning ---------------------------------------------------------
@@ -656,12 +983,25 @@ export const useBoardStore = defineStore('board', () => {
         .filter((card) => !card.isDeleted)
         .map(normalizeCard)
       items.value = storedItems.sort((a, b) => a.id.localeCompare(b.id))
+      connections.value = await db.connections
+        .where('boardId')
+        .equals(boardId)
+        .toArray()
 
       if (
         selectedItemId.value &&
         !items.value.some((item) => item.id === selectedItemId.value)
       ) {
         selectedItemId.value = null
+      }
+
+      if (
+        selectedConnectionId.value &&
+        !connections.value.some(
+          (connection) => connection.id === selectedConnectionId.value,
+        )
+      ) {
+        selectedConnectionId.value = null
       }
     } catch (cause) {
       console.error('[card-canvas] Unable to refresh from another tab', cause)
@@ -702,18 +1042,28 @@ export const useBoardStore = defineStore('board', () => {
 
   function selectItem(itemId: string) {
     selectedItemId.value = itemId
+    selectedConnectionId.value = null
+  }
+
+  function selectConnection(connectionId: string) {
+    selectedConnectionId.value = connectionId
+    selectedItemId.value = null
   }
 
   function clearSelection() {
     selectedItemId.value = null
+    selectedConnectionId.value = null
   }
 
   return {
     cards,
     items,
+    connections,
     entries,
     selectedItemId,
     selectedItem,
+    selectedConnectionId,
+    selectedConnection,
     status,
     error,
     isHydrated,
@@ -730,6 +1080,7 @@ export const useBoardStore = defineStore('board', () => {
     startSync,
     stopSync,
     selectItem,
+    selectConnection,
     clearSelection,
     commitItemPosition,
     nudgeItem,
@@ -738,6 +1089,9 @@ export const useBoardStore = defineStore('board', () => {
     placeCard,
     unplaceItem,
     deleteCard,
+    createConnection,
+    deleteConnection,
+    updateConnectionLabel,
     undo,
     redo,
     clearHistory,

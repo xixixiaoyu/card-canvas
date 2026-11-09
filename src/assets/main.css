@@ -155,10 +155,6 @@
 
   .canvas-world-item {
     position: absolute;
-    /* Browser-native offscreen rendering skip; intrinsic size keeps fitting
-       approximate for boards far larger than the viewport. */
-    content-visibility: auto;
-    contain-intrinsic-size: auto 420px auto 300px;
   }
 
   .canvas-world,

@@ -5,9 +5,11 @@ import {
   useCanvas,
   type CanvasCamera,
 } from '../../composables/useCanvas'
+import { connectionKey, useConnection } from '../../composables/useConnection'
 import { readViewport, writeViewport } from '../../lib/view-state'
 import type { Viewport } from '../../types'
 import CanvasHUD from './CanvasHUD.vue'
+import ConnectionLayer from './ConnectionLayer.vue'
 
 const emit = defineEmits<{
   'background-pointerdown': []
@@ -86,6 +88,9 @@ const cameraApi: CanvasCamera = {
 }
 
 provide(canvasCameraKey, cameraApi)
+
+const connection = useConnection({ camera: cameraApi })
+provide(connectionKey, connection)
 
 function handleBackgroundPointerDown(event: PointerEvent) {
   if (event.button !== 0) return
@@ -227,6 +232,7 @@ defineExpose({
     <div class="canvas-noise absolute inset-0 z-0" aria-hidden="true" />
 
     <div ref="worldEl" class="canvas-world" data-canvas-world>
+      <ConnectionLayer />
       <slot />
     </div>
 

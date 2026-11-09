@@ -47,6 +47,19 @@ describe('workspace backup', () => {
     expect(await db.boardItems.count()).toBe(3)
   })
 
+  it('includes connections and restores them', async () => {
+    const board = await seed()
+    await board.createConnection(board.cards[0].id, board.cards[1].id)
+
+    const backup = await createBackup()
+    expect(backup.connections).toHaveLength(1)
+    expect(backup.connections[0].label).toBeUndefined()
+
+    await db.connections.clear()
+    await importBackupText(JSON.stringify(backup))
+    expect(await db.connections.count()).toBe(1)
+  })
+
   it('normalizes tags while importing and preserves projections', async () => {
     const payload = {
       app: 'card-canvas',

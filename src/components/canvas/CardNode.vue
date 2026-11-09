@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, inject, ref } from 'vue'
-import { Grip, Inbox, Pencil, Trash2 } from '@lucide/vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Grip, Inbox, Link2, Pencil, Trash2 } from '@lucide/vue'
+import { removeCardHeight, setCardHeight } from '../../lib/card-metrics'
 import { useCardDrag } from '../../composables/useCardDrag'
 import { canvasCameraKey, type CanvasCamera } from '../../composables/useCanvas'
+import { connectionKey } from '../../composables/useConnection'
 import type { BoardItem, Card } from '../../types'
 
 const props = withDefaults(
@@ -35,8 +37,31 @@ const identityCamera: CanvasCamera = {
 }
 
 const camera = inject(canvasCameraKey, identityCamera)
+const connection = inject(connectionKey, null)
 const rootEl = ref<HTMLElement | null>(null)
 const liftEl = ref<HTMLElement | null>(null)
+
+let resizeObserver: ResizeObserver | null = null
+
+function measureHeight() {
+  const height = rootEl.value?.offsetHeight
+  if (height) setCardHeight(props.item.id, height)
+}
+
+onMounted(() => {
+  measureHeight()
+
+  if (typeof ResizeObserver !== 'undefined' && rootEl.value) {
+    resizeObserver = new ResizeObserver(measureHeight)
+    resizeObserver.observe(rootEl.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  removeCardHeight(props.item.id)
+})
 
 const compact = computed(() => (props.item.width ?? 420) < 360)
 const highlights = computed(() => props.card.highlights ?? [])
@@ -44,6 +69,12 @@ const titleId = computed(() => `card-title-${props.card.id}`)
 const noteCountLabel = computed(
   () => `${highlights.value.length.toString().padStart(2, '0')} ATOMIC NOTES`,
 )
+
+function handleLinkPointerDown(event: PointerEvent) {
+  if (!connection) return
+
+  connection.beginDrag(event, props.item)
+}
 
 const { isDragging, onPointerDown } = useCardDrag({
   root: rootEl,
@@ -274,6 +305,26 @@ function tagTone(index: number) {
           </footer>
         </div>
       </div>
+
+      <button
+        v-if="connection"
+        type="button"
+        class="link-handle"
+        :class="{
+          'is-connecting':
+            connection.isConnecting.value &&
+            connection.fromItemId.value === item.id,
+        }"
+        data-card-interactive
+        :tabindex="selected ? 0 : -1"
+        :aria-hidden="selected ? undefined : 'true'"
+        aria-label="从卡片引线"
+        title="拖出连线"
+        @pointerdown.stop.prevent="handleLinkPointerDown"
+        @click.stop
+      >
+        <Link2 :size="11" :stroke-width="1.9" aria-hidden="true" />
+      </button>
     </div>
   </article>
 </template>
@@ -283,6 +334,64 @@ function tagTone(index: number) {
   z-index: 1;
   cursor: grab;
   outline: none;
+}
+
+.link-handle {
+  position: absolute;
+  top: 50%;
+  right: -0.8rem;
+  z-index: 5;
+  display: flex;
+  width: 1.45rem;
+  height: 1.45rem;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%) scale(0.9);
+  border-radius: 9999px;
+  border: 1px solid rgba(214, 211, 209, 0.9);
+  background: rgba(255, 255, 255, 0.88);
+  color: rgb(120 113 108);
+  opacity: 0;
+  pointer-events: none;
+  box-shadow:
+    0 1px 2px rgba(41, 37, 36, 0.08),
+    0 8px 20px -10px rgba(41, 37, 36, 0.3);
+  backdrop-filter: blur(10px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
+}
+
+.card-node.is-selected .link-handle {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%) scale(1);
+}
+
+.link-handle:hover,
+.link-handle.is-connecting {
+  border-color: rgba(217, 119, 6, 0.45);
+  color: rgb(180 83, 9);
+  transform: translateY(-50%) scale(1.06);
+}
+
+.link-handle:focus-visible {
+  outline: 2px solid rgba(217, 119, 6, 0.45);
+  outline-offset: 2px;
+}
+
+.dark .link-handle {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(24, 24, 27, 0.9);
+  color: rgb(161 161 170);
+}
+
+.dark .link-handle:hover,
+.dark .link-handle.is-connecting {
+  border-color: rgba(147, 197, 253, 0.42);
+  color: rgb(191, 219, 254);
 }
 
 .card-actions {
@@ -319,16 +428,16 @@ function tagTone(index: number) {
   color: rgb(190 18 60);
 }
 
-:global(.dark) .card-action {
+.dark .card-action {
   color: rgb(113 113 122);
 }
 
-:global(.dark) .card-action:hover {
+.dark .card-action:hover {
   background: rgba(255, 255, 255, 0.08);
   color: rgb(228 228 231);
 }
 
-:global(.dark) .card-action--danger:hover {
+.dark .card-action--danger:hover {
   background: rgba(136, 19, 55, 0.35);
   color: rgb(253 164 175);
 }

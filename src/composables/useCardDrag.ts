@@ -1,4 +1,5 @@
 import { nextTick, onBeforeUnmount, readonly, ref, type Ref } from 'vue'
+import { emitCardDragEnd, emitCardDragPosition } from '../lib/card-drag-bus'
 import type { BoardItem } from '../types'
 import type { CanvasCamera } from './useCanvas'
 
@@ -13,7 +14,7 @@ export interface UseCardDragOptions {
   /** Scaled lift wrapper; it scales around the exact grab point. */
   lift: Ref<HTMLElement | null>
   camera: CanvasCamera
-  getItem: () => Pick<BoardItem, 'id' | 'x' | 'y'>
+  getItem: () => Pick<BoardItem, 'id' | 'cardId' | 'x' | 'y'>
   ignoreSelector?: string
   onSelect?: () => void
   onCommit?: (position: CardDragPosition) => void
@@ -48,12 +49,31 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
   let containerRect: DOMRect | null = null
   let pendingDelta: CardDragPosition | null = null
   let frameId = 0
+  let dragItemId: string | null = null
+  let dragCardId: string | null = null
 
   function applyPendingTransform() {
     const root = options.root.value
     if (!root || !pendingDelta) return
 
     root.style.transform = `translate3d(${pendingDelta.x}px, ${pendingDelta.y}px, 0)`
+
+    if (dragItemId && dragCardId) {
+      emitCardDragPosition({
+        itemId: dragItemId,
+        cardId: dragCardId,
+        x: latestPosition.x,
+        y: latestPosition.y,
+      })
+    }
+  }
+
+  function emitDragEnd() {
+    if (!dragItemId || !dragCardId) return
+
+    emitCardDragEnd({ itemId: dragItemId, cardId: dragCardId })
+    dragItemId = null
+    dragCardId = null
   }
 
   function scheduleTransform() {
@@ -125,12 +145,14 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     if (activePointerId === null) {
       clearTransform()
       isDragging.value = false
+      emitDragEnd()
       return
     }
 
     finishPointer()
     clearTransform()
     isDragging.value = false
+    emitDragEnd()
   }
 
   function handleWindowPointerMove(event: PointerEvent) {
@@ -179,6 +201,7 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
 
     if (!wasDragging) {
       isDragging.value = false
+      emitDragEnd()
       return
     }
 
@@ -192,6 +215,7 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     } finally {
       root?.style.removeProperty('transform')
       pendingDelta = null
+      emitDragEnd()
     }
   }
 
@@ -244,6 +268,8 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     containerRect = options.camera.getContainerRect()
 
     const item = options.getItem()
+    dragItemId = item.id
+    dragCardId = item.cardId
     startItem = { x: item.x, y: item.y }
 
     const startWorld = options.camera.screenToWorld(

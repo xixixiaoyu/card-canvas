@@ -240,7 +240,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 05 / Hardening
+              Phase 06 / Connections
             </p>
           </div>
 

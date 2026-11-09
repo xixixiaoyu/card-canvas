@@ -197,6 +197,107 @@ describe('board store', () => {
     expect((await db.cards.get(card.id))?.isDeleted).toBeUndefined()
   })
 
+  it('creates a connection, rejects self/duplicates and persists it', async () => {
+    const board = await freshBoard()
+    const cardA = board.cards[0]
+    const cardB = board.cards[1]
+
+    const connection = await board.createConnection(cardA.id, cardB.id)
+    expect(connection).not.toBeNull()
+    expect(board.connections).toHaveLength(1)
+    expect(board.selectedConnectionId).toBe(connection!.id)
+    expect(await db.connections.get(connection!.id)).toMatchObject({
+      fromCardId: cardA.id,
+      toCardId: cardB.id,
+    })
+
+    expect(await board.createConnection(cardA.id, cardA.id)).toBeNull()
+    expect(await board.createConnection(cardA.id, cardB.id)).toBeNull()
+    expect(await board.createConnection(cardB.id, cardA.id)).toBeNull()
+    expect(board.connections).toHaveLength(1)
+    expect(useToastStore().toasts[0].tone).toBe('info')
+  })
+
+  it('deletes a connection and restores it with undo/redo', async () => {
+    const board = await freshBoard()
+    const connection = await board.createConnection(
+      board.cards[0].id,
+      board.cards[1].id,
+    )
+
+    expect(await board.deleteConnection(connection!.id)).toBe(true)
+    expect(board.connections).toHaveLength(0)
+    expect(await db.connections.get(connection!.id)).toBeUndefined()
+
+    await board.undo()
+    expect(board.connections).toHaveLength(1)
+    expect(await db.connections.get(connection!.id)).toBeDefined()
+
+    await board.redo()
+    expect(board.connections).toHaveLength(0)
+    expect(await db.connections.get(connection!.id)).toBeUndefined()
+  })
+
+  it('updates a connection label and supports undo', async () => {
+    const board = await freshBoard()
+    const connection = await board.createConnection(
+      board.cards[0].id,
+      board.cards[1].id,
+    )
+
+    const updated = await board.updateConnectionLabel(
+      connection!.id,
+      '  底层机制相同  ',
+    )
+    expect(updated?.label).toBe('底层机制相同')
+
+    await board.undo()
+    expect(board.connections[0].label).toBeUndefined()
+
+    await board.redo()
+    expect(board.connections[0].label).toBe('底层机制相同')
+  })
+
+  it('cascades connections when a card leaves the board and restores them on undo', async () => {
+    const board = await freshBoard()
+    const cardA = board.cards[0]
+    const cardB = board.cards[1]
+    const connection = await board.createConnection(cardA.id, cardB.id)
+    const item = board.items.find((entry) => entry.cardId === cardA.id)
+
+    expect(await board.unplaceItem(item!.id)).toBe(true)
+    expect(board.connections).toHaveLength(0)
+    expect(await db.connections.get(connection!.id)).toBeUndefined()
+
+    await board.undo()
+    expect(board.items).toHaveLength(3)
+    expect(board.connections).toHaveLength(1)
+    expect(await db.connections.get(connection!.id)).toBeDefined()
+
+    await board.redo()
+    expect(board.items).toHaveLength(2)
+    expect(board.connections).toHaveLength(0)
+  })
+
+  it('cascades connections when a card is deleted and restores them on undo', async () => {
+    const board = await freshBoard()
+    const cardA = board.cards[0]
+    const cardB = board.cards[1]
+    const connection = await board.createConnection(cardA.id, cardB.id)
+
+    expect(await board.deleteCard(cardA.id)).toBe(true)
+    expect(board.connections).toHaveLength(0)
+    expect(await db.connections.get(connection!.id)).toBeUndefined()
+
+    await board.undo()
+    expect(board.cards.map((entry) => entry.id)).toContain(cardA.id)
+    expect(board.connections).toHaveLength(1)
+    expect(await db.connections.get(connection!.id)).toBeDefined()
+
+    await board.redo()
+    expect(board.connections).toHaveLength(0)
+  })
+
   it('cleans orphan projections left by a partial database', async () => {
     await db.delete()
     await db.open()

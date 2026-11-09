@@ -60,11 +60,18 @@ describe('workspace store', () => {
       x: 0,
       y: 0,
     })
+    await db.connections.put({
+      id: 'connection-temp',
+      boardId: board.id,
+      fromCardId: 'card-x',
+      toCardId: 'card-y',
+    })
 
     expect(await workspace.deleteBoard(board.id)).toBe(true)
     expect(workspace.boards).toHaveLength(1)
     expect(workspace.activeBoardId).toBe('board-main')
     expect(await db.boardItems.get('projection-temp')).toBeUndefined()
+    expect(await db.connections.get('connection-temp')).toBeUndefined()
   })
 
   it('refuses to delete the last remaining board', async () => {

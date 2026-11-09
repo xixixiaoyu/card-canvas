@@ -1,8 +1,8 @@
 # Card Canvas
 
-卡片笔记与无限白板工具 · **Phase 05 / Hardening**
+卡片笔记与无限白板工具 · **Phase 06 / Connection Wire**
 
-Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 待整理池 → 2D 白板投放** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全。
+Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 待整理池 → 2D 白板投放** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统。
 
 ## 技术栈
 
@@ -26,7 +26,7 @@ pnpm dev
 pnpm format:check       # Prettier
 pnpm lint               # ESLint
 pnpm typecheck          # vue-tsc
-pnpm test               # Vitest：标签、坐标、store、历史、备份、弹窗、toast
+pnpm test               # Vitest：几何、连线、标签、坐标、store、历史、备份、弹窗
 pnpm test:e2e           # Playwright：投放 / 键盘 / 多标签 / 多白板 / 视口
 pnpm build              # typecheck + vite build
 pnpm preview
@@ -80,6 +80,16 @@ pnpm preview
   - `y = worldY - height / 2`
 - 投放后立即新增 `BoardItem`，差集自动把卡片从抽屉移除；刷新后位置从 Dexie 恢复
 
+## 认知连线（Connection Wire）
+
+- **静默**：卡片常态没有任何端口；仅在选中时右侧浮现一个轻量引线把手
+- **极速建线**：从把手拖出虚线，掠过目标卡片时出现 Snap Ring；在目标上松手即建线，空白处松手取消
+- **自动贴边**：比较两张卡片四条边中点，取距离最近的一对边缘自动吸附；曲线控制点按间距弹性展开
+- **可选语义**：双击连线（或选中后按 `Enter`）在线条中点输入关系说明；`Enter` / 失焦保存，`Esc` 取消
+- **选择与删除**：点击连线或用 `Tab` 聚焦选中，`Delete` / `Backspace` 删除；所有新增、删除、Label 修改都进入撤销栈
+- **级联**：卡片移出白板或删除时，关联连线同步清理；`⌘Z` 恢复卡片时会一并恢复连线与 Label
+- **抗缩放**：连线在卡片拖拽的 rAF 中通过事件总线直接更新 SVG `d`，不写 Pinia / Dexie；30% 与 250% 下端点漂移 < 1.5px
+
 ## 键盘与无障碍
 
 - **速记**：`⌘K` / `⌥N` 打开；`Tab` 焦点锁定在弹窗内，背景 `inert`；`Esc` 关闭
@@ -107,7 +117,7 @@ pnpm preview
 - 首次启动且 Dexie 为空时自动写入 3 张示例卡片与 3 个空间投影，并创建第一块白板
 - 部分数据损坏（投影指向不存在的卡片）会在启动时清理，避免孤儿记录
 - 速记只写 `cards`；投放只新增 `boardItems`，实体的 `updatedAt` 不被空间操作污染
-- 全量加载在数百张卡片内表现良好；Inbox 分页 30 条，画布卡片启用 `content-visibility`
+- 全量加载在数百张卡片内表现良好；Inbox 分页 30 条，连线为单一 SVG 世界层
 - 拖拽期间不写 Dexie，也不做大范围响应式更新
 
 ## 目录
@@ -119,7 +129,8 @@ src/
 │   ├── canvas/
 │   │   ├── CanvasStage.vue      # 视口容器、世界层、相机上下文与初始取景
 │   │   ├── CanvasHUD.vue        # 缩放 / 居中悬浮胶囊
-│   │   └── CardNode.vue         # 世界卡片、拖拽手柄、状态矩阵
+│   │   ├── CardNode.vue         # 世界卡片、拖拽手柄、引线把手
+│   │   └── ConnectionLayer.vue  # SVG 连线层、命中路径、Label 胶囊
 │   ├── board/
 │   │   └── BoardSwitcher.vue    # 多白板新建 / 重命名 / 切换 / 删除
 │   ├── capture/
@@ -132,12 +143,16 @@ src/
 ├── composables/
 │   ├── useCanvas.ts             # 相机、锚点缩放、坐标换算、手势状态机
 │   ├── useCardDrag.ts           # 卡片拖拽、死区、缩放补偿、落盘状态机
+│   ├── useConnection.ts         # 引线拖拽状态机、目标命中、键盘操作
 │   ├── useInboxDrag.ts          # 抽屉 → 画布 Pointer 拖拽、幽灵与投放换算
 │   └── useTheme.ts              # useDark + useToggle 主题管理
 ├── data/seed.ts                 # 首次启动示例数据
 ├── db/index.ts                  # Dexie 单例（v2：boards 表）
 ├── lib/
 │   ├── backup.ts                # 全量导出 / 导入与校验
+│   ├── card-drag-bus.ts         # 卡片拖拽帧事件 → 连线直接更新
+│   ├── card-metrics.ts          # 实测卡片世界高度 / 包围盒
+│   ├── geometry.ts              # 边缘中点匹配、贝塞尔、Label 中点
 │   ├── tab-sync.ts              # BroadcastChannel 跨标签页同步
 │   ├── tags.ts                  # 标签归一化 / 解析 / 合并
 │   └── view-state.ts            # 每块白板的视口持久化
@@ -162,6 +177,8 @@ e2e/                             # Playwright 端到端测试
 - **投放换算**：幽灵卡片按真实世界宽度布局，因此 `offsetHeight` 就是世界高度；落点用 `screenToWorld(clientX, clientY)` 后再减去半宽 / 半高，几何中心严格对齐光标。
 - **绝对不动点缩放**：缩放动画每一帧都以固定世界锚点重算 pan，而非只在 wheel 事件里计算一次。
 - **性能隔离**：卡片拖拽期间使用普通对象 + rAF + 直接 DOM transform；只有 `pointerup` 提交一次 Pinia 与一次 Dexie update。
+- **连线同轴**：SVG 直接挂在 World Layer；端点/控制点全部基于世界坐标，不在 SVG 层重复折算 scale；命中路径 20px、视觉线 1.5px 并使用 `non-scaling-stroke`。
+- **连线的动静分离**：拖拽卡片时通过 `card-drag-bus` 把首帧世界坐标推给 SVG 层，直接改 `d`；拖拽期间不写 Dexie、不触发深层响应式。
 - **响应式 → Dexie 边界**：所有写入前通过 `plainRecord` 深拷贝，避免把 Vue Proxy 交给 IndexedDB 结构化克隆。
 - **历史栈**：每个用户动作记录 `{ label, undo, redo }` 闭包，内存最多 50 步；撤销/重做本身不再入栈。
 - **跨标签页**：`BroadcastChannel` 广播 cards / items / boards 变更，接收端重读 IndexedDB；`visibilitychange` 兜底。

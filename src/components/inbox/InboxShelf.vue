@@ -162,7 +162,11 @@ async function handleImportFile(event: Event) {
 
   try {
     const counts = await importBackupFile(file)
-    await board.refresh()
+    const previousBoardId = workspace.activeBoardId
+    await workspace.loadBoards()
+    if (workspace.activeBoardId === previousBoardId) {
+      await board.refresh()
+    }
     broadcastWorkspaceChange('all')
     toast.push(`已导入 ${counts.cards} 张卡片、${counts.boardItems} 个投影。`, {
       tone: 'success',
@@ -719,13 +723,13 @@ function startDrag(event: PointerEvent, card: Card) {
     0 0 48px -16px rgba(217, 119, 6, 0.32);
 }
 
-:global(.dark) .inbox-ghost :deep(.card-surface) {
+.dark .inbox-ghost :deep(.card-surface) {
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.14),
     0 40px 90px -20px rgba(0, 0, 0, 0.9);
 }
 
-:global(.dark) .inbox-ghost.is-over-canvas :deep(.card-surface) {
+.dark .inbox-ghost.is-over-canvas :deep(.card-surface) {
   box-shadow:
     0 0 0 1px rgba(251, 191, 36, 0.46),
     0 46px 100px -20px rgba(0, 0, 0, 0.95),
