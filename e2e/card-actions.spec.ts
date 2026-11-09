@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('edits, unplaces, deletes and undoes card actions', async ({ page }) => {
+test('edits, deletes and undoes card actions', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
 
@@ -34,17 +34,7 @@ test('edits, unplaces, deletes and undoes card actions', async ({ page }) => {
   await expect(edited).toHaveCount(1)
 
   await edited.hover()
-  await edited.getByRole('button', { name: '移出白板' }).click()
-  await expect(page.locator('[data-world-item]')).toHaveCount(2)
-
-  await page.keyboard.press('Control+z')
-  await expect(page.locator('[data-world-item]')).toHaveCount(3)
-
-  const restored = page
-    .locator('[data-world-item]')
-    .filter({ hasText: 'E2E 编辑后的标题' })
-  await restored.hover()
-  await restored.getByRole('button', { name: '删除卡片' }).click()
+  await edited.getByRole('button', { name: '删除卡片' }).click()
   await expect(page.locator('[data-world-item]')).toHaveCount(2)
 
   await page.keyboard.press('Control+z')

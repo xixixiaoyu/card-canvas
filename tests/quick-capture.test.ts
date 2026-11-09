@@ -3,11 +3,19 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, nextTick, ref, type Ref } from 'vue'
 import QuickCapture from '../src/components/capture/QuickCapture.vue'
+import type { CanvasCamera } from '../src/composables/useCanvas'
 import { db } from '../src/db'
 import { useBoardStore } from '../src/stores/board'
 import { useToastStore } from '../src/stores/toast'
 
 let wrapper: VueWrapper | null = null
+
+const camera: CanvasCamera = {
+  getViewport: () => ({ panX: 0, panY: 0, scale: 1 }),
+  getContainerRect: () => new DOMRect(0, 0, 800, 600),
+  screenToWorld: (point) => point,
+  worldToScreen: (point) => point,
+}
 
 function mountOpenCapture(initial = true) {
   const pinia = createPinia()
@@ -18,6 +26,8 @@ function mountOpenCapture(initial = true) {
     setup: () => () =>
       h(QuickCapture, {
         open: open.value,
+        camera,
+        boardId: 'board-main',
         'onUpdate:open': (value: boolean) => {
           open.value = value
         },
@@ -79,7 +89,7 @@ describe('QuickCapture', () => {
     await db.delete()
   })
 
-  it('saves a normalized card, closes immediately and keeps it in the inbox', async () => {
+  it('saves a normalized card, closes immediately and places it on the canvas', async () => {
     const { open } = mountOpenCapture()
     expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
 
@@ -98,6 +108,9 @@ describe('QuickCapture', () => {
     const board = useBoardStore()
     expect(board.cards).toHaveLength(1)
     expect(board.cards[0].tags).toEqual(['设计', '捕获'])
+    expect(board.items).toHaveLength(1)
+    expect(board.items[0].cardId).toBe(board.cards[0].id)
+    expect(await db.boardItems.count()).toBe(1)
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 

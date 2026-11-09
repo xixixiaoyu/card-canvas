@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Inbox, Layers2, Moon, PenLine, Redo2, Sun, Undo2 } from '@lucide/vue'
+import { Layers2, Moon, PenLine, Redo2, Sun, Undo2 } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
 import BoardSwitcher from './components/board/BoardSwitcher.vue'
 import QuickCapture from './components/capture/QuickCapture.vue'
-import InboxShelf from './components/inbox/InboxShelf.vue'
+import DataMenu from './components/ui/DataMenu.vue'
 import ToastStack from './components/ui/ToastStack.vue'
 import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
@@ -77,17 +77,6 @@ function openEdit(card: Card) {
   isCaptureOpen.value = true
 }
 
-async function handleUnplace(itemId: string) {
-  const ok = await board.unplaceItem(itemId)
-  if (!ok) return
-
-  toast.push('已移回待整理池。', {
-    tone: 'info',
-    timeout: 3500,
-    action: { label: '撤销', run: () => board.undo() },
-  })
-}
-
 async function handleDelete(card: Card) {
   const ok = await board.deleteCard(card.id)
   if (!ok) return
@@ -97,11 +86,6 @@ async function handleDelete(card: Card) {
     timeout: 5000,
     action: { label: '撤销', run: () => board.undo() },
   })
-}
-
-function toggleInbox() {
-  if (workspace.isInboxOpen) workspace.closeInbox()
-  else workspace.openInbox()
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -123,17 +107,6 @@ function isEditableTarget(target: EventTarget | null) {
 
 function handleGlobalKeydown(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing) return
-
-  if (event.key === 'Escape') {
-    if (
-      !isCaptureOpen.value &&
-      workspace.isInboxOpen &&
-      !isEditableTarget(event.target)
-    ) {
-      workspace.closeInbox()
-    }
-    return
-  }
 
   if (isCaptureOpen.value) return
   // Never steal shortcuts from inputs, textareas or future inline editors.
@@ -213,7 +186,6 @@ onBeforeUnmount(() => {
       "
       @nudge="board.nudgeItem(entry.item.id, $event.x, $event.y)"
       @edit="openEdit(entry.card)"
-      @unplace="handleUnplace(entry.item.id)"
       @delete="handleDelete(entry.card)"
     />
 
@@ -240,7 +212,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 06 / Connections
+              Phase 07 / Immediate Capture
             </p>
           </div>
 
@@ -302,29 +274,7 @@ onBeforeUnmount(() => {
             </kbd>
           </button>
 
-          <button
-            type="button"
-            data-canvas-ui
-            class="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 pl-3 pr-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-stone-600 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
-            :aria-expanded="workspace.isInboxOpen"
-            :aria-controls="workspace.isInboxOpen ? 'inbox-shelf' : undefined"
-            :aria-label="`待整理池，${board.inboxCount} 张未上板`"
-            title="待整理池"
-            @click="toggleInbox()"
-          >
-            <Inbox :size="14" :stroke-width="1.7" aria-hidden="true" />
-            <span class="hidden md:inline">待整理</span>
-            <span
-              class="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 font-mono text-[9px] font-normal tracking-normal transition-colors"
-              :class="
-                board.inboxCount > 0
-                  ? 'bg-amber-600 text-white dark:bg-amber-500 dark:text-zinc-950'
-                  : 'bg-stone-200/70 text-stone-500 dark:bg-white/[0.06] dark:text-zinc-500'
-              "
-            >
-              {{ board.inboxCount > 99 ? '99+' : board.inboxCount }}
-            </span>
-          </button>
+          <DataMenu />
 
           <button
             type="button"
@@ -458,9 +408,12 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <InboxShelf v-if="camera" :key="workspace.activeBoardId" :camera="camera" />
-
-  <QuickCapture v-model:open="isCaptureOpen" :card="editingCard" />
+  <QuickCapture
+    v-model:open="isCaptureOpen"
+    :card="editingCard"
+    :camera="camera"
+    :board-id="workspace.activeBoardId"
+  />
 
   <ToastStack />
 </template>

@@ -8,6 +8,8 @@ import {
   sameTag,
   splitTagInput,
 } from '../../lib/tags'
+import { getItemRect } from '../../lib/card-metrics'
+import type { CanvasCamera } from '../../composables/useCanvas'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
 import type { Card } from '../../types'
@@ -15,6 +17,8 @@ import type { Card } from '../../types'
 const props = defineProps<{
   open: boolean
   card?: Card | null
+  camera?: CanvasCamera | null
+  boardId?: string
 }>()
 
 const emit = defineEmits<{
@@ -94,6 +98,118 @@ function close() {
   emit('update:open', false)
 }
 
+/**
+ * Immediate-capture flow: find a comfortable empty slot near the viewport
+ * center, keeping the new card on screen and away from existing cards when
+ * possible. A crowded board falls back to a small cascade at the center.
+ */
+function estimateCaptureHeight() {
+  const titleLines = Math.max(1, Math.ceil(title.value.trim().length / 13))
+  const contentLines = content.value
+    .trim()
+    .split('\n')
+    .reduce(
+      (total, line) => total + Math.max(1, Math.ceil(line.length / 23)),
+      0,
+    )
+
+  return Math.min(
+    560,
+    Math.max(
+      280,
+      220 + titleLines * 37 + contentLines * 29 + (tags.value.length ? 28 : 0),
+    ),
+  )
+}
+
+function buildPlacement() {
+  const width = 420
+  const reservedHeight = estimateCaptureHeight()
+  const rect = props.camera?.getContainerRect() ?? null
+
+  if (!rect) return { x: 0, y: 0, width }
+
+  const camera = props.camera!
+  const topLeft = camera.screenToWorld({ x: rect.left, y: rect.top }, rect)
+  const bottomRight = camera.screenToWorld(
+    { x: rect.left + rect.width, y: rect.top + rect.height },
+    rect,
+  )
+  const center = camera.screenToWorld(
+    {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    },
+    rect,
+  )
+  const viewport = {
+    left: topLeft.x,
+    top: topLeft.y + 88,
+    right: bottomRight.x,
+    bottom: bottomRight.y - 96,
+  }
+  const xs = [
+    viewport.left + 48,
+    viewport.right - width - 48,
+    (viewport.left + viewport.right - width) / 2,
+  ]
+  const ys = [
+    viewport.top,
+    viewport.bottom - reservedHeight,
+    (viewport.top + viewport.bottom - reservedHeight) / 2,
+  ]
+  const existing = board.items.map((item) => getItemRect(item))
+
+  const candidates = xs
+    .flatMap((x) => ys.map((y) => ({ x, y })))
+    .sort(
+      (a, b) =>
+        Math.hypot(
+          a.x + width / 2 - center.x,
+          a.y + reservedHeight / 2 - center.y,
+        ) -
+        Math.hypot(
+          b.x + width / 2 - center.x,
+          b.y + reservedHeight / 2 - center.y,
+        ),
+    )
+
+  let best = candidates[0]
+  let bestOverlap = Number.POSITIVE_INFINITY
+
+  for (const candidate of candidates) {
+    const next = {
+      x: candidate.x,
+      y: candidate.y,
+      width,
+      height: reservedHeight,
+    }
+    let overlapArea = 0
+
+    for (const item of existing) {
+      const overlapWidth = Math.max(
+        0,
+        Math.min(next.x + next.width, item.x + item.width) -
+          Math.max(next.x, item.x),
+      )
+      const overlapHeight = Math.max(
+        0,
+        Math.min(next.y + next.height, item.y + item.height) -
+          Math.max(next.y, item.y),
+      )
+      overlapArea += overlapWidth * overlapHeight
+    }
+
+    if (overlapArea === 0) return { x: candidate.x, y: candidate.y, width }
+    if (overlapArea < bestOverlap) {
+      best = candidate
+      bestOverlap = overlapArea
+    }
+  }
+
+  return { x: best.x, y: best.y, width }
+}
+
 function save() {
   if (!canSave.value) return
 
@@ -120,6 +236,7 @@ function save() {
   }
   const attempt = ++saveAttempt
   const editingCard = props.card
+  const placement = buildPlacement()
 
   // Store publishes the card synchronously and persists in the background;
   // the modal closes before IndexedDB resolves. If the write fails, the draft
@@ -140,7 +257,7 @@ function save() {
     }
 
     toast.push(
-      editingCard ? '卡片更新失败，草稿已恢复。' : '速记保存失败，草稿已恢复。',
+      editingCard ? '卡片更新失败，草稿已恢复。' : '速记上板失败，草稿已恢复。',
       { tone: 'error' },
     )
   }
@@ -152,7 +269,9 @@ function save() {
     return
   }
 
-  void board.captureCard(draft).catch(restoreAfterFailure)
+  void board
+    .captureAndPlace(draft, props.boardId || 'board-main', placement)
+    .catch(restoreAfterFailure)
 }
 
 function setBackgroundInert(inert: boolean) {
@@ -205,8 +324,8 @@ function handleWindowKeydown(event: KeyboardEvent) {
 
   if (event.key === 'Escape') {
     event.preventDefault()
-    // The modal owns Escape; stop the app-level handler from also closing the
-    // inbox drawer in the same keystroke.
+    // The modal owns Escape; stop the app-level handler from also reacting to
+    // the same keystroke.
     event.stopImmediatePropagation()
     close()
     return
@@ -304,7 +423,7 @@ onBeforeUnmount(() => {
                   {{
                     isEditing
                       ? 'Edit · 更新内容与标签'
-                      : 'Quick Capture · 不打断心流'
+                      : 'Quick Capture · 保存即上板'
                   }}
                 </p>
               </div>
@@ -336,7 +455,7 @@ onBeforeUnmount(() => {
               ref="contentEl"
               v-model="content"
               rows="5"
-              placeholder="捕捉一个念头、一段引用或一条待整理的知识…"
+              placeholder="捕捉一个念头、一段引用或一条未成形的知识…"
               aria-label="卡片正文"
               class="mt-4 w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-[1.85] text-stone-700 caret-amber-600 outline-none placeholder:text-stone-400/90 dark:text-zinc-300 dark:caret-amber-400 dark:placeholder:text-zinc-600"
             />
@@ -386,7 +505,7 @@ onBeforeUnmount(() => {
               >
                 ⌘↵
               </kbd>
-              <span>保存</span>
+              <span>{{ isEditing ? '保存' : '上板' }}</span>
               <span class="text-stone-300 dark:text-zinc-700">·</span>
               <kbd
                 class="rounded-md border border-stone-200/80 bg-white/70 px-1.5 py-0.5 text-[9px] tracking-normal text-stone-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400"
@@ -411,7 +530,7 @@ onBeforeUnmount(() => {
                 :stroke-width="1.8"
                 aria-hidden="true"
               />
-              {{ isEditing ? '保存修改' : '保存卡片' }}
+              {{ isEditing ? '保存修改' : '保存并上板' }}
             </button>
           </footer>
         </section>

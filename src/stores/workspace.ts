@@ -20,7 +20,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const boards = ref<Board[]>([])
   const activeBoardId = ref(DEFAULT_BOARD_ID)
   const selectedCardId = ref<string | null>(null)
-  const isInboxOpen = ref(false)
   const status = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 
   let loading: Promise<void> | null = null
@@ -187,21 +186,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     selectedCardId.value = cardId
   }
 
-  function openInbox() {
-    isInboxOpen.value = true
-  }
-
-  function closeInbox() {
-    isInboxOpen.value = false
-  }
-
   return {
     boards,
     activeBoardId,
     activeBoard,
     activeBoardName,
     selectedCardId,
-    isInboxOpen,
     status,
     loadBoards,
     switchBoard,
@@ -211,7 +201,5 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     startSync,
     stopSync,
     selectCard,
-    openInbox,
-    closeInbox,
   }
 })

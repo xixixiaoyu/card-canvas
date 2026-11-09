@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Grip, Inbox, Link2, Pencil, Trash2 } from '@lucide/vue'
+import { Grip, Link2, Pencil, Trash2 } from '@lucide/vue'
 import { removeCardHeight, setCardHeight } from '../../lib/card-metrics'
 import { useCardDrag } from '../../composables/useCardDrag'
 import { canvasCameraKey, type CanvasCamera } from '../../composables/useCanvas'
@@ -25,7 +25,6 @@ const emit = defineEmits<{
   positionCommit: [position: { x: number; y: number }]
   nudge: [delta: { x: number; y: number }]
   edit: []
-  unplace: []
   delete: []
 }>()
 
@@ -184,17 +183,6 @@ function tagTone(index: number) {
                   @click.stop="emit('edit')"
                 >
                   <Pencil :size="11" :stroke-width="1.7" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  class="card-action"
-                  data-card-interactive
-                  aria-label="移出白板"
-                  title="移出白板"
-                  @pointerdown.stop
-                  @click.stop="emit('unplace')"
-                >
-                  <Inbox :size="11" :stroke-width="1.7" aria-hidden="true" />
                 </button>
                 <button
                   type="button"

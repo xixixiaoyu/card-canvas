@@ -30,21 +30,3 @@ test('capture traps focus and cards are keyboard movable', async ({ page }) => {
   expect(after).not.toBeNull()
   expect(after!.x - before!.x).toBeGreaterThan(4)
 })
-
-test('drawer search Escape clears first, then closes', async ({ page }) => {
-  await page.goto('/')
-  await expect(page.locator('[data-world-item]')).toHaveCount(3)
-
-  await page.locator('button[aria-label^="待整理池，"]').click()
-  const drawer = page.locator('#inbox-shelf')
-  await expect(drawer).toBeVisible()
-
-  const search = page.getByLabel('搜索待整理卡片')
-  await search.fill('不存在的词')
-  await search.press('Escape')
-  await expect(search).toHaveValue('')
-  await expect(drawer).toBeVisible()
-
-  await search.press('Escape')
-  await expect(drawer).toBeHidden()
-})

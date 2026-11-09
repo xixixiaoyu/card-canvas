@@ -4,16 +4,17 @@ test('exports a backup and imports a card file', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
 
-  await page.locator('button[aria-label^="待整理池，"]').click()
-  await expect(page.locator('#inbox-shelf')).toBeVisible()
+  const dataButton = page.getByRole('button', { name: '数据与备份' })
+  await dataButton.click()
 
   const downloadPromise = page.waitForEvent('download')
-  await page.locator('button[aria-label="导出工作区备份"]').click()
+  await page.getByRole('menuitem', { name: /导出工作区备份/ }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toMatch(
     /^card-canvas-backup-\d{4}-\d{2}-\d{2}\.json$/,
   )
 
+  await dataButton.click()
   const backup = {
     app: 'card-canvas',
     version: 1,
@@ -39,11 +40,8 @@ test('exports a backup and imports a card file', async ({ page }) => {
   })
 
   const imported = page
-    .locator('[data-inbox-card]')
+    .locator('[data-world-item]')
     .filter({ hasText: '导入的卡片' })
   await expect(imported).toHaveCount(1)
-  await expect(page.locator('[data-world-item]')).toHaveCount(3)
-  await expect(page.locator('button[aria-label^="待整理池，"]')).toContainText(
-    '1',
-  )
+  await expect(page.locator('[data-world-item]')).toHaveCount(4)
 })

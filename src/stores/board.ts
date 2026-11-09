@@ -107,17 +107,6 @@ export const useBoardStore = defineStore('board', () => {
 
   const isHydrated = computed(() => status.value === 'ready')
 
-  const placedCardIds = computed(
-    () => new Set(items.value.map((item) => item.cardId)),
-  )
-
-  const inboxCards = computed(() =>
-    cards.value
-      .filter((card) => !placedCardIds.value.has(card.id))
-      .sort((a, b) => b.createdAt - a.createdAt),
-  )
-
-  const inboxCount = computed(() => inboxCards.value.length)
   const canUndo = computed(() => past.value.length > 0)
   const canRedo = computed(() => future.value.length > 0)
   const undoLabel = computed(() => past.value.at(-1)?.label ?? '')
@@ -214,6 +203,61 @@ export const useBoardStore = defineStore('board', () => {
   }
 
   /**
+   * Legacy/unplaced cards must not become invisible after the inbox removal.
+   * Any card with no projection on any board is placed on the active board in
+   * a deterministic grid to the right of existing content.
+   */
+  async function placeMissingCards(
+    boardId: string,
+    liveCards: Card[],
+  ): Promise<BoardItem[]> {
+    try {
+      // Read + write inside one transaction so concurrent loads/refreshes
+      // cannot create duplicate projections for the same legacy card.
+      const snapshots = await db.transaction('rw', db.boardItems, async () => {
+        const allItems = await db.boardItems.toArray()
+        const placedCardIds = new Set(allItems.map((item) => item.cardId))
+        const missing = liveCards.filter((card) => !placedCardIds.has(card.id))
+        if (!missing.length) return [] as BoardItem[]
+
+        const activeItems = allItems.filter((item) => item.boardId === boardId)
+        const baseX = activeItems.length
+          ? Math.max(
+              ...activeItems.map(
+                (item) => item.x + (item.width ?? DEFAULT_CARD_WIDTH),
+              ),
+            ) + 120
+          : 0
+        const baseY = activeItems.length
+          ? Math.min(...activeItems.map((item) => item.y))
+          : -150
+
+        const created: BoardItem[] = missing.map((card, index) => ({
+          id: `projection-${crypto.randomUUID()}`,
+          cardId: card.id,
+          boardId,
+          x: baseX + (index % 2) * 460,
+          y: baseY + Math.floor(index / 2) * 340,
+          width: DEFAULT_CARD_WIDTH,
+        }))
+        const next = plainRecord(created)
+
+        await db.boardItems.bulkPut(next)
+        return next
+      })
+
+      if (snapshots.length) {
+        broadcastWorkspaceChange('items', boardId)
+      }
+
+      return snapshots
+    } catch (cause) {
+      console.error('[card-canvas] Unable to place unplaced cards', cause)
+      return []
+    }
+  }
+
+  /**
    * Switch the store to another board without re-seeding. Status flips to
    * `loading` so the stage unmounts, fits the new board and restores its own
    * saved viewport instead of briefly framing the previous board.
@@ -231,8 +275,13 @@ export const useBoardStore = defineStore('board', () => {
       const snapshot = await readBoard(boardId)
       if (token !== loadToken) return
 
+      const migrated = await placeMissingCards(boardId, snapshot.cards)
+      if (token !== loadToken) return
+
       cards.value = snapshot.cards
-      items.value = snapshot.items
+      items.value = [...snapshot.items, ...migrated].sort((a, b) =>
+        a.id.localeCompare(b.id),
+      )
       connections.value = snapshot.connections
       selectedItemId.value = null
       selectedConnectionId.value = null
@@ -308,9 +357,10 @@ export const useBoardStore = defineStore('board', () => {
 
   // --- capture -------------------------------------------------------------
 
-  async function captureCard(input: CaptureCardInput): Promise<Card> {
+  function buildCard(input: CaptureCardInput): Card {
     const now = Date.now()
-    const card: Card = {
+
+    return {
       id: `card-${crypto.randomUUID()}`,
       title: input.title.trim(),
       content: input.content.trim(),
@@ -318,6 +368,10 @@ export const useBoardStore = defineStore('board', () => {
       createdAt: now,
       updatedAt: now,
     }
+  }
+
+  async function captureCard(input: CaptureCardInput): Promise<Card> {
+    const card = buildCard(input)
 
     replaceLocalCard(card)
 
@@ -348,6 +402,77 @@ export const useBoardStore = defineStore('board', () => {
     })
 
     return card
+  }
+
+  /**
+   * Capture and place in one atomic user action. With the inbox removed, a
+   * captured card must always land on the active board.
+   */
+  async function captureAndPlace(
+    input: CaptureCardInput,
+    boardId: string,
+    position: PlaceCardPosition,
+  ): Promise<{ card: Card; item: BoardItem }> {
+    if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+      throw new Error('Invalid placement position')
+    }
+
+    const card = buildCard(input)
+    const item: BoardItem = {
+      id: `projection-${crypto.randomUUID()}`,
+      cardId: card.id,
+      boardId,
+      x: position.x,
+      y: position.y,
+      width: position.width ?? DEFAULT_CARD_WIDTH,
+    }
+    const cardSnapshot = plainRecord(card)
+    const itemSnapshot = plainRecord(item)
+
+    replaceLocalCard(card)
+    replaceLocalItem(item)
+    selectItem(item.id)
+
+    try {
+      await db.transaction('rw', db.cards, db.boardItems, async () => {
+        await db.cards.put(cardSnapshot)
+        await db.boardItems.put(itemSnapshot)
+      })
+      broadcastWorkspaceChange('all')
+    } catch (cause) {
+      removeLocalCard(card.id)
+      removeLocalItem(item.id)
+      if (selectedItemId.value === item.id) selectedItemId.value = null
+
+      console.error('[card-canvas] Unable to capture and place card', cause)
+      throw cause instanceof Error ? cause : new Error(String(cause))
+    }
+
+    record({
+      label: '速记上板',
+      undo: async () => {
+        await db.transaction('rw', db.cards, db.boardItems, async () => {
+          await db.cards.delete(card.id)
+          await db.boardItems.delete(item.id)
+        })
+        removeLocalCard(card.id)
+        removeLocalItem(item.id)
+        if (selectedItemId.value === item.id) selectedItemId.value = null
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.transaction('rw', db.cards, db.boardItems, async () => {
+          await db.cards.put(cardSnapshot)
+          await db.boardItems.put(itemSnapshot)
+        })
+        replaceLocalCard(cardSnapshot)
+        replaceLocalItem(itemSnapshot)
+        selectItem(itemSnapshot.id)
+        broadcastWorkspaceChange('all')
+      },
+    })
+
+    return { card, item }
   }
 
   async function updateCard(
@@ -457,89 +582,6 @@ export const useBoardStore = defineStore('board', () => {
     })
 
     return item
-  }
-
-  async function unplaceItem(itemId: string): Promise<boolean> {
-    const found = items.value.find((entry) => entry.id === itemId)
-    if (!found) return false
-
-    const item = plainRecord(found)
-    const relatedConnections = connectionsForCard(item.cardId)
-
-    removeLocalItem(item.id)
-    for (const connection of relatedConnections) {
-      removeLocalConnection(connection.id)
-    }
-    if (selectedItemId.value === item.id) selectedItemId.value = null
-    if (
-      selectedConnectionId.value &&
-      relatedConnections.some(
-        (connection) => connection.id === selectedConnectionId.value,
-      )
-    ) {
-      selectedConnectionId.value = null
-    }
-
-    try {
-      await db.transaction('rw', db.boardItems, db.connections, async () => {
-        await db.boardItems.delete(item.id)
-        if (relatedConnections.length) {
-          await db.connections.bulkDelete(
-            relatedConnections.map((connection) => connection.id),
-          )
-        }
-      })
-      broadcastWorkspaceChange('items', item.boardId)
-    } catch (cause) {
-      replaceLocalItem(item)
-      for (const connection of relatedConnections) {
-        replaceLocalConnection(connection)
-      }
-
-      console.error('[card-canvas] Unable to unplace card', cause)
-      notifyFailure('移出白板失败，卡片仍在画布上。')
-      return false
-    }
-
-    record({
-      label: '移出白板',
-      undo: async () => {
-        await db.transaction('rw', db.boardItems, db.connections, async () => {
-          await db.boardItems.put(item)
-          if (relatedConnections.length) {
-            await db.connections.bulkPut(relatedConnections)
-          }
-        })
-
-        replaceLocalItem(item)
-        for (const connection of relatedConnections) {
-          if (connection.boardId === activeBoardId.value) {
-            replaceLocalConnection(connection)
-          }
-        }
-        selectItem(item.id)
-        broadcastWorkspaceChange('items', item.boardId)
-      },
-      redo: async () => {
-        await db.transaction('rw', db.boardItems, db.connections, async () => {
-          await db.boardItems.delete(item.id)
-          if (relatedConnections.length) {
-            await db.connections.bulkDelete(
-              relatedConnections.map((connection) => connection.id),
-            )
-          }
-        })
-
-        removeLocalItem(item.id)
-        for (const connection of relatedConnections) {
-          removeLocalConnection(connection.id)
-        }
-        if (selectedItemId.value === item.id) selectedItemId.value = null
-        broadcastWorkspaceChange('items', item.boardId)
-      },
-    })
-
-    return true
   }
 
   async function deleteCard(cardId: string): Promise<boolean> {
@@ -848,15 +890,6 @@ export const useBoardStore = defineStore('board', () => {
     return after
   }
 
-  function connectionsForCard(cardId: string) {
-    return connections.value
-      .filter(
-        (connection) =>
-          connection.fromCardId === cardId || connection.toCardId === cardId,
-      )
-      .map((connection) => plainRecord(connection))
-  }
-
   // --- positioning ---------------------------------------------------------
 
   function nudgeItem(itemId: string, dx: number, dy: number) {
@@ -979,10 +1012,16 @@ export const useBoardStore = defineStore('board', () => {
 
       if (activeBoardId.value !== boardId || status.value !== 'ready') return
 
-      cards.value = storedCards
+      const liveCards = storedCards
         .filter((card) => !card.isDeleted)
         .map(normalizeCard)
-      items.value = storedItems.sort((a, b) => a.id.localeCompare(b.id))
+      const migrated = await placeMissingCards(boardId, liveCards)
+      if (activeBoardId.value !== boardId || status.value !== 'ready') return
+
+      cards.value = liveCards
+      items.value = [...storedItems, ...migrated].sort((a, b) =>
+        a.id.localeCompare(b.id),
+      )
       connections.value = await db.connections
         .where('boardId')
         .equals(boardId)
@@ -1067,8 +1106,6 @@ export const useBoardStore = defineStore('board', () => {
     status,
     error,
     isHydrated,
-    inboxCards,
-    inboxCount,
     activeBoardId,
     canUndo,
     canRedo,
@@ -1087,7 +1124,7 @@ export const useBoardStore = defineStore('board', () => {
     captureCard,
     updateCard,
     placeCard,
-    unplaceItem,
+    captureAndPlace,
     deleteCard,
     createConnection,
     deleteConnection,

@@ -1,8 +1,8 @@
 # Card Canvas
 
-卡片笔记与无限白板工具 · **Phase 06 / Connection Wire**
+卡片笔记与无限白板工具 · **Phase 07 / Immediate Capture**
 
-Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 待整理池 → 2D 白板投放** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统。
+Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 2D 白板** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统；Phase 07 取消待整理池，速记保存即上板。
 
 ## 技术栈
 
@@ -26,8 +26,8 @@ pnpm dev
 pnpm format:check       # Prettier
 pnpm lint               # ESLint
 pnpm typecheck          # vue-tsc
-pnpm test               # Vitest：几何、连线、标签、坐标、store、历史、备份、弹窗
-pnpm test:e2e           # Playwright：投放 / 键盘 / 多标签 / 多白板 / 视口
+pnpm test               # Vitest：几何、连线、捕获、坐标、store、历史、备份
+pnpm test:e2e           # Playwright：捕获 / 连线 / 键盘 / 多标签 / 多白板 / 视口
 pnpm build              # typecheck + vite build
 pnpm preview
 ```
@@ -55,30 +55,23 @@ pnpm preview
 - **高程反馈**：拾起时 `scale(1.018)`、漫反射阴影增强、`z-index` 置于最上层；放下后平滑回落
 - **持久化时机**：拖拽期间只写 DOM transform；`pointerup` 时一次性提交 Pinia，并异步 `db.boardItems.update`
 
-## 速记与投放
+## 即时速记（Capture to Board）
 
-### 1D 速记（Quick Capture）
+### 保存即上板
 
 - **唤出**：`⌘K` / `⌥N`，或顶栏「速记」按钮
 - **字段**：标题、正文、标签（回车 / 逗号添加，`#标签` 在保存时自动解析）
-- **保存**：`⌘↵` / `Ctrl ↵`；UI 立即关闭，卡片同步进入 Pinia、异步写入 `db.cards`
-- **退出**：`Esc` 或点击遮罩；打开时自动聚焦标题，IME 组合输入期间不会误触发快捷键
-- **契约**：只写 `Card` 实体，不创建任何 `BoardItem`，也不携带白板或世界坐标
+- **保存**：`⌘↵` / `Ctrl ↵`；一次原子操作同时创建 `Card` 与 `BoardItem`，卡片立即选中，弹窗同步关闭，Dexie 事务在后台写入
+- **落点**：在当前视口内寻找一个可见的空白槽位，优先靠近视口中心；按标题 / 正文 / 标签估算卡片高度，避开已有卡片；视口过满时回退为视口中心的小级联
+- **撤销**：撤销「速记上板」会同时移除卡片实体与投影；重做一并恢复
+- **编辑**：卡片右上角铅笔打开同一弹窗；编辑保持原投影位置，不重新上板
+- **没有「待整理池」**：不再存在“未上板”状态，也没有抽屉、Badge 或「移出白板」入口
 
-### 待整理池（Inbox）
+### 历史数据迁移
 
-- 右侧可折叠抽屉，折叠时保留带未放置数量的竖排把手
-- 数据完全由差集派生：`cards` 中尚无当前白板 `boardItems` 投影的卡片
-- 支持标题 / 正文 / 标签搜索与多标签 AND 筛选；空状态提示「所有灵感均已上板」
-
-### 跨层投放
-
-- 从抽屉卡片按下并拖出，挂载真实卡片外观的幽灵节点；全程 Pointer Events，不使用 HTML5 Drag & Drop
-- 幽灵通过 `translate3d` + `scale` 在 rAF 中只更新自身合成层，拖拽期间不写 Pinia / Dexie
-- 松手在画布上时，以光标屏幕坐标经 `screenToWorld` 折算世界坐标，并按测量到的卡片高度将 **几何中心** 对齐落点：
-  - `x = worldX - width / 2`
-  - `y = worldY - height / 2`
-- 投放后立即新增 `BoardItem`，差集自动把卡片从抽屉移除；刷新后位置从 Dexie 恢复
+- 启动或刷新时，凡是 **没有任何白板投影** 的卡片，会自动放到当前白板右侧的网格中
+- 导入备份后同理：新卡片立即落到当前白板已有内容旁，不会变成不可见的孤儿
+- 删除白板仍保留卡片实体；这些卡片下一次加载时会迁移到当前白板，避免数据丢失
 
 ## 认知连线（Connection Wire）
 
@@ -87,14 +80,14 @@ pnpm preview
 - **自动贴边**：比较两张卡片四条边中点，取距离最近的一对边缘自动吸附；曲线控制点按间距弹性展开
 - **可选语义**：双击连线（或选中后按 `Enter`）在线条中点输入关系说明；`Enter` / 失焦保存，`Esc` 取消
 - **选择与删除**：点击连线或用 `Tab` 聚焦选中，`Delete` / `Backspace` 删除；所有新增、删除、Label 修改都进入撤销栈
-- **级联**：卡片移出白板或删除时，关联连线同步清理；`⌘Z` 恢复卡片时会一并恢复连线与 Label
+- **级联**：卡片删除时，关联连线同步清理；`⌘Z` 恢复卡片时会一并恢复连线与 Label
 - **抗缩放**：连线在卡片拖拽的 rAF 中通过事件总线直接更新 SVG `d`，不写 Pinia / Dexie；30% 与 250% 下端点漂移 < 1.5px
 
 ## 键盘与无障碍
 
 - **速记**：`⌘K` / `⌥N` 打开；`Tab` 焦点锁定在弹窗内，背景 `inert`；`Esc` 关闭
-- **Inbox**：卡片可通过 `Tab` 聚焦，`Enter` / `Space` 直接投放到视口中心（离屏测量真实高度，仍保持几何居中）
 - **画布卡片**：可聚焦；方向键移动 `10px`，`Shift + 方向键` 移动 `1px`；`Enter` / `Space` 选中
+- **连线**：`Tab` 聚焦后选中；`Enter` 编辑说明，`Delete` / `Backspace` 删除
 - **撤销 / 重做**：`⌘Z` / `⇧⌘Z`（Windows 支持 `Ctrl+Y`），顶栏也有按钮
 - **屏幕阅读器**：选中变化通过 `aria-live` 播报；字符漂移、焦点环、`aria-current` 均已补齐
 
@@ -103,21 +96,23 @@ pnpm preview
 - 顶栏白板切换器：新建、重命名、切换、两步确认删除
 - `boards` 表为 Dexie v2；删除白板级联删除其 `boardItems` 与 `connections`，卡片实体保留
 - 每块白板独立保存视口（`localStorage`），刷新/切板后恢复缩放与平移
-- 卡片内容全局复用；Inbox 差集按当前白板计算
+- 卡片实体全局存储，投影属于白板；速记始终落在当前白板
+- 删除白板后，保留的卡片若已无任何投影，会在下次加载时迁移到当前白板
 
 ## 撤销与数据安全
 
-- 捕获、投放、移动、编辑、移出白板、删除均可撤销/重做（内存历史，最多 50 步）
+- 速记上板、移动、编辑、删除、建线/删线/Label 均可撤销/重做（内存历史，最多 50 步）
 - 删除为软删除（`Card.isDeleted`），撤销可恢复卡片及其投影
-- 抽屉内可导出/导入完整 JSON 备份（cards / boardItems / connections / boards）；导入按 id 合并
+- 顶栏数据菜单可导出/导入完整 JSON 备份（cards / boardItems / connections / boards）；导入按 id 合并
 - 启动时申请 `navigator.storage.persist()`；写入失败会回滚并给出可重试 toast
 
 ## 本地数据
 
 - 首次启动且 Dexie 为空时自动写入 3 张示例卡片与 3 个空间投影，并创建第一块白板
 - 部分数据损坏（投影指向不存在的卡片）会在启动时清理，避免孤儿记录
-- 速记只写 `cards`；投放只新增 `boardItems`，实体的 `updatedAt` 不被空间操作污染
-- 全量加载在数百张卡片内表现良好；Inbox 分页 30 条，连线为单一 SVG 世界层
+- 速记在一个 Dexie 事务中写入 `cards` + `boardItems`，不会产生“有卡片、没投影”的中间态
+- 编辑只更新 `cards`，实体的 `updatedAt` 不被空间操作污染
+- 全量加载在数百张卡片内表现良好；连线为单一 SVG 世界层
 - 拖拽期间不写 Dexie，也不做大范围响应式更新
 
 ## 目录
@@ -134,17 +129,14 @@ src/
 │   ├── board/
 │   │   └── BoardSwitcher.vue    # 多白板新建 / 重命名 / 切换 / 删除
 │   ├── capture/
-│   │   └── QuickCapture.vue     # 1D 速记 / 编辑弹窗、焦点陷阱、标签解析
-│   ├── inbox/
-│   │   └── InboxShelf.vue       # 待整理抽屉、搜索 / 标签筛选、幽灵投放
+│   │   └── QuickCapture.vue     # 速记 / 编辑弹窗、焦点陷阱、空白槽位选址
 │   └── ui/
-│       ├── HighlightText.vue    # 搜索命中高亮
+│       ├── DataMenu.vue         # 工作区备份导出 / 导入
 │       └── ToastStack.vue       # 错误 / 成功提示与重试
 ├── composables/
 │   ├── useCanvas.ts             # 相机、锚点缩放、坐标换算、手势状态机
 │   ├── useCardDrag.ts           # 卡片拖拽、死区、缩放补偿、落盘状态机
 │   ├── useConnection.ts         # 引线拖拽状态机、目标命中、键盘操作
-│   ├── useInboxDrag.ts          # 抽屉 → 画布 Pointer 拖拽、幽灵与投放换算
 │   └── useTheme.ts              # useDark + useToggle 主题管理
 ├── data/seed.ts                 # 首次启动示例数据
 ├── db/index.ts                  # Dexie 单例（v2：boards 表）
@@ -157,9 +149,9 @@ src/
 │   ├── tags.ts                  # 标签归一化 / 解析 / 合并
 │   └── view-state.ts            # 每块白板的视口持久化
 ├── stores/
-│   ├── board.ts                 # 卡片、投影、历史栈、跨标签同步
+│   ├── board.ts                 # 卡片、投影、连线、历史栈、跨标签同步
 │   ├── toast.ts                 # 瞬时提示队列
-│   └── workspace.ts             # 白板列表 / 当前白板 / 选择
+│   └── workspace.ts             # 白板列表 / 当前白板
 ├── types/index.ts               # Card / Board / BoardItem / Viewport / Connection
 ├── App.vue                      # 启动、画布、卡片与屏幕 UI
 └── main.ts                      # 应用入口（挂载 Pinia）
@@ -172,15 +164,15 @@ e2e/                             # Playwright 端到端测试
 
 - **实体与投影解耦**：`Card` 是内容实体，`BoardItem` 是该卡片在某块白板上的世界坐标投影。
 - **坐标换算**：`useCanvas.ts` 导出纯函数 `screenToWorld` / `worldToScreen`；`useCanvas()` 返回绑定实时相机的二参数版本，并通过 provide/inject 暴露给世界卡片。
-- **待整理池是派生状态**：不存在 `isPlaced` / `isArchived` 冗余字段；抽屉 = `cards` 与当前白板 `boardItems.cardId` 的差集，投放 / 删除投影后自动同步。
-- **乐观写入**：速记先发布到 Pinia（UI 立即关闭、Badge 立即 +1），再异步 `db.cards.put`；失败时回滚内存状态。投放同理，`boardItems.put` 失败会移除刚挂载的投影。
-- **投放换算**：幽灵卡片按真实世界宽度布局，因此 `offsetHeight` 就是世界高度；落点用 `screenToWorld(clientX, clientY)` 后再减去半宽 / 半高，几何中心严格对齐光标。
+- **捕获即上板**：`captureAndPlace` 在一个动作里创建 `Card` + `BoardItem`，只记录一条历史；卡片实体不携带 `boardId` 或坐标。
+- **落点选址**：`QuickCapture` 在当前视口内按估算卡片高度扫描空白槽位，优先靠近中心；视口过满时回退到中心级联。无投影的历史卡片在加载/刷新时自动迁移到当前白板右侧。
+- **乐观写入**：速记先把卡片与投影发布到 Pinia（UI 立即关闭、卡片立即选中），再异步事务写 `cards` + `boardItems`；失败时同时回滚两者并恢复草稿。
 - **绝对不动点缩放**：缩放动画每一帧都以固定世界锚点重算 pan，而非只在 wheel 事件里计算一次。
 - **性能隔离**：卡片拖拽期间使用普通对象 + rAF + 直接 DOM transform；只有 `pointerup` 提交一次 Pinia 与一次 Dexie update。
 - **连线同轴**：SVG 直接挂在 World Layer；端点/控制点全部基于世界坐标，不在 SVG 层重复折算 scale；命中路径 20px、视觉线 1.5px 并使用 `non-scaling-stroke`。
 - **连线的动静分离**：拖拽卡片时通过 `card-drag-bus` 把首帧世界坐标推给 SVG 层，直接改 `d`；拖拽期间不写 Dexie、不触发深层响应式。
 - **响应式 → Dexie 边界**：所有写入前通过 `plainRecord` 深拷贝，避免把 Vue Proxy 交给 IndexedDB 结构化克隆。
 - **历史栈**：每个用户动作记录 `{ label, undo, redo }` 闭包，内存最多 50 步；撤销/重做本身不再入栈。
-- **跨标签页**：`BroadcastChannel` 广播 cards / items / boards 变更，接收端重读 IndexedDB；`visibilitychange` 兜底。
+- **跨标签页**：`BroadcastChannel` 广播 cards / items / connections / boards 变更，接收端重读 IndexedDB；`visibilitychange` 兜底。
 - **主题持久化**：首次访问跟随系统；手动切换后明确写入 `light` / `dark`；首屏内联脚本恢复，避免闪烁。
-- **可访问性**：焦点陷阱、`inert` 背景、键盘投放/移动、`aria-live` 选中播报与可见焦点环。
+- **可访问性**：焦点陷阱、`inert` 背景、键盘移动、连线 `Tab` 聚焦、`aria-live` 选中播报与可见焦点环。

@@ -4,7 +4,7 @@ import type { Board, BoardItem, Card, Connection } from '../types'
 /**
  * Local-first storage for the workspace.
  *
- * The database is a singleton so every feature module (capture, inbox, canvas)
+ * The database is a singleton so every feature module (capture, canvas, connections)
  * reads and writes through the same IndexedDB connection.
  */
 export class KnowledgeDatabase extends Dexie {

@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 
-test('capture, inbox and drop survive a reload', async ({ page }) => {
+test('capture lands directly on the canvas and survives reload', async ({
+  page,
+}) => {
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
 
@@ -8,48 +10,51 @@ test('capture, inbox and drop survive a reload', async ({ page }) => {
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
   await page.getByLabel('卡片标题').fill('E2E 速记')
-  await page.getByLabel('卡片正文').fill('从 1D 捕获进入 2D 画布。')
+  await page.getByLabel('卡片正文').fill('捕获即上板，不再经过待整理池。')
   await page.getByLabel('添加标签').fill('E2E')
   await page.getByLabel('添加标签').press('Enter')
   await page.keyboard.press('Control+Enter')
   await expect(dialog).toBeHidden()
 
-  await expect(page.locator('[data-world-item]')).toHaveCount(3)
-  const inboxButton = page.locator('button[aria-label^="待整理池，"]')
-  await expect(inboxButton).toContainText('1')
-
-  await inboxButton.click()
-  const drawer = page.locator('#inbox-shelf')
-  await expect(drawer).toBeVisible()
-  const drawerCard = drawer
-    .locator('[data-inbox-card]')
-    .filter({ hasText: 'E2E 速记' })
-  await expect(drawerCard).toHaveCount(1)
-
-  const source = await drawerCard.boundingBox()
-  expect(source).not.toBeNull()
-  const drop = { x: 420, y: 380 }
-
-  await page.mouse.move(source!.x + 60, source!.y + 30)
-  await page.mouse.down()
-  await page.mouse.move(source!.x - 20, source!.y + 30, { steps: 4 })
-  await page.mouse.move(drop.x, drop.y, { steps: 10 })
-  await page.mouse.up()
-
   const placed = page
     .locator('[data-world-item]')
     .filter({ hasText: 'E2E 速记' })
   await expect(placed).toHaveCount(1)
-  await expect(inboxButton).toContainText('0')
+  await expect(page.locator('[data-world-item]')).toHaveCount(4)
+  await expect(placed).toHaveClass(/is-selected/)
 
   const box = await placed.boundingBox()
+  const viewport = page.viewportSize()
   expect(box).not.toBeNull()
-  expect(Math.abs(box!.x + box!.width / 2 - drop.x)).toBeLessThan(1.5)
-  expect(Math.abs(box!.y + box!.height / 2 - drop.y)).toBeLessThan(1.5)
+  expect(viewport).not.toBeNull()
+
+  // The capture lands in a visible empty slot, not under another card.
+  expect(box!.x).toBeGreaterThanOrEqual(0)
+  expect(box!.y).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width)
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height)
+
+  const overlapArea = await page.evaluate(() => {
+    const selected = document.querySelector('[data-world-item].is-selected')
+    if (!selected) return -1
+    const a = selected.getBoundingClientRect()
+
+    return [...document.querySelectorAll('[data-world-item]')]
+      .filter((element) => element !== selected)
+      .reduce((total, element) => {
+        const b = element.getBoundingClientRect()
+        return (
+          total +
+          Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+            Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))
+        )
+      }, 0)
+  })
+  expect(overlapArea).toBeLessThan(box!.width * box!.height * 0.35)
 
   await page.reload()
   await expect(page.locator('[data-world-item]')).toHaveCount(4)
-  await expect(page.locator('button[aria-label^="待整理池，"]')).toContainText(
-    '0',
-  )
+  await expect(
+    page.locator('[data-world-item]').filter({ hasText: 'E2E 速记' }),
+  ).toHaveCount(1)
 })

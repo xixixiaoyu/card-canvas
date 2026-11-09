@@ -169,9 +169,7 @@ export function useConnection(
     const overUi =
       elementUnderPointer instanceof Element &&
       Boolean(
-        elementUnderPointer.closest(
-          '[data-canvas-ui], [data-inbox-ui], [data-quick-capture]',
-        ),
+        elementUnderPointer.closest('[data-canvas-ui], [data-quick-capture]'),
       )
 
     if (overUi) {

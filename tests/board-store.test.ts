@@ -30,7 +30,6 @@ describe('board store', () => {
     expect(board.status).toBe('ready')
     expect(board.cards).toHaveLength(3)
     expect(board.items).toHaveLength(3)
-    expect(board.inboxCards).toHaveLength(0)
     expect(await db.cards.count()).toBe(3)
     expect(await db.boardItems.count()).toBe(3)
   })
@@ -46,7 +45,6 @@ describe('board store', () => {
 
     expect(board.cards).toHaveLength(4)
     expect(board.items).toHaveLength(3)
-    expect(board.inboxCards.map((entry) => entry.id)).toEqual([card.id])
     expect(card.title).toBe('标签归一化')
     expect(card.tags).toEqual(['Design', '研究'])
     expect(await db.cards.get(card.id)).toMatchObject({
@@ -57,7 +55,39 @@ describe('board store', () => {
     expect('x' in card).toBe(false)
   })
 
-  it('places a card as a projection and removes it from the inbox', async () => {
+  it('captures and places in one atomic action with undo/redo', async () => {
+    const board = await freshBoard()
+
+    const { card, item } = await board.captureAndPlace(
+      { title: '直接上板', content: '不再经过待整理池', tags: ['Flow'] },
+      'board-main',
+      { x: 24, y: 36 },
+    )
+
+    expect(board.cards).toHaveLength(4)
+    expect(board.items).toHaveLength(4)
+    expect(board.selectedItemId).toBe(item.id)
+    expect(await db.cards.get(card.id)).toBeDefined()
+    expect(await db.boardItems.get(item.id)).toMatchObject({
+      cardId: card.id,
+      x: 24,
+      y: 36,
+    })
+
+    await board.undo()
+    expect(board.cards).toHaveLength(3)
+    expect(board.items).toHaveLength(3)
+    expect(await db.cards.get(card.id)).toBeUndefined()
+    expect(await db.boardItems.get(item.id)).toBeUndefined()
+
+    await board.redo()
+    expect(board.cards).toHaveLength(4)
+    expect(board.items).toHaveLength(4)
+    expect(await db.cards.get(card.id)).toBeDefined()
+    expect(await db.boardItems.get(item.id)).toBeDefined()
+  })
+
+  it('places a card as a projection', async () => {
     const board = await freshBoard()
     const card = await board.captureCard({
       title: '待投放',
@@ -73,7 +103,6 @@ describe('board store', () => {
 
     expect(item).not.toBeNull()
     expect(board.items).toHaveLength(4)
-    expect(board.inboxCards).toHaveLength(0)
     expect(board.selectedItemId).toBe(item?.id)
     expect(await db.boardItems.get(item!.id)).toMatchObject({
       cardId: card.id,
@@ -138,7 +167,6 @@ describe('board store', () => {
 
     await board.undo()
     expect(board.items).toHaveLength(3)
-    expect(board.inboxCards.map((entry) => entry.id)).toContain(card.id)
     expect(await db.boardItems.get(item!.id)).toBeUndefined()
 
     await board.redo()
@@ -166,20 +194,6 @@ describe('board store', () => {
     expect(board.cards.find((entry) => entry.id === card.id)?.title).toBe(
       '新标题',
     )
-  })
-
-  it('unplaces a card back into the inbox and restores it on undo', async () => {
-    const board = await freshBoard()
-    const card = board.cards[0]
-    const item = board.items.find((entry) => entry.cardId === card.id)
-
-    expect(await board.unplaceItem(item!.id)).toBe(true)
-    expect(board.items).toHaveLength(2)
-    expect(board.inboxCards.map((entry) => entry.id)).toContain(card.id)
-
-    await board.undo()
-    expect(board.items).toHaveLength(3)
-    expect(board.inboxCards.map((entry) => entry.id)).not.toContain(card.id)
   })
 
   it('soft-deletes a card with its projections and restores it on undo', async () => {
@@ -258,27 +272,6 @@ describe('board store', () => {
     expect(board.connections[0].label).toBe('底层机制相同')
   })
 
-  it('cascades connections when a card leaves the board and restores them on undo', async () => {
-    const board = await freshBoard()
-    const cardA = board.cards[0]
-    const cardB = board.cards[1]
-    const connection = await board.createConnection(cardA.id, cardB.id)
-    const item = board.items.find((entry) => entry.cardId === cardA.id)
-
-    expect(await board.unplaceItem(item!.id)).toBe(true)
-    expect(board.connections).toHaveLength(0)
-    expect(await db.connections.get(connection!.id)).toBeUndefined()
-
-    await board.undo()
-    expect(board.items).toHaveLength(3)
-    expect(board.connections).toHaveLength(1)
-    expect(await db.connections.get(connection!.id)).toBeDefined()
-
-    await board.redo()
-    expect(board.items).toHaveLength(2)
-    expect(board.connections).toHaveLength(0)
-  })
-
   it('cascades connections when a card is deleted and restores them on undo', async () => {
     const board = await freshBoard()
     const cardA = board.cards[0]
@@ -317,6 +310,33 @@ describe('board store', () => {
     expect(await db.boardItems.count()).toBe(0)
   })
 
+  it('migrates cards without any projection onto the active board', async () => {
+    const board = await freshBoard()
+    await db.cards.put({
+      id: 'card-legacy-unplaced',
+      title: '历史未上板',
+      content: '',
+      tags: [],
+      createdAt: 1,
+      updatedAt: 1,
+    })
+
+    await board.refresh()
+
+    expect(board.cards.map((entry) => entry.id)).toContain(
+      'card-legacy-unplaced',
+    )
+    expect(
+      board.items.some((item) => item.cardId === 'card-legacy-unplaced'),
+    ).toBe(true)
+    expect(
+      await db.boardItems
+        .where('cardId')
+        .equals('card-legacy-unplaced')
+        .count(),
+    ).toBe(1)
+  })
+
   it('rolls back a failed capture and surfaces the error', async () => {
     const board = await freshBoard()
     vi.spyOn(db.cards, 'put').mockRejectedValueOnce(new Error('disk full'))
@@ -345,6 +365,5 @@ describe('board store', () => {
     })
     expect(useToastStore().toasts[0].tone).toBe('error')
     expect(useToastStore().toasts[0].action?.label).toBe('重试')
-    expect(board.inboxCards.map((entry) => entry.id)).toContain(card.id)
   })
 })

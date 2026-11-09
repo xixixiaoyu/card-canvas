@@ -16,10 +16,6 @@ test('creates, switches, renames and deletes boards', async ({ page }) => {
   await expect(page.getByRole('button', { name: '切换白板' })).toContainText(
     '研究板',
   )
-  await expect(page.locator('button[aria-label^="待整理池，"]')).toContainText(
-    '3',
-  )
-
   await page.getByRole('button', { name: '切换白板' }).click()
   await page
     .getByRole('menu', { name: '白板列表' })
