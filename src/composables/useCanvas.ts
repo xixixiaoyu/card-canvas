@@ -3,6 +3,7 @@ import {
   onMounted,
   readonly,
   ref,
+  type InjectionKey,
   type Ref,
 } from 'vue'
 import { usePreferredReducedMotion } from '@vueuse/core'
@@ -28,6 +29,25 @@ export interface WorldBounds {
 }
 
 export type ZoomLimit = 'min' | 'max' | null
+
+/** The live camera surface consumed by world-space components. */
+export interface CanvasCamera {
+  getViewport: () => Viewport
+  getContainerRect: () => DOMRect | null
+  screenToWorld: (
+    screenPoint: ScreenPoint,
+    containerRect?: CanvasContainerRect,
+  ) => WorldPoint
+  worldToScreen: (
+    worldPoint: WorldPoint,
+    containerRect?: CanvasContainerRect,
+  ) => ScreenPoint
+  /** Space-to-pan owns the gesture while held, even over a card. */
+  isSpaceHeld?: Readonly<Ref<boolean>>
+}
+
+export const canvasCameraKey: InjectionKey<CanvasCamera> =
+  Symbol('card-canvas:camera')
 
 export interface FitInsets {
   top?: number

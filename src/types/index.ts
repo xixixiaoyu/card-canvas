@@ -12,6 +12,8 @@ export interface Card {
   createdAt: number
   updatedAt: number
   isDeleted?: boolean
+  /** Presentation blocks persisted with the card. */
+  highlights?: CardHighlight[]
 }
 
 export interface BoardItem {

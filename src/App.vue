@@ -1,176 +1,56 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { Layers2, Moon, Sun } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
 import { useTheme } from './composables/useTheme'
-import { db } from './db'
+import { FOCUS_BOARD_ITEM_ID } from './data/seed'
+import { useBoardStore } from './stores/board'
 import { useWorkspaceStore } from './stores/workspace'
-import type { BoardItem, Card, CardHighlight } from './types'
 
 const { isDark, toggleTheme } = useTheme()
 const workspace = useWorkspaceStore()
-const databaseStatus = ref<'opening' | 'ready' | 'error'>('opening')
-const databaseLabel = computed(
-  () =>
-    ({
-      opening: 'Opening Dexie…',
-      ready: 'Dexie ready',
-      error: 'Dexie unavailable',
-    })[databaseStatus.value],
-)
+const board = useBoardStore()
 
-onMounted(async () => {
-  try {
-    await db.open()
-    databaseStatus.value = 'ready'
-  } catch (error) {
-    databaseStatus.value = 'error'
-    console.error('[card-canvas] Unable to open the local database', error)
-  }
+const databaseLabel = computed(() => {
+  if (board.status === 'ready') return 'Dexie ready'
+  if (board.status === 'error') return 'Dexie unavailable'
+  return 'Opening Dexie…'
 })
 
-interface CanvasCard {
-  item: BoardItem
-  card: Card
-  highlights: CardHighlight[]
-  compact: boolean
-  indexLabel: string
-  focus?: boolean
+async function initializeBoard() {
+  try {
+    await board.initialize(workspace.activeBoardId)
+  } catch (error) {
+    console.error('[card-canvas] Unable to initialize the board', error)
+  }
 }
 
-const canvasCards: CanvasCard[] = [
-  {
-    item: {
-      id: 'projection-voice-001',
-      cardId: 'card-demo-001',
-      boardId: 'board-main',
-      x: -190,
-      y: -150,
-      width: 400,
-    },
-    card: {
-      id: 'card-demo-001',
-      title: '声音的支点，与防御的回声',
-      content:
-        '咽音不是把声音推得更响，而是让气息、共鸣与喉位重新协作。防御也一样：它保护自我，也悄悄决定哪些话不被说出口。',
-      tags: ['声乐/咽音', '心理学/防御机制'],
-      createdAt: 0,
-      updatedAt: 0,
-    },
-    highlights: [
-      {
-        order: '01',
-        label: '身体',
-        text: '抬软腭、沉喉位，让共鸣落在面罩，而不是挤在声带。',
-      },
-      {
-        order: '02',
-        label: '心理',
-        text: '防御像声音的“代偿”：短时保护，长期锁住真实表达。',
-      },
-      {
-        order: '03',
-        label: '练习',
-        text: '先呼气到尽头，再让声音落在气息上，保持三秒不塌。',
-      },
-    ],
-    compact: false,
-    indexLabel: 'CARD / 001',
-    focus: true,
-  },
-  {
-    item: {
-      id: 'projection-boundary-002',
-      cardId: 'card-demo-002',
-      boardId: 'board-main',
-      x: -600,
-      y: -60,
-      width: 300,
-    },
-    card: {
-      id: 'card-demo-002',
-      title: '边界不是墙，是可移动的膜',
-      content:
-        '真正稳定的关系，不靠无限靠近，也不靠彻底隔离，而靠可协商的距离。',
-      tags: ['心理学/边界', '关系'],
-      createdAt: 0,
-      updatedAt: 0,
-    },
-    highlights: [
-      {
-        order: '01',
-        label: '识别',
-        text: '先分清“我的感受”与“你的责任”。',
-      },
-      {
-        order: '02',
-        label: '表达',
-        text: '用请求代替指责，让边界可以被听见。',
-      },
-    ],
-    compact: true,
-    indexLabel: 'CARD / 002',
-  },
-  {
-    item: {
-      id: 'projection-breath-003',
-      cardId: 'card-demo-003',
-      boardId: 'board-main',
-      x: 390,
-      y: 140,
-      width: 320,
-    },
-    card: {
-      id: 'card-demo-003',
-      title: '先让气息落下，再让声音升起',
-      content:
-        '高音不是向上够，而是让气息稳定下沉，把空间留给共鸣。',
-      tags: ['声乐/咽音', '练习'],
-      createdAt: 0,
-      updatedAt: 0,
-    },
-    highlights: [
-      {
-        order: '01',
-        label: '坐稳',
-        text: '肩颈松开，肋骨保持弹性。',
-      },
-      {
-        order: '02',
-        label: '落气',
-        text: '呼气到尽头，再让声音落在气息上。',
-      },
-    ],
-    compact: true,
-    indexLabel: 'CARD / 003',
-  },
-]
+onMounted(initializeBoard)
 </script>
 
 <template>
-  <CanvasStage>
+  <CanvasStage
+    v-if="board.isHydrated"
+    @background-pointerdown="board.clearSelection()"
+  >
     <h1 class="sr-only">Card Canvas 无限白板</h1>
 
-    <div
-      v-for="entry in canvasCards"
+    <CardNode
+      v-for="(entry, index) in board.entries"
       :key="entry.item.id"
-      class="canvas-world-item"
-      :style="{
-        left: `${entry.item.x}px`,
-        top: `${entry.item.y}px`,
-        width: `${entry.item.width ?? 420}px`,
-      }"
-      :data-canvas-focus="entry.focus ? '' : undefined"
-      data-world-item
-    >
-      <CardNode
-        :card="entry.card"
-        :highlights="entry.highlights"
-        :compact="entry.compact"
-        :index-label="entry.indexLabel"
-      />
-    </div>
+      :item="entry.item"
+      :card="entry.card"
+      :selected="board.selectedItemId === entry.item.id"
+      :index-label="`CARD / ${String(index + 1).padStart(3, '0')}`"
+      :data-canvas-focus="
+        entry.item.id === FOCUS_BOARD_ITEM_ID ? '' : undefined
+      "
+      @select="board.selectItem(entry.item.id)"
+      @position-commit="
+        board.commitItemPosition(entry.item.id, $event.x, $event.y)
+      "
+    />
 
     <template #overlay>
       <header
@@ -195,7 +75,7 @@ const canvasCards: CanvasCard[] = [
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 02 / Infinite Canvas
+              Phase 03 / Interaction
             </p>
           </div>
         </div>
@@ -248,9 +128,10 @@ const canvasCards: CanvasCard[] = [
             <span
               class="relative h-1.5 w-1.5 rounded-full"
               :class="{
-                'bg-emerald-500/80': databaseStatus === 'ready',
-                'bg-amber-500/80': databaseStatus === 'opening',
-                'bg-rose-500/80': databaseStatus === 'error',
+                'bg-emerald-500/80': board.status === 'ready',
+                'bg-amber-500/80':
+                  board.status === 'loading' || board.status === 'idle',
+                'bg-rose-500/80': board.status === 'error',
               }"
             />
           </span>
@@ -263,15 +144,72 @@ const canvasCards: CanvasCard[] = [
             class="h-3 w-px bg-stone-300/70 dark:bg-white/10"
             aria-hidden="true"
           />
-          <span>Scroll to pan</span>
+          <span>Scroll / Space to pan</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
           <span>Pinch to zoom</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>Space + drag</span>
+          <span>Drag card to move</span>
         </div>
       </footer>
     </template>
   </CanvasStage>
+
+  <div
+    v-else
+    class="canvas-stage flex items-center justify-center overflow-hidden"
+    role="status"
+    aria-live="polite"
+  >
+    <h1 class="sr-only">Card Canvas 无限白板</h1>
+    <div class="canvas-dots absolute inset-0 z-0" aria-hidden="true" />
+    <div class="canvas-glow-light absolute inset-0 z-0" aria-hidden="true" />
+    <div class="canvas-glow-dark absolute inset-0 z-0" aria-hidden="true" />
+    <div class="canvas-noise absolute inset-0 z-0" aria-hidden="true" />
+
+    <div
+      class="relative z-10 flex max-w-sm flex-col items-center px-6 text-center"
+    >
+      <div
+        class="flex h-12 w-12 items-center justify-center rounded-[14px] border border-stone-300/70 bg-white/60 text-stone-600 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-md dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
+        :class="{ 'animate-pulse': board.status !== 'error' }"
+      >
+        <Layers2 :size="19" :stroke-width="1.4" aria-hidden="true" />
+      </div>
+
+      <p
+        class="mt-5 font-mono text-[9px] uppercase tracking-[0.22em] text-stone-500 dark:text-zinc-500"
+      >
+        {{ board.status === 'error' ? 'Local board offline' : 'Opening board' }}
+      </p>
+      <p
+        class="mt-2 font-serif text-xl text-stone-800 dark:text-zinc-200"
+      >
+        {{
+          board.status === 'error'
+            ? '本地白板暂时无法打开'
+            : '正在准备卡片与空间'
+        }}
+      </p>
+      <p
+        v-if="board.status === 'error'"
+        class="mt-3 max-w-xs break-words font-mono text-[10px] leading-5 text-stone-500 dark:text-zinc-500"
+      >
+        {{ board.error }}
+      </p>
+      <p v-else class="mt-3 text-[12px] text-stone-500 dark:text-zinc-500">
+        从本地 IndexedDB 读取上一次的位置。
+      </p>
+
+      <button
+        v-if="board.status === 'error'"
+        type="button"
+        class="mt-6 rounded-full border border-stone-300/80 bg-white/70 px-5 py-2 text-[11px] font-medium text-stone-700 shadow-sm backdrop-blur-md transition-colors hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:focus-visible:ring-white/25"
+        @click="initializeBoard"
+      >
+        重试
+      </button>
+    </div>
+  </div>
 </template>
 
 <style scoped>

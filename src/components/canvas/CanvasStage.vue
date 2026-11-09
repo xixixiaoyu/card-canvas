@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
-import { useCanvas } from '../../composables/useCanvas'
+import { nextTick, onMounted, provide, ref } from 'vue'
+import {
+  canvasCameraKey,
+  useCanvas,
+} from '../../composables/useCanvas'
 import CanvasHUD from './CanvasHUD.vue'
+
+const emit = defineEmits<{
+  'background-pointerdown': []
+}>()
 
 const props = withDefaults(
   defineProps<{
@@ -40,6 +47,30 @@ const {
   minScale: props.minScale,
   maxScale: props.maxScale,
 })
+
+provide(canvasCameraKey, {
+  getViewport,
+  getContainerRect,
+  screenToWorld,
+  worldToScreen,
+  isSpaceHeld,
+})
+
+function handleBackgroundPointerDown(event: PointerEvent) {
+  if (event.button !== 0) return
+  // Space + drag is a canvas pan, not a selection gesture.
+  if (isSpaceHeld.value) return
+
+  const target = event.target
+  if (
+    target instanceof Element &&
+    target.closest('[data-canvas-ui], [data-world-item]')
+  ) {
+    return
+  }
+
+  emit('background-pointerdown')
+}
 
 function fitAll(animate = true) {
   const compact = (stageEl.value?.clientWidth ?? 0) < 640
@@ -117,9 +148,10 @@ defineExpose({
       'is-ready': isReady,
     }"
     aria-label="Card Canvas 无限画布"
+    @pointerdown="handleBackgroundPointerDown"
   >
     <p class="sr-only">
-      画布操作：双指滑动平移，捏合缩放；按住空格并拖动鼠标，或使用鼠标中键拖动画布。
+      画布操作：双指滑动平移，捏合缩放；按住空格并拖动鼠标，或使用鼠标中键拖动画布。拖动卡片标题或右上角把手可以移动卡片；正文可选择文字；点击空白取消选中。
     </p>
 
     <div ref="gridEl" class="canvas-dots absolute inset-0 z-0" aria-hidden="true" />
