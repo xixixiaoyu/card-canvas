@@ -43,6 +43,8 @@ export function useInboxDrag(options: UseInboxDragOptions) {
   let pendingCard: Card | null = null
   let armed = false
   let dropping = false
+  let cancelling = false
+  let cancelTimer: ReturnType<typeof setTimeout> | null = null
   let frameId = 0
   let startClient = { x: 0, y: 0 }
   let latestClient = { x: 0, y: 0 }
@@ -145,7 +147,7 @@ export function useInboxDrag(options: UseInboxDragOptions) {
 
     if (!isPointOverCanvas(event.clientX, event.clientY)) {
       dropping = false
-      finish()
+      cancelWithAnimation()
       return
     }
 
@@ -189,19 +191,65 @@ export function useInboxDrag(options: UseInboxDragOptions) {
   function handleKeydown(event: KeyboardEvent) {
     if (event.key !== 'Escape') return
     event.preventDefault()
-    finish()
+    cancelWithAnimation()
   }
 
   function removeListeners() {
     window.removeEventListener('pointermove', handlePointerMove)
     window.removeEventListener('pointerup', handlePointerUp)
-    window.removeEventListener('pointercancel', finish)
-    window.removeEventListener('blur', finish)
+    window.removeEventListener('pointercancel', cancelWithAnimation)
+    window.removeEventListener('blur', handlePointerCancel)
     window.removeEventListener('keydown', handleKeydown)
+  }
+
+  function handlePointerCancel() {
+    cancelWithAnimation()
+  }
+
+  function clearCancelTimer() {
+    if (cancelTimer === null) return
+
+    clearTimeout(cancelTimer)
+    cancelTimer = null
+  }
+
+  /**
+   * Release the pointer without placing the card. The ghost shrinks and fades
+   * before unmounting so a cancelled drag does not pop out of existence.
+   */
+  function cancelWithAnimation() {
+    if (cancelling) return
+    if (!armed || !ghostEl) {
+      finish()
+      return
+    }
+
+    cancelling = true
+    removeListeners()
+    dropping = false
+    activePointerId = null
+    pendingCard = null
+    armed = false
+    isDragging.value = false
+    draggingCardId.value = null
+    isOverCanvas.value = false
+
+    const element = ghostEl
+    const scale = (options.camera.getViewport().scale || 1) * 0.96
+
+    element.style.transition = 'opacity 160ms ease, transform 160ms ease'
+    element.style.transform = `translate3d(${latestClient.x}px, ${latestClient.y}px, 0) scale(${scale}) translate(-50%, -50%)`
+    element.style.opacity = '0'
+
+    cancelTimer = setTimeout(() => {
+      cancelTimer = null
+      finish()
+    }, 170)
   }
 
   function finish() {
     removeListeners()
+    clearCancelTimer()
 
     if (frameId) {
       cancelAnimationFrame(frameId)
@@ -212,6 +260,7 @@ export function useInboxDrag(options: UseInboxDragOptions) {
     pendingCard = null
     armed = false
     dropping = false
+    cancelling = false
     ghostCard.value = null
     draggingCardId.value = null
     isDragging.value = false
@@ -220,6 +269,7 @@ export function useInboxDrag(options: UseInboxDragOptions) {
 
   function onPointerDown(event: PointerEvent, card: Card) {
     if (event.button !== 0) return
+    if (cancelling) finish()
     if (activePointerId !== null || dropping) return
 
     event.preventDefault()
@@ -235,8 +285,8 @@ export function useInboxDrag(options: UseInboxDragOptions) {
       passive: false,
     })
     window.addEventListener('pointerup', handlePointerUp)
-    window.addEventListener('pointercancel', finish)
-    window.addEventListener('blur', finish)
+    window.addEventListener('pointercancel', cancelWithAnimation)
+    window.addEventListener('blur', handlePointerCancel)
     window.addEventListener('keydown', handleKeydown)
   }
 
@@ -249,6 +299,6 @@ export function useInboxDrag(options: UseInboxDragOptions) {
     draggingCardId,
     setGhostElement,
     onPointerDown,
-    cancel: finish,
+    cancel: cancelWithAnimation,
   }
 }

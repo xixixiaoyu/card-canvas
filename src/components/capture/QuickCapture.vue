@@ -8,7 +8,15 @@ import {
   watch,
 } from 'vue'
 import { CornerDownLeft, Hash, PenLine, X } from '@lucide/vue'
+import {
+  mergeTags,
+  normalizeTags,
+  parseHashtags,
+  sameTag,
+  splitTagInput,
+} from '../../lib/tags'
 import { useBoardStore } from '../../stores/board'
+import { useToastStore } from '../../stores/toast'
 
 const props = defineProps<{
   open: boolean
@@ -19,6 +27,7 @@ const emit = defineEmits<{
 }>()
 
 const board = useBoardStore()
+const toast = useToastStore()
 
 const title = ref('')
 const content = ref('')
@@ -28,24 +37,16 @@ const titleEl = ref<HTMLInputElement | null>(null)
 const contentEl = ref<HTMLTextAreaElement | null>(null)
 
 let restoreFocus: HTMLElement | null = null
+let saveAttempt = 0
 
 const canSave = computed(
   () => Boolean(title.value.trim()) || Boolean(content.value.trim()),
 )
 
-function normalizeTag(raw: string) {
-  return raw
-    .trim()
-    .replace(/^#+/, '')
-    .replace(/[\s,，。.;；、]+/g, '')
-}
-
 function addTag(raw: string) {
-  const tag = normalizeTag(raw)
+  const [tag] = normalizeTags([raw])
   if (!tag) return
-  if (tags.value.some((existing) => existing.toLowerCase() === tag.toLowerCase())) {
-    return
-  }
+  if (tags.value.some((existing) => sameTag(existing, tag))) return
 
   tags.value = [...tags.value, tag]
 }
@@ -54,7 +55,7 @@ function addTagsFromDraft() {
   const raw = tagDraft.value
   if (!raw.trim()) return
 
-  raw.split(/[\s,，;；]+/).forEach(addTag)
+  splitTagInput(raw).forEach(addTag)
   tagDraft.value = ''
 }
 
@@ -83,17 +84,6 @@ function handleTitleEnter(event: KeyboardEvent) {
   contentEl.value?.focus()
 }
 
-function extractHashtags(text: string) {
-  const found: string[] = []
-
-  for (const match of text.matchAll(/#([^\s#，,。.;；、]+)/gu)) {
-    const tag = normalizeTag(match[1])
-    if (tag) found.push(tag)
-  }
-
-  return found
-}
-
 function reset() {
   title.value = ''
   content.value = ''
@@ -120,28 +110,37 @@ function save() {
   const resolvedTitle =
     rawTitle || firstLine.slice(0, 48) || '未命名卡片'
 
-  const merged = [
-    ...tags.value,
-    ...extractHashtags(`${resolvedTitle} ${rawContent}`),
-  ]
-  const uniqueTags: string[] = []
+  const uniqueTags = mergeTags(
+    tags.value,
+    parseHashtags(`${resolvedTitle} ${rawContent}`),
+  )
 
-  for (const tag of merged) {
-    if (!uniqueTags.some((item) => item.toLowerCase() === tag.toLowerCase())) {
-      uniqueTags.push(tag)
-    }
-  }
-
-  // Store publishes the card synchronously and persists it in the background;
-  // the modal closes before IndexedDB resolves.
-  board.captureCard({
+  const draft = {
     title: resolvedTitle,
     content: rawContent,
     tags: uniqueTags,
-  })
+  }
+  const attempt = ++saveAttempt
 
+  // Store publishes the card synchronously and persists in the background;
+  // the modal closes before IndexedDB resolves. If the write fails, the draft
+  // is restored and the modal reopens instead of silently losing the text.
   reset()
   close()
+
+  void board.captureCard(draft).catch((cause) => {
+    console.error('[card-canvas] Unable to save capture', cause)
+    if (attempt !== saveAttempt) return
+
+    if (!props.open) {
+      title.value = draft.title
+      content.value = draft.content
+      tags.value = [...draft.tags]
+      emit('update:open', true)
+    }
+
+    toast.push('速记保存失败，草稿已恢复。', { tone: 'error' })
+  })
 }
 
 function handleWindowKeydown(event: KeyboardEvent) {

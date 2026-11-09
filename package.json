@@ -10,6 +10,9 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "vue-tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "build": "pnpm typecheck && vite build",
     "preview": "vite preview"
   },
@@ -21,14 +24,19 @@
     "vue": "^3.5.44"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/node": "^24.19.2",
     "@vitejs/plugin-vue": "^6.0.10",
+    "@vue/test-utils": "^2.5.1",
     "@vue/tsconfig": "^0.9.1",
     "autoprefixer": "^10.6.2",
+    "fake-indexeddb": "^6.2.8",
+    "happy-dom": "^21.0.4",
     "postcss": "^8.5.32",
     "tailwindcss": "^3.4.17",
     "typescript": "~6.0.3",
     "vite": "^8.3.6",
+    "vitest": "^5.1.0",
     "vue-tsc": "^3.3.14"
   }
 }

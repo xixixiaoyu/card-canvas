@@ -5,6 +5,7 @@ import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
 import QuickCapture from './components/capture/QuickCapture.vue'
 import InboxShelf from './components/inbox/InboxShelf.vue'
+import ToastStack from './components/ui/ToastStack.vue'
 import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
 import { FOCUS_BOARD_ITEM_ID } from './data/seed'
@@ -182,7 +183,7 @@ onBeforeUnmount(() =>
             data-canvas-ui
             class="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 pl-3 pr-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-stone-600 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
             :aria-expanded="workspace.isInboxOpen"
-            aria-controls="inbox-shelf"
+            :aria-controls="workspace.isInboxOpen ? 'inbox-shelf' : undefined"
             :aria-label="`待整理池，${board.inboxCount} 张未上板`"
             title="待整理池"
             @click="toggleInbox()"
@@ -338,6 +339,8 @@ onBeforeUnmount(() =>
   <InboxShelf v-if="camera" :camera="camera" />
 
   <QuickCapture v-model:open="isCaptureOpen" />
+
+  <ToastStack />
 </template>
 
 <style scoped>

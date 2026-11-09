@@ -20,13 +20,17 @@ pnpm install
 pnpm dev
 ```
 
-类型检查、生产构建与预览：
+类型检查、单元测试、E2E 与生产构建：
 
 ```bash
-pnpm typecheck
-pnpm build
+pnpm typecheck          # vue-tsc
+pnpm test               # Vitest：标签、坐标、store、弹窗、toast
+pnpm test:e2e           # Playwright：速记 → 抽屉 → 投放 → 刷新
+pnpm build              # typecheck + vite build
 pnpm preview
 ```
+
+本地 E2E 默认复用系统 Chrome；CI 使用 Playwright Chromium。`.github/workflows/ci.yml` 会依次跑 typecheck、单测、构建与 E2E。
 
 ## 画布操作
 

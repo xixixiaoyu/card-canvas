@@ -2,7 +2,9 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { db } from '../db'
 import { seedBoardItems, seedCards } from '../data/seed'
+import { normalizeTags } from '../lib/tags'
 import type { BoardItem, Card } from '../types'
+import { useToastStore } from './toast'
 
 export type BoardStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -38,6 +40,7 @@ export const useBoardStore = defineStore('board', () => {
   const error = ref<string | null>(null)
 
   let initialization: Promise<void> | null = null
+  let loadedBoardId: string | null = null
 
   const entries = computed<BoardEntry[]>(() => {
     const cardsById = new Map(cards.value.map((card) => [card.id, card]))
@@ -99,8 +102,11 @@ export const useBoardStore = defineStore('board', () => {
           db.boardItems.where('boardId').equals(boardId).toArray(),
         ])
 
-        cards.value = storedCards.filter((card) => !card.isDeleted)
+        cards.value = storedCards
+          .filter((card) => !card.isDeleted)
+          .map((card) => ({ ...card, tags: normalizeTags(card.tags ?? []) }))
         items.value = storedItems.sort((a, b) => a.id.localeCompare(b.id))
+        loadedBoardId = boardId
         status.value = 'ready'
       } catch (cause) {
         status.value = 'error'
@@ -120,13 +126,13 @@ export const useBoardStore = defineStore('board', () => {
    * Capture writes a pure Card entity. No board id, no coordinates: placing it
    * on a canvas is a separate, explicit gesture handled by `placeCard`.
    */
-  function captureCard(input: CaptureCardInput): Card {
+  async function captureCard(input: CaptureCardInput): Promise<Card> {
     const now = Date.now()
     const card: Card = {
       id: `card-${crypto.randomUUID()}`,
       title: input.title.trim(),
       content: input.content.trim(),
-      tags: input.tags.map((tag) => tag.trim()).filter(Boolean),
+      tags: normalizeTags(input.tags),
       createdAt: now,
       updatedAt: now,
     }
@@ -134,11 +140,15 @@ export const useBoardStore = defineStore('board', () => {
     // The UI closing and the inbox badge are more important than the disk
     // round-trip, so the card is published first and persisted in background.
     cards.value = [card, ...cards.value]
-    void db.cards.put(card).catch((cause) => {
+
+    try {
+      await db.cards.put(card)
+    } catch (cause) {
       cards.value = cards.value.filter((entry) => entry.id !== card.id)
 
       console.error('[card-canvas] Unable to persist captured card', cause)
-    })
+      throw cause instanceof Error ? cause : new Error(String(cause))
+    }
 
     return card
   }
@@ -173,6 +183,16 @@ export const useBoardStore = defineStore('board', () => {
       if (selectedItemId.value === item.id) selectedItemId.value = null
 
       console.error('[card-canvas] Unable to persist board item', cause)
+      useToastStore().push('投放未能写入本地库，已撤销。', {
+        tone: 'error',
+        action: {
+          label: '重试',
+          run: () => {
+            if (loadedBoardId !== boardId) return
+            placeCard(cardId, boardId, position)
+          },
+        },
+      })
     })
 
     return item
@@ -197,6 +217,20 @@ export const useBoardStore = defineStore('board', () => {
     items.value[index] = { ...item, x, y }
     void db.boardItems.update(itemId, { x, y }).catch((cause) => {
       console.error('[card-canvas] Unable to persist board item position', cause)
+      useToastStore().push('卡片位置未能写入本地库。', {
+        tone: 'error',
+        action: {
+          label: '重试',
+          run: () => {
+            void db.boardItems.update(itemId, { x, y }).catch((retryCause) => {
+              console.error(
+                '[card-canvas] Unable to persist board item position',
+                retryCause,
+              )
+            })
+          },
+        },
+      })
     })
   }
 

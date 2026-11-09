@@ -85,6 +85,15 @@ function clearFilters() {
   activeTags.value = []
 }
 
+function handleSearchEscape() {
+  if (search.value.trim() || activeTags.value.length) {
+    clearFilters()
+    return
+  }
+
+  workspace.closeInbox()
+}
+
 function tagTone(index: number) {
   return index % 2 === 0 ? 'tag-amber' : 'tag-sage'
 }
@@ -145,7 +154,6 @@ function startDrag(event: PointerEvent, card: Card) {
       class="fixed right-0 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2 rounded-l-2xl border border-r-0 border-stone-200/80 bg-white/80 px-2.5 py-4 text-stone-500 shadow-[0_12px_36px_-16px_rgba(41,37,36,0.28)] backdrop-blur-xl transition-colors hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
       data-inbox-ui
       aria-label="打开待整理池"
-      aria-controls="inbox-shelf"
       :aria-expanded="workspace.isInboxOpen"
       @click="workspace.openInbox()"
     >
@@ -226,6 +234,7 @@ function startDrag(event: PointerEvent, card: Card) {
             placeholder="搜索标题、正文或标签"
             aria-label="搜索待整理卡片"
             class="h-8 w-full rounded-full border border-stone-200/80 bg-white/60 pl-8 pr-8 text-[11px] text-stone-700 outline-none transition-colors placeholder:text-stone-400 focus:border-stone-300 focus:bg-white dark:border-white/10 dark:bg-white/[0.03] dark:text-zinc-300 dark:placeholder:text-zinc-600 dark:focus:border-white/20 dark:focus:bg-white/[0.05]"
+            @keydown.esc.stop.prevent="handleSearchEscape"
           />
           <button
             v-if="search"
