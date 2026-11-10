@@ -1,5 +1,6 @@
 import type { Table } from 'dexie'
 import { db } from '../../db'
+import { DEMO_CARD_IDS, DEMO_ITEM_IDS } from '../demo-data'
 import { plainRecord } from '../plain-record'
 import {
   SYNC_TABLES,
@@ -157,9 +158,30 @@ export async function withSyncTrackingSuppressed<T>(
 export async function queueFullWorkspaceSnapshot() {
   await db.open()
   const now = Date.now()
+  const demoCardIds = new Set<string>(DEMO_CARD_IDS)
+  const demoItemIds = new Set<string>(DEMO_ITEM_IDS)
 
   for (const tableName of SYNC_TABLES) {
-    const records = await tableFor(tableName).toArray()
+    const records = (await tableFor(tableName).toArray()).filter((record) => {
+      if (tableName === 'cards') return !demoCardIds.has(record.id)
+      if (tableName === 'boardItems') {
+        return (
+          !demoItemIds.has(record.id) &&
+          !demoCardIds.has((record as unknown as { cardId: string }).cardId)
+        )
+      }
+      if (tableName === 'connections') {
+        const connection = record as unknown as {
+          fromCardId: string
+          toCardId: string
+        }
+        return (
+          !demoCardIds.has(connection.fromCardId) &&
+          !demoCardIds.has(connection.toCardId)
+        )
+      }
+      return true
+    })
     await Promise.all(
       records.map((record) =>
         queueRecord(

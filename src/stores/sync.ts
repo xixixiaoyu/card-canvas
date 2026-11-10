@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import { db } from '../db'
+import { removeLegacyDemoData, removeRemoteDemoData } from '../lib/demo-cleanup'
 import { plainRecord } from '../lib/plain-record'
 import {
   getSupabaseClient,
@@ -61,6 +62,7 @@ export const useSyncStore = defineStore('sync', () => {
   let realtimeClient: SupabaseClient | null = null
   let visibilityAttached = false
   let onlineAttached = false
+  let pendingRemoteDemoCleanupUserId: string | null = null
 
   const isActive = computed(() => Boolean(activeUserId))
   const isBusy = computed(() => phase.value === 'syncing')
@@ -276,6 +278,12 @@ export const useSyncStore = defineStore('sync', () => {
 
     running = (async () => {
       try {
+        const supabase = await getSupabaseClient()
+        if (!supabase) return
+        if (pendingRemoteDemoCleanupUserId === userId) {
+          await removeRemoteDemoData(supabase, userId)
+          pendingRemoteDemoCleanupUserId = null
+        }
         await pullRemote(userId)
         await pushOutbox(userId)
         if (generation !== runGeneration || activeUserId !== userId) return
@@ -364,13 +372,20 @@ export const useSyncStore = defineStore('sync', () => {
       const ownerId = await readMeta(SYNC_META_KEYS.ownerId)
       if (!ownerId) {
         await writeMeta(SYNC_META_KEYS.ownerId, userId)
-        await queueFullWorkspaceSnapshot()
       } else if (ownerId !== userId) {
         phase.value = 'locked'
         error.value = '本机数据已绑定另一个云端账号，为避免数据混用已暂停同步。'
         return
       }
 
+      const removedLocalDemo = await removeLegacyDemoData()
+      if (removedLocalDemo) {
+        broadcastWorkspaceChange('all')
+        await useBoardStore().refresh()
+      }
+      if (!ownerId) await queueFullWorkspaceSnapshot()
+
+      pendingRemoteDemoCleanupUserId = userId
       unsubscribeOutbox = subscribeSyncOutbox(scheduleSync)
       document.addEventListener('visibilitychange', handleVisibilityChange)
       window.addEventListener('online', handleOnline)
@@ -411,6 +426,7 @@ export const useSyncStore = defineStore('sync', () => {
       onlineAttached = false
     }
     activeUserId = null
+    pendingRemoteDemoCleanupUserId = null
     phase.value = 'idle'
     error.value = null
   }

@@ -1,6 +1,10 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db } from '../src/db'
-import { removeLegacyDemoData } from '../src/lib/demo-cleanup'
+import {
+  removeLegacyDemoData,
+  removeRemoteDemoData,
+} from '../src/lib/demo-cleanup'
 
 describe('legacy demo cleanup', () => {
   beforeEach(async () => {
@@ -13,7 +17,7 @@ describe('legacy demo cleanup', () => {
   })
 
   it('is a no-op for an empty workspace', async () => {
-    await expect(removeLegacyDemoData()).resolves.toBeUndefined()
+    await expect(removeLegacyDemoData()).resolves.toBe(false)
     expect(await db.cards.count()).toBe(0)
     expect(await db.boardItems.count()).toBe(0)
   })
@@ -68,7 +72,7 @@ describe('legacy demo cleanup', () => {
       updatedAt: 1,
     })
 
-    await removeLegacyDemoData()
+    await expect(removeLegacyDemoData()).resolves.toBe(true)
 
     expect(await db.cards.get('card-demo-001')).toBeUndefined()
     expect(await db.boardItems.get('projection-001')).toBeUndefined()
@@ -76,5 +80,49 @@ describe('legacy demo cleanup', () => {
     expect(await db.syncOutbox.get('cards:card-demo-001')).toBeUndefined()
     expect(await db.cards.get('user-card')).toBeDefined()
     expect(await db.boardItems.get('user-projection')).toBeDefined()
+  })
+
+  it('deletes fixed demo rows from the authenticated cloud workspace', async () => {
+    const filters: Array<[string, string, string | string[]]> = []
+    const from = vi.fn((table: string) => {
+      const builder = {
+        delete: vi.fn(() => builder),
+        eq: vi.fn((column: string, value: string) => {
+          if (column === 'user_id') {
+            filters.push([table, column, value])
+          }
+          return builder
+        }),
+        in: vi.fn((column: string, values: string[]) => {
+          filters.push([table, column, values])
+          return Promise.resolve({ error: null })
+        }),
+      }
+      return builder
+    })
+
+    await removeRemoteDemoData({ from } as unknown as SupabaseClient, 'user-1')
+
+    expect(filters).toContainEqual(['cards', 'user_id', 'user-1'])
+    expect(filters).toContainEqual([
+      'cards',
+      'id',
+      ['card-demo-001', 'card-demo-002', 'card-demo-003'],
+    ])
+    expect(filters).toContainEqual([
+      'board_items',
+      'id',
+      ['projection-001', 'projection-002', 'projection-003'],
+    ])
+    expect(filters).toContainEqual([
+      'connections',
+      'from_card_id',
+      ['card-demo-001', 'card-demo-002', 'card-demo-003'],
+    ])
+    expect(filters).toContainEqual([
+      'connections',
+      'to_card_id',
+      ['card-demo-001', 'card-demo-002', 'card-demo-003'],
+    ])
   })
 })

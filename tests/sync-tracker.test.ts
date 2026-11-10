@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db } from '../src/db'
 import {
   installSyncTracking,
+  queueFullWorkspaceSnapshot,
   withSyncTrackingSuppressed,
 } from '../src/lib/sync/tracker'
 
@@ -74,5 +75,60 @@ describe('sync outbox tracker', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 25))
     expect(await db.syncOutbox.count()).toBe(0)
+  })
+
+  it('never claims fixed demo records into a cloud snapshot', async () => {
+    await withSyncTrackingSuppressed(async () => {
+      await db.cards.bulkPut([
+        {
+          id: 'card-demo-001',
+          title: 'Demo',
+          content: '',
+          tags: [],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: 'card-user',
+          title: 'Mine',
+          content: '',
+          tags: [],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ])
+      await db.boardItems.bulkPut([
+        {
+          id: 'projection-001',
+          cardId: 'card-demo-001',
+          boardId: 'board-main',
+          x: 0,
+          y: 0,
+        },
+        {
+          id: 'projection-user',
+          cardId: 'card-user',
+          boardId: 'board-main',
+          x: 100,
+          y: 100,
+        },
+      ])
+      await db.connections.put({
+        id: 'connection-demo',
+        boardId: 'board-main',
+        fromCardId: 'card-demo-001',
+        toCardId: 'card-user',
+      })
+    })
+
+    await queueFullWorkspaceSnapshot()
+
+    expect(await db.syncOutbox.get('cards:card-demo-001')).toBeUndefined()
+    expect(await db.syncOutbox.get('boardItems:projection-001')).toBeUndefined()
+    expect(
+      await db.syncOutbox.get('connections:connection-demo'),
+    ).toBeUndefined()
+    expect(await db.syncOutbox.get('cards:card-user')).toBeDefined()
+    expect(await db.syncOutbox.get('boardItems:projection-user')).toBeDefined()
   })
 })
