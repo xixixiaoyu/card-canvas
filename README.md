@@ -80,7 +80,7 @@ pnpm preview
 1. 在 Supabase 创建项目，区域优先选择 Singapore 或 Tokyo。
 2. 在 SQL Editor 中执行 [supabase/schema.sql](supabase/schema.sql)。
 3. 在 Authentication 的 URL Configuration 中把 Site URL 设为生产域名，并把本地 `http://localhost:5199` 与生产域名加入 Redirect URLs。
-4. 从 Project Settings 的 API 页面取得 Project URL 与 anon public key。
+4. 从 Project Settings 的 API 页面取得 Project URL 与 publishable key（旧项目也可能显示 anon public key）。
 
 ### 2. 配置本地环境
 
@@ -90,10 +90,10 @@ cp .env.example .env.local
 
 ```bash
 VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-public-key
+VITE_SUPABASE_ANON_KEY=your-publishable-or-anon-key
 ```
 
-`anon` key 可以暴露给浏览器；真正的数据隔离由 `user_id` + RLS 完成。不要把 `service_role` key 放入任何 `VITE_` 环境变量。
+publishable key 或旧版 anon key 可以暴露给浏览器；真正的数据隔离由 `user_id` + RLS 完成。不要把 secret / `service_role` key 放入任何 `VITE_` 环境变量。
 
 ### 3. 部署到 Vercel
 
@@ -374,7 +374,7 @@ e2e/                             # Playwright 端到端测试
 - **跨标签页**：`BroadcastChannel` 广播 cards / items / connections / boards 变更，接收端重读 IndexedDB；`visibilitychange` 兜底。
 - **云端出站队列**：Dexie `v3` 新增 `syncOutbox` 与 `syncMeta`，只追加同步元数据，不改已有四张领域表的索引；本地写事务提交后再合并入队，失败不影响本地编辑。
 - **云端入站隔离**：远端拉取写入通过 suppression guard，禁止触发 outbox，避免同步回声；随后通过现有 refresh 管线刷新 Pinia。
-- **云端权限边界**：四张远端表启用 RLS，策略只允许 `auth.uid() = user_id`；公开前端只使用 anon key。
+- **云端权限边界**：四张远端表启用 RLS，策略只允许 `auth.uid() = user_id`；公开前端只使用 publishable key 或旧版 anon key。
 - **主题持久化**：首次访问跟随系统；手动切换后明确写入 `light` / `dark`；首屏内联脚本恢复，避免闪烁。
 - **可访问性**：焦点陷阱、`inert` 背景、键盘移动、连线 `Tab` 聚焦、搜索 `role=listbox` + `aria-selected`、`aria-live` 选中播报与可见焦点环。
 
