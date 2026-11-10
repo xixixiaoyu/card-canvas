@@ -40,11 +40,30 @@ describe('atomic Markdown', () => {
     expect(blocks).toHaveLength(1)
     expect(blocks[0]).toMatchObject({
       type: 'list',
+      style: 'unordered',
       items: [
         { type: 'bullet', lineIndex: 0 },
         { type: 'task', lineIndex: 1, checked: false, text: '第一项' },
         { type: 'task', lineIndex: 2, checked: true, text: '第二项' },
       ],
+    })
+  })
+
+  it('parses ordered lists separately from unordered lists', () => {
+    const blocks = parseAtomicMarkdown('1. 第一步\n2. 第二步\n- 补充')
+
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0]).toMatchObject({
+      type: 'list',
+      style: 'ordered',
+      items: [
+        { type: 'ordered', number: 1, text: '第一步' },
+        { type: 'ordered', number: 2, text: '第二步' },
+      ],
+    })
+    expect(blocks[1]).toMatchObject({
+      type: 'list',
+      style: 'unordered',
     })
   })
 

@@ -1,6 +1,22 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { CornerDownLeft, Hash, PenLine, X } from '@lucide/vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+  type Component,
+} from 'vue'
+import {
+  CornerDownLeft,
+  Hash,
+  List,
+  ListOrdered,
+  ListTodo,
+  PenLine,
+  X,
+} from '@lucide/vue'
 import {
   mergeTags,
   normalizeTags,
@@ -37,6 +53,53 @@ const isEditing = computed(() => Boolean(props.card))
 const titleEl = ref<HTMLInputElement | null>(null)
 const contentEl = ref<HTMLTextAreaElement | null>(null)
 const panelEl = ref<HTMLElement | null>(null)
+const slashQuery = ref<string | null>(null)
+const slashStart = ref(0)
+const slashSelected = ref(0)
+
+interface SlashCommand {
+  label: string
+  hint: string
+  prefix: string
+  aliases: string[]
+  icon: Component
+}
+
+const slashCommands: SlashCommand[] = [
+  {
+    label: '无序列表',
+    hint: 'Bulleted list',
+    prefix: '- ',
+    aliases: ['ul', 'list', 'bullet'],
+    icon: List,
+  },
+  {
+    label: '有序列表',
+    hint: 'Numbered list',
+    prefix: '1. ',
+    aliases: ['ol', 'ordered', 'number'],
+    icon: ListOrdered,
+  },
+  {
+    label: '任务清单',
+    hint: 'Checkbox',
+    prefix: '- [ ] ',
+    aliases: ['todo', 'task', 'checkbox'],
+    icon: ListTodo,
+  },
+]
+
+const isSlashMenuOpen = computed(() => slashQuery.value !== null)
+const filteredSlashCommands = computed(() => {
+  const query = slashQuery.value?.trim().toLowerCase() ?? ''
+  if (!query) return slashCommands
+
+  return slashCommands.filter(
+    (command) =>
+      command.label.includes(query) ||
+      command.aliases.some((alias) => alias.includes(query)),
+  )
+})
 
 let restoreFocus: HTMLElement | null = null
 let saveAttempt = 0
@@ -46,6 +109,87 @@ let suppressModeSync = false
 const canSave = computed(
   () => Boolean(title.value.trim()) || Boolean(content.value.trim()),
 )
+
+function getSlashContext() {
+  const element = contentEl.value
+  if (!element) return null
+
+  const cursor = element.selectionStart
+  const before = content.value.slice(0, cursor)
+  const lineStart = before.lastIndexOf('\n') + 1
+  const line = before.slice(lineStart)
+  const match = /^(\s*)\/([^\s/]*)$/.exec(line)
+  if (!match) return null
+
+  return {
+    start: lineStart + match[1].length,
+    query: match[2],
+  }
+}
+
+function updateSlashMenu() {
+  const context = getSlashContext()
+  if (!context) {
+    slashQuery.value = null
+    slashSelected.value = 0
+    return
+  }
+
+  slashQuery.value = context.query
+  slashStart.value = context.start
+  slashSelected.value = 0
+}
+
+function closeSlashMenu() {
+  slashQuery.value = null
+  slashSelected.value = 0
+}
+
+async function applySlashCommand(command: SlashCommand) {
+  const element = contentEl.value
+  if (!element) return
+
+  const cursor = element.selectionStart
+  content.value =
+    content.value.slice(0, slashStart.value) +
+    command.prefix +
+    content.value.slice(cursor)
+  closeSlashMenu()
+
+  await nextTick()
+  const nextCursor = slashStart.value + command.prefix.length
+  element.focus()
+  element.setSelectionRange(nextCursor, nextCursor)
+}
+
+function handleContentKeydown(event: KeyboardEvent) {
+  if (!isSlashMenuOpen.value || event.isComposing) return
+  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') return
+
+  const commands = filteredSlashCommands.value
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (!commands.length) return
+    event.preventDefault()
+    event.stopPropagation()
+    const direction = event.key === 'ArrowDown' ? 1 : -1
+    slashSelected.value =
+      (slashSelected.value + direction + commands.length) % commands.length
+    return
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    closeSlashMenu()
+    return
+  }
+
+  if ((event.key === 'Enter' || event.key === 'Tab') && commands.length > 0) {
+    event.preventDefault()
+    event.stopPropagation()
+    void applySlashCommand(commands[slashSelected.value] ?? commands[0])
+  }
+}
 
 function addTag(raw: string) {
   const [tag] = normalizeTags([raw])
@@ -93,6 +237,7 @@ function reset() {
   content.value = ''
   tags.value = []
   tagDraft.value = ''
+  closeSlashMenu()
 }
 
 function close() {
@@ -405,14 +550,86 @@ onBeforeUnmount(() => {
               @keydown.enter="handleTitleEnter"
             />
 
-            <textarea
-              ref="contentEl"
-              v-model="content"
-              rows="5"
-              placeholder="捕捉一个念头、一段引用或一条未成形的知识…"
-              aria-label="卡片正文"
-              class="mt-4 w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-[1.85] text-stone-700 caret-amber-600 outline-none placeholder:text-stone-400/90 dark:text-zinc-300 dark:caret-amber-400 dark:placeholder:text-zinc-600"
-            />
+            <div class="mt-4">
+              <textarea
+                ref="contentEl"
+                v-model="content"
+                rows="5"
+                placeholder="捕捉一个念头、一段引用或一条未成形的知识…"
+                aria-label="卡片正文"
+                aria-autocomplete="list"
+                :aria-controls="
+                  isSlashMenuOpen ? 'quick-capture-slash-menu' : undefined
+                "
+                :aria-expanded="isSlashMenuOpen"
+                class="w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-[1.85] text-stone-700 caret-amber-600 outline-none placeholder:text-stone-400/90 dark:text-zinc-300 dark:caret-amber-400 dark:placeholder:text-zinc-600"
+                @input="updateSlashMenu"
+                @keydown="handleContentKeydown"
+                @click="updateSlashMenu"
+                @blur="closeSlashMenu"
+              />
+
+              <Transition name="slash-menu">
+                <div
+                  v-if="isSlashMenuOpen"
+                  id="quick-capture-slash-menu"
+                  class="mt-2 overflow-hidden rounded-xl border border-stone-200/85 bg-[#fdfbf7]/[0.98] p-1 shadow-[0_18px_45px_-20px_rgba(41,37,36,0.42)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/[0.98] dark:shadow-[0_24px_55px_-18px_rgba(0,0,0,0.85)]"
+                  role="listbox"
+                  aria-label="插入格式"
+                  data-slash-menu
+                >
+                  <button
+                    v-for="(command, index) in filteredSlashCommands"
+                    :key="command.label"
+                    type="button"
+                    class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[11px] transition-colors"
+                    :class="
+                      index === slashSelected
+                        ? 'bg-stone-100/80 text-stone-800 dark:bg-white/[0.07] dark:text-zinc-100'
+                        : 'text-stone-600 dark:text-zinc-400'
+                    "
+                    role="option"
+                    :aria-selected="index === slashSelected"
+                    data-slash-option
+                    @pointerdown.prevent
+                    @mouseenter="slashSelected = index"
+                    @click="applySlashCommand(command)"
+                  >
+                    <span
+                      class="flex h-6 w-6 items-center justify-center rounded-md border border-stone-200/70 bg-white/60 text-stone-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400"
+                    >
+                      <component
+                        :is="command.icon"
+                        :size="12"
+                        :stroke-width="1.7"
+                        aria-hidden="true"
+                      />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block font-medium">{{ command.label }}</span>
+                      <span
+                        class="mt-0.5 block font-mono text-[7px] uppercase tracking-[0.12em] text-stone-400 dark:text-zinc-600"
+                      >
+                        {{ command.hint }} · {{ command.prefix.trim() }}
+                      </span>
+                    </span>
+                    <span
+                      v-if="index === slashSelected"
+                      class="font-mono text-[8px] text-stone-400 dark:text-zinc-500"
+                    >
+                      ↵
+                    </span>
+                  </button>
+
+                  <p
+                    v-if="!filteredSlashCommands.length"
+                    class="px-3 py-2 text-[10px] text-stone-400 dark:text-zinc-600"
+                  >
+                    没有匹配的格式
+                  </p>
+                </div>
+              </Transition>
+            </div>
 
             <div class="mt-4 flex flex-wrap items-center gap-2">
               <span
@@ -515,5 +732,25 @@ onBeforeUnmount(() => {
 .capture-leave-to .capture-panel {
   opacity: 0;
   transform: translateY(-12px) scale(0.97);
+}
+
+.slash-menu-enter-active,
+.slash-menu-leave-active {
+  transition:
+    opacity 120ms ease,
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.slash-menu-enter-from,
+.slash-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.985);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slash-menu-enter-active,
+  .slash-menu-leave-active {
+    transition: none;
+  }
 }
 </style>

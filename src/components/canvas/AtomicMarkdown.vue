@@ -32,7 +32,11 @@ function toggleTask(lineIndex: number) {
         <InlineMarkdown :nodes="block.nodes" />
       </p>
 
-      <ul v-else class="atomic-list">
+      <ol
+        v-else
+        class="atomic-list"
+        :class="{ 'is-ordered': block.style === 'ordered' }"
+      >
         <li
           v-for="item in block.items"
           :key="`${item.type}-${item.lineIndex}`"
@@ -65,13 +69,21 @@ function toggleTask(lineIndex: number) {
             />
           </button>
 
+          <span
+            v-else-if="item.type === 'ordered'"
+            class="atomic-number"
+            aria-hidden="true"
+          >
+            {{ item.number }}
+          </span>
+
           <span v-else class="atomic-bullet" aria-hidden="true" />
 
           <span class="atomic-list-copy">
             <InlineMarkdown :nodes="item.nodes" />
           </span>
         </li>
-      </ul>
+      </ol>
     </template>
   </div>
 </template>
@@ -163,10 +175,12 @@ function toggleTask(lineIndex: number) {
 }
 
 .atomic-bullet {
+  display: flex;
   width: 0.9rem;
+  height: 1.9em;
   flex: none;
-  padding-top: 0.68rem;
-  text-align: center;
+  align-items: center;
+  justify-content: center;
 }
 
 .atomic-bullet::before {
@@ -176,6 +190,18 @@ function toggleTask(lineIndex: number) {
   border-radius: 9999px;
   background: rgba(120, 113, 108, 0.6);
   content: '';
+}
+
+.atomic-number {
+  display: flex;
+  width: 0.9rem;
+  height: 1.9em;
+  flex: none;
+  align-items: center;
+  justify-content: flex-start;
+  color: rgba(120, 113, 108, 0.72);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74em;
 }
 
 .atomic-list-copy {
@@ -209,6 +235,10 @@ function toggleTask(lineIndex: number) {
 
 .dark .atomic-bullet::before {
   background: rgba(161, 161, 170, 0.62);
+}
+
+.dark .atomic-number {
+  color: rgba(161, 161, 170, 0.72);
 }
 
 @media (prefers-reduced-motion: reduce) {

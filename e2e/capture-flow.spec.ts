@@ -71,3 +71,39 @@ test('new captures land beside the selected card', async ({ page }) => {
   expect(second!.x).toBeGreaterThan(first!.x + first!.width + 8)
   expect(second!.x - (first!.x + first!.width)).toBeLessThan(120)
 })
+
+test('slash commands insert list and task syntax', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  await page.keyboard.press('Control+k')
+  const content = page.getByLabel('卡片正文')
+  await expect(content).toBeVisible()
+
+  await content.fill('/')
+  const menu = page.locator('[data-slash-menu]')
+  await expect(menu).toBeVisible()
+  await expect(menu.locator('[data-slash-option]')).toHaveCount(3)
+
+  await menu.getByRole('option', { name: /任务清单/ }).click()
+  await expect(content).toHaveValue('- [ ] ')
+
+  await content.fill('/ul')
+  await page
+    .locator('[data-slash-menu]')
+    .getByRole('option', { name: /无序列表/ })
+    .click()
+  await expect(content).toHaveValue('- ')
+
+  await content.fill('/ol')
+  await page
+    .locator('[data-slash-menu]')
+    .getByRole('option', { name: /有序列表/ })
+    .click()
+  await expect(content).toHaveValue('1. ')
+
+  await content.fill('/')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(content).toHaveValue('1. ')
+})

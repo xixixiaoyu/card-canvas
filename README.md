@@ -2,7 +2,7 @@
 
 > 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
 >
-> **v1.2.0 · Local-First · 可选 Supabase 同步**
+> **v1.3.0 · Local-First · 可选 Supabase 同步**
 
 Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
 
@@ -150,6 +150,7 @@ VITE_SUPABASE_ANON_KEY
 - **高程反馈**：拾起时 `scale(1.018)`、漫反射阴影增强、`z-index` 置于最上层；放下后平滑回落
 - **持久化时机**：拖拽期间只写 DOM transform；`pointerup` 时多卡通过一个 `bulkPut` 事务提交 Pinia，并只记录一条历史
 - **原子 Markdown**：支持加粗、斜体、行内代码、高亮、无序列表与任务框；标题、HTML 和表格不会被解析成富文本
+- **`/` 格式命令**：在速记正文的空白行输入 `/`，可快速插入无序列表、有序列表或任务清单
 - **行动透镜**：顶栏汇总当前白板未完成任务，可直达对应卡片，也可在抽屉内直接勾选
 
 ## 即时速记（Capture to Board）
@@ -252,7 +253,7 @@ VITE_SUPABASE_ANON_KEY
 - **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
 - **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
 - **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
-- **版本锚点**：浮层页脚展示 `v1.2.0`，与顶栏、页脚和数据菜单保持一致
+- **版本锚点**：浮层页脚展示 `v1.3.0`，与顶栏、页脚和数据菜单保持一致
 - **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
@@ -283,7 +284,7 @@ VITE_SUPABASE_ANON_KEY
 
 ## 版本与 PWA 元信息
 
-- 版本：`v1.2.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- 版本：`v1.3.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
 - `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
 - `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 SVG 图标；当前不注册 Service Worker，不伪造离线缓存
 - 首次启动请求 `navigator.storage.persist()`，尽力降低浏览器回收 IndexedDB 的概率
@@ -387,8 +388,8 @@ e2e/                             # Playwright 端到端测试
 
 ## 质量防线
 
-- **Vitest**：109 项，覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子 Markdown、任务行替换、原子撤销、Markdown 排序、搜索、捕获、云端映射、离线 outbox 与旧 demo 清理。
-- **Playwright**：32 项，覆盖捕获、白板、连线、Spotlight、层级星系、多选、刚体拖拽、任务勾选、行动透镜、Markdown 导出、快捷键浮层与空板引导。
+- **Vitest**：110 项，覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子 Markdown、有序列表、任务行替换、原子撤销、Markdown 排序、搜索、捕获、云端映射、离线 outbox 与旧 demo 清理。
+- **Playwright**：33 项，覆盖捕获、`/` 格式命令、白板、连线、Spotlight、层级星系、多选、刚体拖拽、任务勾选、行动透镜、Markdown 导出、快捷键浮层与空板引导。
 - **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 30 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
 - **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。
 - 每次提交前运行 `format:check` / `lint` / `typecheck` / `test` / `build` / `test:e2e`。
@@ -396,3 +397,7 @@ e2e/                             # Playwright 端到端测试
 ## v1.2.0 原子 Markdown 版本
 
 v1.1.0 以可选云端层扩展存储边界；v1.2.0 在不修改 Dexie schema 的前提下增加白名单 Markdown、卡片内任务切换和行动透镜。画布、刚体拖拽、撤销与云端同步契约保持不变。
+
+## v1.3.0 快速格式版本
+
+v1.3.0 增加行首 `/` 格式菜单、有序列表渲染，并校准列表标记与首行文字的垂直对齐。

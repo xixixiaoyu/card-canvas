@@ -21,7 +21,7 @@ test('renders atomic Markdown and toggles tasks with persistence and undo', asyn
   const card = await editContent(
     page,
     0,
-    '**重要** 与 `api()`\n# 标题保持纯文本\n- [ ] 第一项\n- [x] 已完成',
+    '**重要** 与 `api()`\n# 标题保持纯文本\n1. 有序第一步\n2. 有序第二步\n- [ ] 第一项\n- [x] 已完成',
   )
   const markdown = card.locator('.atomic-markdown')
 
@@ -29,6 +29,10 @@ test('renders atomic Markdown and toggles tasks with persistence and undo', asyn
   await expect(markdown.locator('code')).toHaveText('api()')
   await expect(markdown.locator('h1, h2, h3, h4, h5, h6')).toHaveCount(0)
   await expect(markdown).toContainText('# 标题保持纯文本')
+  await expect(markdown.locator('ol.is-ordered .atomic-number')).toHaveText([
+    '1',
+    '2',
+  ])
 
   await page.mouse.click(900, 680)
   await expect(page.locator('[data-world-item].is-selected')).toHaveCount(0)

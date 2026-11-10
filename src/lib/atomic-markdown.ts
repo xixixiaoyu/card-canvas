@@ -19,15 +19,17 @@ export interface MarkdownBlank {
 }
 
 export interface MarkdownListItem {
-  type: 'bullet' | 'task'
+  type: 'bullet' | 'ordered' | 'task'
   lineIndex: number
   checked?: boolean
+  number?: number
   nodes: InlineNode[]
   text: string
 }
 
 export interface MarkdownList {
   type: 'list'
+  style: 'unordered' | 'ordered'
   items: MarkdownListItem[]
 }
 
@@ -53,6 +55,7 @@ export interface ActionTask {
 
 const TASK_LINE = /^(\s*-\s+\[)([ xX])(\]\s*)(.*)$/
 const BULLET_LINE = /^(\s*)-\s+(.*)$/
+const ORDERED_LINE = /^(\s*)(\d+)[.)]\s+(.*)$/
 const INLINE_DELIMITERS = [
   { delimiter: '`', type: 'code' as const },
   { delimiter: '**', type: 'strong' as const },
@@ -71,6 +74,19 @@ function mergeText(nodes: InlineNode[]) {
     }
   }
   return merged
+}
+
+function appendListItem(
+  blocks: MarkdownBlock[],
+  style: MarkdownList['style'],
+  item: MarkdownListItem,
+) {
+  const previous = blocks.at(-1)
+  if (previous?.type === 'list' && previous.style === style) {
+    previous.items.push(item)
+  } else {
+    blocks.push({ type: 'list', style, items: [item] })
+  }
 }
 
 function nextDelimiter(source: string, from: number) {
@@ -186,9 +202,7 @@ export function parseAtomicMarkdown(source: string): MarkdownBlock[] {
         nodes: task.nodes,
         text: task.text,
       }
-      const previous = blocks.at(-1)
-      if (previous?.type === 'list') previous.items.push(item)
-      else blocks.push({ type: 'list', items: [item] })
+      appendListItem(blocks, 'unordered', item)
       continue
     }
 
@@ -201,9 +215,21 @@ export function parseAtomicMarkdown(source: string): MarkdownBlock[] {
         nodes,
         text: inlineNodesToText(nodes).trim(),
       }
-      const previous = blocks.at(-1)
-      if (previous?.type === 'list') previous.items.push(item)
-      else blocks.push({ type: 'list', items: [item] })
+      appendListItem(blocks, 'unordered', item)
+      continue
+    }
+
+    const ordered = ORDERED_LINE.exec(line)
+    if (ordered) {
+      const nodes = parseInlineMarkdown(ordered[3])
+      const item: MarkdownListItem = {
+        type: 'ordered',
+        lineIndex,
+        number: Number(ordered[2]),
+        nodes,
+        text: inlineNodesToText(nodes).trim(),
+      }
+      appendListItem(blocks, 'ordered', item)
       continue
     }
 
