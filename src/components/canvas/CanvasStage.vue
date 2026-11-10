@@ -21,6 +21,7 @@ const emit = defineEmits<{
   'background-pointerdown': [payload: { shiftKey: boolean }]
   ready: [boardId: string]
   search: []
+  shortcuts: []
 }>()
 
 const props = withDefaults(
@@ -296,6 +297,7 @@ defineExpose({
         @reset-zoom="resetZoom"
         @fit="fitAll(true)"
         @search="emit('search')"
+        @shortcuts="emit('shortcuts')"
       />
     </div>
   </section>

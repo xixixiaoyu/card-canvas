@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Layers2, Moon, PenLine, Redo2, Sun, Undo2 } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
+import EmptyBoardState from './components/canvas/EmptyBoardState.vue'
+import ShortcutModal from './components/canvas/ShortcutModal.vue'
 import SpotlightSearch from './components/canvas/SpotlightSearch.vue'
 import BoardSwitcher from './components/board/BoardSwitcher.vue'
 import QuickCapture from './components/capture/QuickCapture.vue'
@@ -27,6 +29,7 @@ const toast = useToastStore()
 const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
 const isCaptureOpen = ref(false)
 const isSpotlightOpen = ref(false)
+const isShortcutOpen = ref(false)
 const editingCard = ref<Card | null>(null)
 const stageReady = ref(false)
 const pendingTeleport = ref<SpotlightTarget | null>(null)
@@ -239,8 +242,13 @@ function openCapture() {
 }
 
 function openSpotlight() {
-  if (!board.isHydrated || isCaptureOpen.value) return
+  if (!board.isHydrated || isCaptureOpen.value || isShortcutOpen.value) return
   isSpotlightOpen.value = true
+}
+
+function openShortcuts() {
+  if (!board.isHydrated || isCaptureOpen.value || isSpotlightOpen.value) return
+  isShortcutOpen.value = true
 }
 
 function handleCanvasBackground(payload?: { shiftKey?: boolean }) {
@@ -302,6 +310,8 @@ function isEditableTarget(target: EventTarget | null) {
 function handleGlobalKeydown(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing) return
 
+  // The modal owns Escape and Tab while it is open.
+  if (isShortcutOpen.value) return
   if (isSpotlightOpen.value || isCaptureOpen.value) return
   // Never steal shortcuts from inputs, textareas or future inline editors.
   if (isEditableTarget(event.target)) return
@@ -310,6 +320,12 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   if (!board.isHydrated) return
 
   const mod = event.metaKey || event.ctrlKey
+
+  if (!mod && !event.altKey && event.key === '?') {
+    event.preventDefault()
+    openShortcuts()
+    return
+  }
 
   if (mod && !event.altKey && !event.shiftKey && event.code === 'KeyF') {
     event.preventDefault()
@@ -380,6 +396,7 @@ onBeforeUnmount(() => {
     @background-pointerdown="handleCanvasBackground"
     @ready="handleStageReady"
     @search="openSpotlight"
+    @shortcuts="openShortcuts"
   >
     <h1 class="sr-only">Card Canvas 无限白板</h1>
     <p class="sr-only" aria-live="polite">{{ selectionAnnouncement }}</p>
@@ -412,6 +429,13 @@ onBeforeUnmount(() => {
     />
 
     <template #overlay>
+      <Transition name="empty-state">
+        <EmptyBoardState
+          v-if="board.entries.length === 0"
+          @capture="openCapture"
+        />
+      </Transition>
+
       <header
         class="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 px-5 py-5 sm:px-8 sm:py-7"
       >
@@ -434,7 +458,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 08B / Rigid Group
+              v1.0.0 · Local-first
             </p>
           </div>
 
@@ -555,6 +579,8 @@ onBeforeUnmount(() => {
             />
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
+          <span class="text-stone-300 dark:text-zinc-700">·</span>
+          <span>v1.0.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">
@@ -644,6 +670,8 @@ onBeforeUnmount(() => {
     @select="handleSpotlightSelect"
   />
 
+  <ShortcutModal v-model:open="isShortcutOpen" />
+
   <ToastStack />
 </template>
 
@@ -669,5 +697,18 @@ onBeforeUnmount(() => {
 .theme-icon-leave-to {
   opacity: 0;
   transform: rotate(25deg) scale(0.8);
+}
+
+.empty-state-enter-active,
+.empty-state-leave-active {
+  transition:
+    opacity 320ms ease,
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.empty-state-enter-from,
+.empty-state-leave-to {
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
 }
 </style>

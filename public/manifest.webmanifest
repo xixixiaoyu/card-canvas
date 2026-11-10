@@ -1,0 +1,19 @@
+{
+  "name": "Card Canvas",
+  "short_name": "Card Canvas",
+  "description": "卡片笔记与无限白板：本地优先的原子卡片工作台。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f6f3",
+  "theme_color": "#f7f6f3",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

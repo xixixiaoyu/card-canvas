@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Minus, Plus, Scan, Search } from '@lucide/vue'
+import { CircleHelp, Minus, Plus, Scan, Search } from '@lucide/vue'
 import type { ZoomLimit } from '../../composables/useCanvas'
 
 const props = defineProps<{
@@ -14,6 +14,7 @@ const emit = defineEmits<{
   resetZoom: []
   fit: []
   search: []
+  shortcuts: []
 }>()
 
 const limitLabel = computed(() =>
@@ -101,6 +102,21 @@ const limitLabel = computed(() =>
       @click="emit('search')"
     >
       <Search :size="14" :stroke-width="1.8" aria-hidden="true" />
+    </button>
+
+    <span
+      class="mx-1 h-4 w-px bg-stone-200/80 dark:bg-white/10"
+      aria-hidden="true"
+    />
+
+    <button
+      type="button"
+      class="flex h-8 w-8 items-center justify-center rounded-full transition-[background-color,color] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
+      aria-label="查看快捷键"
+      title="快捷键 · ?"
+      @click="emit('shortcuts')"
+    >
+      <CircleHelp :size="14" :stroke-width="1.7" aria-hidden="true" />
     </button>
   </div>
 </template>

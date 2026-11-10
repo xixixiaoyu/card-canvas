@@ -1,8 +1,42 @@
 # Card Canvas
 
-卡片笔记与无限白板工具 · **Phase 08B / Rigid Group**
+> 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
+>
+> **v1.0.0 · Local-First · 无云依赖**
 
-Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 2D 白板** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统；Phase 06.5 加入 Spotlight 穿梭搜索、电影感运镜与星系暗化；Phase 07 取消待整理池，速记保存即上板；Phase 07.5 把穿梭扩展到全库跨板检索，并补上标签层级聚合；Phase 08A 加入框选多选、集群包围框与 Markdown 认知蒸馏导出；Phase 08B 把多选升级为 Master 驱动的刚体拖拽、批量连线刷新与单步原子撤销。
+Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
+
+## 愿景
+
+跨学科探索者的困境通常不是“没有想法”，而是想法在笔记、聊天、书签和脑中同时存在，却从未真正相遇。Card Canvas 只做三件事：
+
+1. **降低捕获摩擦**：一个快捷键，把念头直接放上画布。
+2. **保留空间记忆**：让位置、邻近和连线成为第二层语义。
+3. **支持认知收束**：从发散的白板中提取结构化 Markdown。
+
+## 设计哲学
+
+- **拒绝长篇大论**：卡片先于文档；一张卡只承载一个可复用的原子观点。
+- **捕获即上板**：没有“待整理池”，保存动作就是空间动作。
+- **贴身生长**：新卡优先落在当前卡片旁边，而不是被丢到画布深处。
+- **实体与投影解耦**：`Card` 是内容真相，`BoardItem` 只是它在某块白板上的空间投影；同一张卡可以出现在多块白板。
+- **本地优先**：Dexie / IndexedDB 是主存储，无账号、无服务端、无静默上传。
+- **克制而非空白**：低饱和特种纸、微弱噪点、细线连线和一套有节制的琥珀色强调。
+- **可解释的力学**：缩放、框选、刚体拖拽与撤销都基于可测试的几何，而不是肉眼调参。
+
+## 全景能力
+
+| 能力       | 体验                                         |
+| ---------- | -------------------------------------------- |
+| 即时捕获   | `⌘K` 速记，卡片直接落在当前白板              |
+| 2D 漫游    | 空格/中键平移，滚轮或捏合缩放，10%–300%      |
+| 认知连线   | 从卡片边缘拖出曲线，自动贴边并支持语义标签   |
+| 全局穿梭   | `⌘F` 搜索全库，跨白板飞行到目标卡片          |
+| 层级星系   | 点击标签，按 `/` 层级聚合命中，其余卡片暗化  |
+| 多选与刚体 | 空白框选、Shift 并集、整组平移、单步原子撤销 |
+| 认知蒸馏   | 将选中卡片导出为阅读顺序的 Markdown 大纲     |
+| 快捷键备忘 | 按 `?` 随时查看完整键盘地图                  |
+| 空板引导   | 空白白板中央提供一次点击即开始的捕获入口     |
 
 ## 技术栈
 
@@ -27,9 +61,10 @@ pnpm format:check       # Prettier
 pnpm lint               # ESLint
 pnpm typecheck          # vue-tsc
 pnpm test               # Vitest：刚体位移、批量拓扑、原子撤销、框选 AABB、Markdown、连线
-pnpm test:e2e           # Playwright：默认 Chromium + 4 workers，全量约 26s
+pnpm test:e2e           # Playwright：默认 Chromium + 4 workers，全量约 33s
 pnpm test:e2e:serial    # 单 worker，调试偶发失败
 pnpm test:e2e:chrome    # 系统 Chrome 真浏览器抽查（单 worker）
+pnpm exec playwright install chromium  # 可选：安装 E2E 浏览器
 pnpm build              # typecheck + vite build
 pnpm preview
 ```
@@ -149,7 +184,16 @@ pnpm preview
 - **剪贴板**：优先 `navigator.clipboard.writeText`；失败时降级到屏幕外 textarea + `execCommand('copy')`，textarea 固定在 `-9999px` 且 `pointer-events:none`
 - **反馈**：成功 Toast「已复制 N 张卡片大纲到剪贴板」，工具栏短暂显示「已复制」
 
-> Phase 08B 已完成：多选集群现在可以直接拖拽，连线和撤销都按整个集群处理。
+> v1.0.0 已完成：多选集群可以直接拖拽，连线和撤销都按整个集群处理。
+
+## 快捷键备忘与空板引导
+
+- **`?`**：打开快捷键备忘录；`Esc` 或点击遮罩关闭
+- **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
+- **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
+- **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
+- **版本锚点**：浮层页脚展示 `v1.0.0`，与顶栏、页脚和数据菜单保持一致
+- **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
 
@@ -177,6 +221,13 @@ pnpm preview
 - 顶栏数据菜单可导出/导入完整 JSON 备份（cards / boardItems / connections / boards）；导入按 id 合并
 - 启动时申请 `navigator.storage.persist()`；写入失败会回滚并给出可重试 toast
 
+## 版本与 PWA 元信息
+
+- 版本：`v1.0.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
+- `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 SVG 图标；当前不注册 Service Worker，不伪造离线缓存
+- 首次启动请求 `navigator.storage.persist()`，尽力降低浏览器回收 IndexedDB 的概率
+
 ## 本地数据
 
 - 首次启动且 Dexie 为空时自动写入 3 张示例卡片与 3 个空间投影，并创建第一块白板
@@ -197,6 +248,8 @@ src/
 │   │   ├── CanvasHUD.vue        # 缩放 / 居中悬浮胶囊
 │   │   ├── CardNode.vue         # 世界卡片、拖拽手柄、标签与呼吸光环
 │   │   ├── SelectionChrome.vue  # 多选包围框、浮动工具栏与 Markdown 复制
+│   │   ├── EmptyBoardState.vue  # 空白白板的一次点击捕获引导
+│   │   ├── ShortcutModal.vue    # ? 快捷键备忘录 / 四组键盘地图
 │   │   ├── ConnectionLayer.vue  # SVG 连线层、命中路径、Label 胶囊
 │   │   └── SpotlightSearch.vue  # 全局搜索浮层、白板徽标与键盘导航
 │   ├── board/
@@ -267,3 +320,15 @@ e2e/                             # Playwright 端到端测试
 - **跨标签页**：`BroadcastChannel` 广播 cards / items / connections / boards 变更，接收端重读 IndexedDB；`visibilitychange` 兜底。
 - **主题持久化**：首次访问跟随系统；手动切换后明确写入 `light` / `dark`；首屏内联脚本恢复，避免闪烁。
 - **可访问性**：焦点陷阱、`inert` 背景、键盘移动、连线 `Tab` 聚焦、搜索 `role=listbox` + `aria-selected`、`aria-live` 选中播报与可见焦点环。
+
+## 质量防线
+
+- **Vitest**：93 项，覆盖几何、框选 AABB、刚体位移、连线拓扑、原子撤销、Markdown 排序、搜索与捕获。
+- **Playwright**：28 项，覆盖捕获、白板、连线、Spotlight、层级星系、多选、刚体拖拽、Markdown 导出、快捷键浮层与空板引导。
+- **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 33 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
+- **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。
+- 每次提交前运行 `format:check` / `lint` / `typecheck` / `test` / `build` / `test:e2e`。
+
+## v1.0.0 封版
+
+v1.0.0 冻结当前领域模型与 Dexie schema：不做 schema 迁移，不引入服务端依赖，不改变已经稳定的画布运动学、刚体拖拽和撤销语义。后续迭代应优先在现有实体/投影契约上做体验增强，而不是重写底层。
