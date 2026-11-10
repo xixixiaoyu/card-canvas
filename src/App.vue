@@ -502,7 +502,7 @@ onBeforeUnmount(() => {
     <p class="sr-only" aria-live="polite">{{ selectionAnnouncement }}</p>
 
     <CardNode
-      v-for="(entry, index) in board.entries"
+      v-for="entry in board.entries"
       :key="entry.item.id"
       :item="entry.item"
       :card="entry.card"
@@ -511,7 +511,6 @@ onBeforeUnmount(() => {
       :is-highlighted="board.pulseItemId === entry.item.id"
       :is-dimmed="isCardOutsideGalaxy(entry.card)"
       :active-filter-tag="board.activeFilterTag"
-      :index-label="`CARD / ${String(index + 1).padStart(3, '0')}`"
       :copyable="
         board.selectedItemIds.size === 1 &&
         board.selectedItemIds.has(entry.item.id)
@@ -563,7 +562,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.3.1 · Local-first
+              v1.3.2 · Local-first
             </p>
           </div>
 
@@ -691,7 +690,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.3.1</span>
+          <span>v1.3.2</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

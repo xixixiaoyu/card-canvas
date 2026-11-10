@@ -26,7 +26,6 @@ const props = withDefaults(
     isDimmed?: boolean
     activeFilterTag?: string | null
     getDragGroup?: () => BoardItem[]
-    indexLabel?: string
     copyable?: boolean
     copied?: boolean
   }>(),
@@ -37,7 +36,6 @@ const props = withDefaults(
     isDimmed: false,
     activeFilterTag: null,
     getDragGroup: undefined,
-    indexLabel: 'CARD',
     copyable: false,
     copied: false,
   },
@@ -95,9 +93,6 @@ onBeforeUnmount(() => {
 const compact = computed(() => (props.item.width ?? 420) < 360)
 const highlights = computed(() => props.card.highlights ?? [])
 const titleId = computed(() => `card-title-${props.card.id}`)
-const noteCountLabel = computed(
-  () => `${highlights.value.length.toString().padStart(2, '0')} ATOMIC NOTES`,
-)
 
 function handleLinkPointerDown(event: PointerEvent) {
   if (!connection) return
@@ -299,19 +294,11 @@ function tagTone(index: number) {
               </div>
 
               <span
-                class="card-index flex cursor-grab items-center gap-1.5 rounded-full border border-stone-200/70 bg-stone-50/60 px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-zinc-400"
+                class="card-drag-grip flex cursor-grab items-center justify-center"
                 data-card-drag-handle
                 title="拖动卡片"
               >
-                <Grip
-                  :size="13"
-                  :stroke-width="1.6"
-                  class="text-stone-400 dark:text-zinc-500"
-                  aria-hidden="true"
-                />
-                <span v-if="!compact" class="card-index-label">
-                  {{ indexLabel }}
-                </span>
+                <Grip :size="13" :stroke-width="1.6" aria-hidden="true" />
               </span>
             </div>
           </header>
@@ -368,7 +355,7 @@ function tagTone(index: number) {
           </template>
 
           <footer
-            class="card-footer mt-7 flex items-center justify-between gap-4 border-t border-stone-200/70 pt-4 dark:border-white/[0.08]"
+            class="card-footer mt-7 flex items-center gap-4 border-t border-stone-200/70 pt-4 dark:border-white/[0.08]"
           >
             <div
               class="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400"
@@ -381,15 +368,8 @@ function tagTone(index: number) {
                   class="relative h-1.5 w-1.5 rounded-full bg-emerald-500/80"
                 />
               </span>
-              <span>{{
-                isDragging ? '拖动中 · 待落盘' : '本地草稿 · 已保存'
-              }}</span>
+              <span>{{ isDragging ? '拖动中' : '已保存' }}</span>
             </div>
-            <span
-              class="font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400"
-            >
-              {{ noteCountLabel }}
-            </span>
           </footer>
         </div>
       </div>
@@ -730,21 +710,44 @@ function tagTone(index: number) {
   cursor: default;
 }
 
+.card-drag-grip {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 9999px;
+  color: rgb(168 162 158 / 0.72);
+  opacity: 0.58;
+  transition:
+    opacity 160ms ease,
+    color 160ms ease,
+    background-color 160ms ease;
+}
+
+.card-node:hover .card-drag-grip,
+.card-node:focus-within .card-drag-grip,
+.card-node.is-selected .card-drag-grip {
+  opacity: 1;
+}
+
+.card-drag-grip:hover {
+  background: rgba(214, 211, 209, 0.5);
+  color: rgb(87 83 78);
+}
+
+.dark .card-drag-grip {
+  color: rgb(113 113 122 / 0.82);
+}
+
+.dark .card-drag-grip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgb(212 212 216);
+}
+
 .note-card--compact {
   border-radius: 22px;
 }
 
 .note-card--compact .card-body {
   padding: 1.5rem;
-}
-
-.note-card--compact .card-index {
-  gap: 0;
-  padding: 0.3rem;
-}
-
-.note-card--compact .card-index-label {
-  display: none;
 }
 
 .note-card--compact .card-title {
