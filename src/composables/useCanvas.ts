@@ -163,6 +163,20 @@ export function worldToScreen(
   }
 }
 
+/**
+ * High-resolution wheel events with any horizontal component come from a
+ * trackpad (or a two-axis pointing device). Even a fast horizontal swipe can
+ * exceed the coarse-wheel threshold, so it must remain 1:1 with the gesture.
+ */
+export function shouldApplyWheelPanDirectly(
+  deltaX: number,
+  deltaY: number,
+  deltaMode: number,
+) {
+  if (deltaMode !== 0 || (deltaX === 0 && deltaY === 0)) return false
+  return deltaX !== 0 || Math.max(Math.abs(deltaX), Math.abs(deltaY)) < 40
+}
+
 type MotionMode = 'idle' | 'pan' | 'zoom' | 'fly'
 type PanSource = 'space' | 'middle' | 'touch' | null
 type SafariGestureEvent = Event & {
@@ -839,8 +853,7 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     const { dx, dy } = normalizeWheelDelta(event, rect)
     if (dx === 0 && dy === 0) return
 
-    const isTrackpadPan =
-      event.deltaMode === 0 && Math.max(Math.abs(dx), Math.abs(dy)) < 40
+    const isTrackpadPan = shouldApplyWheelPanDirectly(dx, dy, event.deltaMode)
 
     if (mode === 'zoom') {
       zoomAnchor = null

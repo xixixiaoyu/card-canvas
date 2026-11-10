@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   screenToWorld,
+  shouldApplyWheelPanDirectly,
   viewportForWorldCenter,
   worldToScreen,
 } from '../src/composables/useCanvas'
@@ -72,5 +73,19 @@ describe('canvas coordinates', () => {
 
     expect(Number.isFinite(result.x)).toBe(true)
     expect(Number.isFinite(result.y)).toBe(true)
+  })
+
+  it('keeps fast horizontal trackpad swipes on the direct path', () => {
+    expect(shouldApplyWheelPanDirectly(120, 4, 0)).toBe(true)
+    expect(shouldApplyWheelPanDirectly(-180, 0, 0)).toBe(true)
+  })
+
+  it('keeps small two-axis gestures on the direct path', () => {
+    expect(shouldApplyWheelPanDirectly(12, 8, 0)).toBe(true)
+  })
+
+  it('keeps large vertical wheel steps on the damped path', () => {
+    expect(shouldApplyWheelPanDirectly(0, 100, 0)).toBe(false)
+    expect(shouldApplyWheelPanDirectly(60, 60, 1)).toBe(false)
   })
 })

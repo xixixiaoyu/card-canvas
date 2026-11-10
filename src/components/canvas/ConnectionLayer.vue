@@ -137,13 +137,13 @@ function beginLabelEdit(connectionId: string) {
   connection.startLabelEdit(connectionId)
 }
 
-function commitLabel() {
+async function commitLabel() {
   const connectionId = connection.editingConnectionId.value
   if (!connectionId) return
 
   const value = labelDraft.value
-  connection.stopLabelEdit()
-  void board.updateConnectionLabel(connectionId, value)
+  const updated = await board.updateConnectionLabel(connectionId, value)
+  if (updated) connection.stopLabelEdit()
 }
 
 function cancelLabel() {
