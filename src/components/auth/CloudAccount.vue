@@ -73,6 +73,13 @@ watch(
   },
 )
 
+watch(
+  () => auth.error,
+  (message) => {
+    if (message && !auth.isAuthenticated) authOpen.value = true
+  },
+)
+
 onMounted(() => {
   document.addEventListener('pointerdown', handlePointerDown)
   document.addEventListener('keydown', handleKeydown)

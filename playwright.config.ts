@@ -14,16 +14,21 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
-    baseURL: 'http://localhost:5199',
+    baseURL: 'http://localhost:5198',
     channel: useSystemChrome ? 'chrome' : undefined,
     headless: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: 'pnpm dev --port 5199 --strictPort',
-    url: 'http://localhost:5199',
-    reuseExistingServer: !process.env.CI,
+    command: 'pnpm dev --port 5198 --strictPort',
+    url: 'http://localhost:5198',
+    reuseExistingServer: false,
     timeout: 60_000,
+    env: {
+      VITE_SUPABASE_URL: 'https://example.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'test-publishable-key',
+      VITE_EMAIL_CODE_ENABLED: 'true',
+    },
   },
 })

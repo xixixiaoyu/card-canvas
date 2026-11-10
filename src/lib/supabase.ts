@@ -4,6 +4,8 @@ const url = import.meta.env.VITE_SUPABASE_URL?.trim()
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()
 
 export const isSupabaseConfigured = Boolean(url && anonKey)
+export const isEmailCodeEnabled =
+  import.meta.env.VITE_EMAIL_CODE_ENABLED === 'true'
 
 let clientPromise: Promise<SupabaseClient | null> | null = null
 

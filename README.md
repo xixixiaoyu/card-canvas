@@ -2,7 +2,7 @@
 
 > 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
 >
-> **v1.3.3 · Local-First · 可选 Supabase 同步**
+> **v1.4.0 · Local-First · 可选 Supabase 同步**
 
 Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
 
@@ -26,18 +26,18 @@ Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记�
 
 ## 全景能力
 
-| 能力       | 体验                                         |
-| ---------- | -------------------------------------------- |
-| 即时捕获   | `⌘K` 速记，卡片直接落在当前白板              |
-| 2D 漫游    | 空格/中键平移，滚轮或捏合缩放，10%–300%      |
-| 认知连线   | 从卡片边缘拖出曲线，自动贴边并支持语义标签   |
-| 全局穿梭   | `⌘F` 搜索全库，跨白板飞行到目标卡片          |
-| 层级星系   | 点击标签，按 `/` 层级聚合命中，其余卡片暗化  |
-| 多选与刚体 | 空白框选、Shift 并集、整组平移、单步原子撤销 |
-| 认知蒸馏   | 将选中卡片导出为阅读顺序的 Markdown 大纲     |
-| 云端同步   | 可选 Magic Link 登录，断网继续编辑并异步同步 |
-| 快捷键备忘 | 按 `?` 随时查看完整键盘地图                  |
-| 空板引导   | 空白白板中央提供一次点击即开始的捕获入口     |
+| 能力       | 体验                                                         |
+| ---------- | ------------------------------------------------------------ |
+| 即时捕获   | `⌘K` 速记，卡片直接落在当前白板                              |
+| 2D 漫游    | 空格/中键平移，滚轮或捏合缩放，10%–300%                      |
+| 认知连线   | 从卡片边缘拖出曲线，自动贴边并支持语义标签                   |
+| 全局穿梭   | `⌘F` 搜索全库，跨白板飞行到目标卡片                          |
+| 层级星系   | 点击标签，按 `/` 层级聚合命中，其余卡片暗化                  |
+| 多选与刚体 | 空白框选、Shift 并集、整组平移、单步原子撤销                 |
+| 认知蒸馏   | 将选中卡片导出为阅读顺序的 Markdown 大纲                     |
+| 云端同步   | GitHub、邮箱验证码或 Magic Link 登录，断网继续编辑并异步同步 |
+| 快捷键备忘 | 按 `?` 随时查看完整键盘地图                                  |
+| 空板引导   | 空白白板中央提供一次点击即开始的捕获入口                     |
 
 ## 技术栈
 
@@ -81,6 +81,8 @@ pnpm preview
 2. 在 SQL Editor 中执行 [supabase/schema.sql](supabase/schema.sql)。
 3. 在 Authentication 的 URL Configuration 中把 Site URL 设为生产域名，并把本地 `http://localhost:5199` 与生产域名加入 Redirect URLs。
 4. 从 Project Settings 的 API 页面取得 Project URL 与 publishable key（旧项目也可能显示 anon public key）。
+5. 如需 GitHub 登录，在 GitHub 创建 OAuth App，Callback URL 使用 `https://<project-ref>.supabase.co/auth/v1/callback`，再把 Client ID / Secret 填入 Supabase Authentication → Sign In / Providers → GitHub。
+6. 如需邮箱验证码，配置自定义 SMTP，并在 Magic Link 邮件模板中同时加入 `{{ .Token }}` 与 `{{ .ConfirmationURL }}`；默认 Supabase 邮件模板不包含验证码。完成后在部署环境设置 `VITE_EMAIL_CODE_ENABLED=true`，验证码入口才会开放。
 
 ### 2. 配置本地环境
 
@@ -91,6 +93,7 @@ cp .env.example .env.local
 ```bash
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-publishable-or-anon-key
+VITE_EMAIL_CODE_ENABLED=false
 ```
 
 publishable key 或旧版 anon key 可以暴露给浏览器；真正的数据隔离由 `user_id` + RLS 完成。不要把 secret / `service_role` key 放入任何 `VITE_` 环境变量。
@@ -111,6 +114,7 @@ vercel --prod
 ```text
 VITE_SUPABASE_URL
 VITE_SUPABASE_ANON_KEY
+VITE_EMAIL_CODE_ENABLED
 ```
 
 部署后把生产域名补进 Supabase Authentication → URL Configuration 的 Site URL 与 Redirect URLs。
@@ -254,7 +258,7 @@ VITE_SUPABASE_ANON_KEY
 - **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
 - **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
 - **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
-- **版本锚点**：浮层页脚展示 `v1.3.3`，与顶栏、页脚和数据菜单保持一致
+- **版本锚点**：浮层页脚展示 `v1.4.0`，与顶栏、页脚和数据菜单保持一致
 - **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
@@ -285,7 +289,7 @@ VITE_SUPABASE_ANON_KEY
 
 ## 版本与 PWA 元信息
 
-- 版本：`v1.3.3`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- 版本：`v1.4.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
 - `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
 - `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 SVG 图标；当前不注册 Service Worker，不伪造离线缓存
 - 首次启动请求 `navigator.storage.persist()`，尽力降低浏览器回收 IndexedDB 的概率
@@ -389,8 +393,8 @@ e2e/                             # Playwright 端到端测试
 
 ## 质量防线
 
-- **Vitest**：110 项，覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子 Markdown、有序列表、任务行替换、原子撤销、Markdown 排序、搜索、捕获、云端映射、离线 outbox 与旧 demo 清理。
-- **Playwright**：35 项，覆盖捕获、双击编辑、`/` 格式命令、移动端布局、白板、连线、Spotlight、层级星系、多选、刚体拖拽、任务勾选、行动透镜、Markdown 导出、快捷键浮层与空板引导。
+- **Vitest**：115 项，覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子 Markdown、有序列表、任务行替换、原子撤销、Markdown 排序、搜索、捕获、认证会话与回调错误、云端映射、离线 outbox 与旧 demo 清理。
+- **Playwright**：36 项，覆盖捕获、双击编辑、`/` 格式命令、移动端布局、多种登录入口、白板、连线、Spotlight、层级星系、多选、刚体拖拽、任务勾选、行动透镜、Markdown 导出、快捷键浮层与空板引导。
 - **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 30 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
 - **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。
 - 每次提交前运行 `format:check` / `lint` / `typecheck` / `test` / `build` / `test:e2e`。
@@ -408,3 +412,5 @@ v1.3.1 增加双击卡片进入编辑，并将选中态收敛为单独外环，�
 v1.3.2 移除卡片装饰性序号、笔记计数和重复状态文案，将拖拽提示收敛为低对比图标。
 
 v1.3.3 优化移动端顶栏折叠与 HUD 触控尺寸，并延后中等宽度下撤销/重做按钮的显示。
+
+v1.4.0 加入 GitHub OAuth、邮箱验证码与 Magic Link 三种登录方式，并补齐 OAuth 回调错误提示。邮箱验证码入口由 `VITE_EMAIL_CODE_ENABLED` 控制，需先配置自定义 SMTP。

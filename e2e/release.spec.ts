@@ -12,7 +12,7 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
   await expect(dialog).toContainText('Navigate')
   await expect(dialog).toContainText('Focus')
   await expect(dialog).toContainText('Compose')
-  await expect(dialog).toContainText('v1.3.3')
+  await expect(dialog).toContainText('v1.4.0')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -71,14 +71,14 @@ test('an empty board invites the first capture and fades away', async ({
   await expect(page.locator('[data-world-item]')).toContainText('第一块灵感')
 })
 
-test('v1.3.3 metadata is present in the shell and document head', async ({
+test('v1.4.0 metadata is present in the shell and document head', async ({
   page,
 }) => {
   await page.goto('/')
-  await expect(page.locator('.brand-subtitle')).toContainText('v1.3.3')
+  await expect(page.locator('.brand-subtitle')).toContainText('v1.4.0')
   await expect(
     page.locator('footer').filter({ hasText: 'Local-first' }),
-  ).toContainText('v1.3.3')
+  ).toContainText('v1.4.0')
 
   await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
     'content',
@@ -109,4 +109,31 @@ test('mobile header and HUD remain inside the viewport', async ({ page }) => {
   const zoomBox = await zoomOut.boundingBox()
   expect(zoomBox!.width).toBeGreaterThanOrEqual(40)
   expect(zoomBox!.height).toBeGreaterThanOrEqual(40)
+})
+
+test('auth modal offers GitHub and both email sign-in methods', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  await page.getByRole('button', { name: '登录云端同步' }).click()
+  const dialog = page.getByRole('dialog', { name: '连接 Card Canvas' })
+  await expect(dialog).toBeVisible()
+  await expect(
+    dialog.getByRole('button', { name: '使用 GitHub 登录' }),
+  ).toBeVisible()
+
+  const codeTab = dialog.getByRole('tab', { name: '验证码' })
+  const linkTab = dialog.getByRole('tab', { name: '登录链接' })
+  await expect(codeTab).toHaveAttribute('aria-selected', 'true')
+  await expect(
+    dialog.getByRole('textbox', { name: '邮箱', exact: true }),
+  ).toBeVisible()
+
+  await linkTab.click()
+  await expect(linkTab).toHaveAttribute('aria-selected', 'true')
+  await expect(
+    dialog.getByRole('button', { name: '发送登录链接' }),
+  ).toBeVisible()
 })

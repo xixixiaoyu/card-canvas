@@ -592,7 +592,7 @@ onBeforeUnmount(() => {
                     :aria-selected="index === slashSelected"
                     data-slash-option
                     @pointerdown.prevent
-                    @mouseenter="slashSelected = index"
+                    @pointermove="slashSelected = index"
                     @click="applySlashCommand(command)"
                   >
                     <span
