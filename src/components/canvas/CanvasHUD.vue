@@ -32,7 +32,7 @@ const limitLabel = computed(() =>
   >
     <button
       type="button"
-      class="flex h-8 w-8 items-center justify-center rounded-full transition-[background-color,color,opacity] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 disabled:pointer-events-none disabled:opacity-30 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
+      class="flex h-10 w-10 items-center justify-center rounded-full transition-[background-color,color,opacity] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 disabled:pointer-events-none disabled:opacity-30 sm:h-8 sm:w-8 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
       :disabled="atLimit === 'min'"
       aria-label="缩小画布"
       title="缩小"
@@ -43,7 +43,7 @@ const limitLabel = computed(() =>
 
     <button
       type="button"
-      class="relative flex h-8 min-w-[3.4rem] items-center justify-center rounded-full px-2 font-mono text-[10px] tabular-nums tracking-[0.08em] transition-[background-color,color] duration-200 hover:bg-stone-100/85 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 dark:hover:bg-white/[0.07] dark:focus-visible:ring-white/25"
+      class="relative flex h-10 min-w-[3.4rem] items-center justify-center rounded-full px-2 font-mono text-[10px] tabular-nums tracking-[0.08em] transition-[background-color,color] duration-200 hover:bg-stone-100/85 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 sm:h-8 dark:hover:bg-white/[0.07] dark:focus-visible:ring-white/25"
       :class="
         atLimit
           ? 'text-amber-700 dark:text-amber-300'
@@ -65,7 +65,7 @@ const limitLabel = computed(() =>
 
     <button
       type="button"
-      class="flex h-8 w-8 items-center justify-center rounded-full transition-[background-color,color,opacity] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 disabled:pointer-events-none disabled:opacity-30 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
+      class="flex h-10 w-10 items-center justify-center rounded-full transition-[background-color,color,opacity] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 disabled:pointer-events-none disabled:opacity-30 sm:h-8 sm:w-8 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
       :disabled="atLimit === 'max'"
       aria-label="放大画布"
       title="放大"
@@ -81,7 +81,7 @@ const limitLabel = computed(() =>
 
     <button
       type="button"
-      class="flex h-8 w-8 items-center justify-center rounded-full transition-[background-color,color] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
+      class="flex h-10 w-10 items-center justify-center rounded-full transition-[background-color,color] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 sm:h-8 sm:w-8 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
       aria-label="居中全部卡片"
       title="居中全部卡片"
       @click="emit('fit')"
@@ -96,7 +96,7 @@ const limitLabel = computed(() =>
 
     <button
       type="button"
-      class="flex h-8 w-8 items-center justify-center rounded-full transition-[background-color,color] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
+      class="flex h-10 w-10 items-center justify-center rounded-full transition-[background-color,color] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 sm:h-8 sm:w-8 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
       aria-label="搜索卡片"
       title="搜索 · ⌘F"
       @click="emit('search')"
@@ -111,7 +111,7 @@ const limitLabel = computed(() =>
 
     <button
       type="button"
-      class="flex h-8 w-8 items-center justify-center rounded-full transition-[background-color,color] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
+      class="flex h-10 w-10 items-center justify-center rounded-full transition-[background-color,color] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 sm:h-8 sm:w-8 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
       aria-label="查看快捷键"
       title="快捷键 · ?"
       @click="emit('shortcuts')"

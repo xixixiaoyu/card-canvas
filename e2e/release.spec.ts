@@ -12,7 +12,7 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
   await expect(dialog).toContainText('Navigate')
   await expect(dialog).toContainText('Focus')
   await expect(dialog).toContainText('Compose')
-  await expect(dialog).toContainText('v1.3.2')
+  await expect(dialog).toContainText('v1.3.3')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -71,14 +71,14 @@ test('an empty board invites the first capture and fades away', async ({
   await expect(page.locator('[data-world-item]')).toContainText('第一块灵感')
 })
 
-test('v1.3.2 metadata is present in the shell and document head', async ({
+test('v1.3.3 metadata is present in the shell and document head', async ({
   page,
 }) => {
   await page.goto('/')
-  await expect(page.locator('.brand-subtitle')).toContainText('v1.3.2')
+  await expect(page.locator('.brand-subtitle')).toContainText('v1.3.3')
   await expect(
     page.locator('footer').filter({ hasText: 'Local-first' }),
-  ).toContainText('v1.3.2')
+  ).toContainText('v1.3.3')
 
   await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
     'content',
@@ -88,4 +88,25 @@ test('v1.3.2 metadata is present in the shell and document head', async ({
     'href',
     '/manifest.webmanifest',
   )
+})
+
+test('mobile header and HUD remain inside the viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  const theme = page.getByRole('button', { name: /切换到.*主题/ })
+  const zoomOut = page.getByRole('button', { name: '缩小画布' })
+  const help = page.getByRole('button', { name: '查看快捷键' })
+
+  for (const control of [theme, zoomOut, help]) {
+    const box = await control.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+  }
+
+  const zoomBox = await zoomOut.boundingBox()
+  expect(zoomBox!.width).toBeGreaterThanOrEqual(40)
+  expect(zoomBox!.height).toBeGreaterThanOrEqual(40)
 })

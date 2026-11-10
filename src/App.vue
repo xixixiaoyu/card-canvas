@@ -545,7 +545,7 @@ onBeforeUnmount(() => {
       >
         <div class="flex items-center gap-3">
           <div
-            class="relative flex h-9 w-9 items-center justify-center rounded-[11px] border border-stone-300/70 bg-white/60 text-stone-600 shadow-[0_1px_1px_rgba(41,37,36,0.04)] backdrop-blur-md dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
+            class="relative hidden h-9 w-9 items-center justify-center rounded-[11px] border border-stone-300/70 bg-white/60 text-stone-600 shadow-[0_1px_1px_rgba(41,37,36,0.04)] backdrop-blur-md sm:flex dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
           >
             <Layers2 :size="15" :stroke-width="1.5" aria-hidden="true" />
             <span
@@ -562,19 +562,19 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.3.2 · Local-first
+              v1.3.3 · Local-first
             </p>
           </div>
 
           <span
-            class="h-4 w-px bg-stone-300/70 dark:bg-white/10"
+            class="hidden h-4 w-px bg-stone-300/70 sm:block dark:bg-white/10"
             aria-hidden="true"
           />
           <BoardSwitcher />
         </div>
 
         <div class="pointer-events-auto flex items-center gap-2">
-          <div class="hidden items-center gap-1 md:flex">
+          <div class="hidden items-center gap-1 xl:flex">
             <button
               type="button"
               data-canvas-ui
@@ -616,7 +616,7 @@ onBeforeUnmount(() => {
             @click="openCapture()"
           >
             <PenLine :size="14" :stroke-width="1.7" aria-hidden="true" />
-            <span class="hidden md:inline">速记</span>
+            <span class="hidden lg:inline">速记</span>
             <kbd
               class="ml-0.5 hidden rounded-md border border-stone-200/80 bg-white/70 px-1.5 py-0.5 font-mono text-[9px] font-normal tracking-normal text-stone-500 lg:inline dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400"
             >
@@ -690,7 +690,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.3.2</span>
+          <span>v1.3.3</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">
