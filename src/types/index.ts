@@ -24,6 +24,7 @@ export interface BoardItem {
   y: number
   width?: number
   color?: string
+  updatedAt?: number
 }
 
 export interface Board {
@@ -45,6 +46,7 @@ export interface Connection {
   fromCardId: string
   toCardId: string
   label?: string
+  updatedAt?: number
 }
 
 /** Presentation-only structure used by the phase-one card preview. */

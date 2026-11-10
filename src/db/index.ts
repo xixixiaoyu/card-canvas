@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie'
+import type { SyncMetaRecord, SyncOutboxRecord } from '../lib/sync/types'
 import type { Board, BoardItem, Card, Connection } from '../types'
 
 /**
@@ -12,6 +13,8 @@ export class KnowledgeDatabase extends Dexie {
   boardItems!: Table<BoardItem, string>
   connections!: Table<Connection, string>
   boards!: Table<Board, string>
+  syncOutbox!: Table<SyncOutboxRecord, string>
+  syncMeta!: Table<SyncMetaRecord, string>
 
   constructor() {
     super('card-canvas')
@@ -24,6 +27,15 @@ export class KnowledgeDatabase extends Dexie {
 
     this.version(2).stores({
       boards: 'id, updatedAt',
+    })
+
+    this.version(3).stores({
+      cards: 'id, *tags, updatedAt, isDeleted',
+      boardItems: 'id, cardId, boardId',
+      connections: 'id, boardId, fromCardId, toCardId',
+      boards: 'id, updatedAt',
+      syncOutbox: 'key, table, recordId, updatedAt',
+      syncMeta: 'key',
     })
   }
 }

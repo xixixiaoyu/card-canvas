@@ -6,6 +6,7 @@ import CardNode from './components/canvas/CardNode.vue'
 import EmptyBoardState from './components/canvas/EmptyBoardState.vue'
 import ShortcutModal from './components/canvas/ShortcutModal.vue'
 import SpotlightSearch from './components/canvas/SpotlightSearch.vue'
+import CloudAccount from './components/auth/CloudAccount.vue'
 import BoardSwitcher from './components/board/BoardSwitcher.vue'
 import QuickCapture from './components/capture/QuickCapture.vue'
 import DataMenu from './components/ui/DataMenu.vue'
@@ -17,7 +18,9 @@ import { cardHasTag } from './lib/galaxy'
 import type { SpotlightTarget } from './lib/global-search'
 import { buildMarkdown, copyTextToClipboard } from './lib/markdownExport'
 import { FOCUS_BOARD_ITEM_ID } from './data/seed'
+import { useAuthStore } from './stores/auth'
 import { useBoardStore } from './stores/board'
+import { useSyncStore } from './stores/sync'
 import { useToastStore } from './stores/toast'
 import { useWorkspaceStore } from './stores/workspace'
 import type { Card } from './types'
@@ -26,6 +29,8 @@ const { isDark, toggleTheme } = useTheme()
 const workspace = useWorkspaceStore()
 const board = useBoardStore()
 const toast = useToastStore()
+const auth = useAuthStore()
+const sync = useSyncStore()
 
 const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
 const isCaptureOpen = ref(false)
@@ -105,6 +110,14 @@ watch(
   () => board.status,
   (status) => {
     if (status === 'ready') void completePendingTeleport()
+  },
+)
+
+watch(
+  () => auth.user?.id,
+  (userId) => {
+    if (userId) void sync.start(userId)
+    else sync.stop()
   },
 )
 
@@ -402,7 +415,10 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => {
-  void initializeBoard()
+  void (async () => {
+    await initializeBoard()
+    await auth.initialize()
+  })()
   window.addEventListener('keydown', handleGlobalKeydown)
 
   // Best-effort durable storage: browsers may ignore or deny the request.
@@ -412,6 +428,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  sync.stop()
+  auth.dispose()
   board.stopSync()
   workspace.stopSync()
   window.removeEventListener('keydown', handleGlobalKeydown)
@@ -496,7 +514,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.0.0 · Local-first
+              v1.1.0 · Local-first
             </p>
           </div>
 
@@ -558,6 +576,7 @@ onBeforeUnmount(() => {
             </kbd>
           </button>
 
+          <CloudAccount />
           <DataMenu />
 
           <button
@@ -618,7 +637,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.0.0</span>
+          <span>v1.1.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

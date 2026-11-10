@@ -72,6 +72,7 @@ function parseBoardItem(value: unknown): BoardItem {
     y: value.y,
     width: isFiniteNumber(value.width) ? value.width : undefined,
     color: typeof value.color === 'string' ? value.color : undefined,
+    updatedAt: isFiniteNumber(value.updatedAt) ? value.updatedAt : undefined,
   }
 }
 
@@ -104,6 +105,7 @@ function parseConnection(value: unknown): Connection {
     fromCardId: value.fromCardId,
     toCardId: value.toCardId,
     label: typeof value.label === 'string' ? value.label : undefined,
+    updatedAt: isFiniteNumber(value.updatedAt) ? value.updatedAt : undefined,
   }
 }
 

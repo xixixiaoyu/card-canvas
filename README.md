@@ -2,7 +2,7 @@
 
 > 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
 >
-> **v1.0.0 · Local-First · 无云依赖**
+> **v1.1.0 · Local-First · 可选 Supabase 同步**
 
 Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
 
@@ -20,7 +20,7 @@ Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记�
 - **捕获即上板**：没有“待整理池”，保存动作就是空间动作。
 - **贴身生长**：新卡优先落在当前卡片旁边，而不是被丢到画布深处。
 - **实体与投影解耦**：`Card` 是内容真相，`BoardItem` 只是它在某块白板上的空间投影；同一张卡可以出现在多块白板。
-- **本地优先**：Dexie / IndexedDB 是主存储，无账号、无服务端、无静默上传。
+- **本地优先**：Dexie / IndexedDB 始终是主存储和交互事实源；登录后由可在断网时继续工作的后台 outbox 将数据异步同步到 Supabase。
 - **克制而非空白**：低饱和特种纸、微弱噪点、细线连线和一套有节制的琥珀色强调。
 - **可解释的力学**：缩放、框选、刚体拖拽与撤销都基于可测试的几何，而不是肉眼调参。
 
@@ -35,6 +35,7 @@ Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记�
 | 层级星系   | 点击标签，按 `/` 层级聚合命中，其余卡片暗化  |
 | 多选与刚体 | 空白框选、Shift 并集、整组平移、单步原子撤销 |
 | 认知蒸馏   | 将选中卡片导出为阅读顺序的 Markdown 大纲     |
+| 云端同步   | 可选 Magic Link 登录，断网继续编辑并异步同步 |
 | 快捷键备忘 | 按 `?` 随时查看完整键盘地图                  |
 | 空板引导   | 空白白板中央提供一次点击即开始的捕获入口     |
 
@@ -44,6 +45,7 @@ Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记�
 - Tailwind CSS 3.4 + PostCSS / Autoprefixer（classic config + `darkMode: 'class'`）
 - Pinia 状态管理
 - Dexie 4 本地 IndexedDB
+- Supabase Auth + Postgres + Realtime（可选云端同步）
 - @vueuse/core 主题同步
 - @lucide/vue 图标
 
@@ -61,13 +63,64 @@ pnpm format:check       # Prettier
 pnpm lint               # ESLint
 pnpm typecheck          # vue-tsc
 pnpm test               # Vitest：刚体位移、批量拓扑、原子撤销、框选 AABB、Markdown、连线
-pnpm test:e2e           # Playwright：默认 Chromium + 4 workers，全量约 33s
+pnpm test:e2e           # Playwright：默认 Chromium + 4 workers，全量约 30s
 pnpm test:e2e:serial    # 单 worker，调试偶发失败
 pnpm test:e2e:chrome    # 系统 Chrome 真浏览器抽查（单 worker）
 pnpm exec playwright install chromium  # 可选：安装 E2E 浏览器
 pnpm build              # typecheck + vite build
 pnpm preview
 ```
+
+## 云端同步与部署
+
+未配置环境变量时，应用保持纯本地模式，登录入口不会出现，所有现有功能无需 Supabase 即可运行。
+
+### 1. 创建 Supabase 项目
+
+1. 在 Supabase 创建项目，区域优先选择 Singapore 或 Tokyo。
+2. 在 SQL Editor 中执行 [supabase/schema.sql](supabase/schema.sql)。
+3. 在 Authentication 的 URL Configuration 中把 Site URL 设为生产域名，并把本地 `http://localhost:5199` 与生产域名加入 Redirect URLs。
+4. 从 Project Settings 的 API 页面取得 Project URL 与 anon public key。
+
+### 2. 配置本地环境
+
+```bash
+cp .env.example .env.local
+```
+
+```bash
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-public-key
+```
+
+`anon` key 可以暴露给浏览器；真正的数据隔离由 `user_id` + RLS 完成。不要把 `service_role` key 放入任何 `VITE_` 环境变量。
+
+### 3. 部署到 Vercel
+
+仓库已包含 [vercel.json](vercel.json)，会执行 `pnpm build`、发布 `dist` 并处理 SPA 重写。
+
+```bash
+vercel
+vercel --prod
+```
+
+在 Vercel Project Settings → Environment Variables 中配置同名变量：
+
+```text
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
+
+部署后把生产域名补进 Supabase Authentication → URL Configuration 的 Site URL 与 Redirect URLs。
+
+### 同步语义
+
+- 本地写入先提交 Dexie，再进入持久化 outbox；网络请求不阻塞拖拽、速记或历史操作。
+- outbox 在断网、刷新和关闭页面后仍保留，恢复在线时自动补传。
+- 下行使用 `server_updated_at` 游标增量拉取，避免依赖设备时钟。
+- 同一条记录按 `updatedAt` 做最后写入胜出；本地仍有未上传的新版本时会保留本地版本。
+- 软删除墓碑会同步到其他设备，列表和画布只显示未删除数据。
+- 一台设备第一次登录时，会把现有本地工作区认领给该账号。为避免账号间数据混用，本机已绑定其他用户时会暂停同步。
 
 本地与 CI 的 E2E 默认使用 Playwright 自带 Chromium，并开启 fullyParallel：本地 4 workers，CI 2 workers。实测系统 Chrome 在多 worker 下会异常放大等待时间（全量从约 1 分钟退化到 5–6 分钟），因此仅保留 `test:e2e:chrome` 作为单 worker 真浏览器抽查。`.github/workflows/ci.yml` 会依次跑格式检查、lint、typecheck、单测、构建与 E2E。
 
@@ -185,7 +238,7 @@ pnpm preview
 - **剪贴板**：优先 `navigator.clipboard.writeText`；失败时降级到屏幕外 textarea + `execCommand('copy')`，textarea 固定在 `-9999px` 且 `pointer-events:none`
 - **反馈**：成功 Toast「已复制 N 张卡片大纲到剪贴板」；单卡复制图标切换为对勾，集群工具栏短暂显示「已复制」
 
-> v1.0.0 已完成：多选集群可以直接拖拽，连线和撤销都按整个集群处理。
+> v1.1.0 在 v1.0.0 的画布能力之上增加可选云端账号、离线 outbox 与多设备同步。
 
 ## 快捷键备忘与空板引导
 
@@ -193,7 +246,7 @@ pnpm preview
 - **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
 - **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
 - **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
-- **版本锚点**：浮层页脚展示 `v1.0.0`，与顶栏、页脚和数据菜单保持一致
+- **版本锚点**：浮层页脚展示 `v1.1.0`，与顶栏、页脚和数据菜单保持一致
 - **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
@@ -224,7 +277,7 @@ pnpm preview
 
 ## 版本与 PWA 元信息
 
-- 版本：`v1.0.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- 版本：`v1.1.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
 - `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
 - `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 SVG 图标；当前不注册 Service Worker，不伪造离线缓存
 - 首次启动请求 `navigator.storage.persist()`，尽力降低浏览器回收 IndexedDB 的概率
@@ -319,17 +372,20 @@ e2e/                             # Playwright 端到端测试
 - **响应式 → Dexie 边界**：所有写入前通过 `plainRecord` 深拷贝，避免把 Vue Proxy 交给 IndexedDB 结构化克隆。
 - **历史栈**：每个用户动作记录 `{ label, undo, redo }` 闭包，内存最多 50 步；撤销/重做本身不再入栈。
 - **跨标签页**：`BroadcastChannel` 广播 cards / items / connections / boards 变更，接收端重读 IndexedDB；`visibilitychange` 兜底。
+- **云端出站队列**：Dexie `v3` 新增 `syncOutbox` 与 `syncMeta`，只追加同步元数据，不改已有四张领域表的索引；本地写事务提交后再合并入队，失败不影响本地编辑。
+- **云端入站隔离**：远端拉取写入通过 suppression guard，禁止触发 outbox，避免同步回声；随后通过现有 refresh 管线刷新 Pinia。
+- **云端权限边界**：四张远端表启用 RLS，策略只允许 `auth.uid() = user_id`；公开前端只使用 anon key。
 - **主题持久化**：首次访问跟随系统；手动切换后明确写入 `light` / `dark`；首屏内联脚本恢复，避免闪烁。
 - **可访问性**：焦点陷阱、`inert` 背景、键盘移动、连线 `Tab` 聚焦、搜索 `role=listbox` + `aria-selected`、`aria-live` 选中播报与可见焦点环。
 
 ## 质量防线
 
-- **Vitest**：93 项，覆盖几何、框选 AABB、刚体位移、连线拓扑、原子撤销、Markdown 排序、搜索与捕获。
+- **Vitest**：99 项，覆盖几何、框选 AABB、刚体位移、连线拓扑、原子撤销、Markdown 排序、搜索、捕获、云端映射与离线 outbox。
 - **Playwright**：30 项，覆盖捕获、白板、连线、Spotlight、层级星系、多选、刚体拖拽、Markdown 导出、快捷键浮层与空板引导。
 - **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 30 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
 - **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。
 - 每次提交前运行 `format:check` / `lint` / `typecheck` / `test` / `build` / `test:e2e`。
 
-## v1.0.0 封版
+## v1.1.0 云端版本
 
-v1.0.0 冻结当前领域模型与 Dexie schema：不做 schema 迁移，不引入服务端依赖，不改变已经稳定的画布运动学、刚体拖拽和撤销语义。后续迭代应优先在现有实体/投影契约上做体验增强，而不是重写底层。
+v1.0.0 的画布、刚体拖拽和撤销契约保持不变。v1.1.0 以可选云端层扩展存储边界：Dexie schema 仅新增同步状态表，不改 `Card` / `BoardItem` / `Board` / `Connection` 的实体与投影关系，也不让网络请求进入拖拽热路径。
