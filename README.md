@@ -27,12 +27,14 @@ pnpm format:check       # Prettier
 pnpm lint               # ESLint
 pnpm typecheck          # vue-tsc
 pnpm test               # Vitest：刚体位移、批量拓扑、原子撤销、框选 AABB、Markdown、连线
-pnpm test:e2e           # Playwright：多卡刚体拖拽/40%/200%/撤销 / 框选/多选/复制 / 跨板穿梭 / 连线
+pnpm test:e2e           # Playwright：默认 Chromium + 4 workers，全量约 26s
+pnpm test:e2e:serial    # 单 worker，调试偶发失败
+pnpm test:e2e:chrome    # 系统 Chrome 真浏览器抽查（单 worker）
 pnpm build              # typecheck + vite build
 pnpm preview
 ```
 
-本地 E2E 默认复用系统 Chrome；CI 使用 Playwright Chromium。`.github/workflows/ci.yml` 会依次跑格式检查、lint、typecheck、单测、构建与 E2E。
+本地与 CI 的 E2E 默认使用 Playwright 自带 Chromium，并开启 fullyParallel：本地 4 workers，CI 2 workers。实测系统 Chrome 在多 worker 下会异常放大等待时间（全量从约 1 分钟退化到 5–6 分钟），因此仅保留 `test:e2e:chrome` 作为单 worker 真浏览器抽查。`.github/workflows/ci.yml` 会依次跑格式检查、lint、typecheck、单测、构建与 E2E。
 
 ## 画布操作
 

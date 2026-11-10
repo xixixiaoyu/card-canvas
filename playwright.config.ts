@@ -1,13 +1,16 @@
 import { defineConfig } from '@playwright/test'
 
-const useSystemChrome = !process.env.CI
+// Bundled Chromium is dramatically more stable when several workers run at
+// once. System Chrome remains available for a real-browser spot check:
+// PLAYWRIGHT_CHROME=1 pnpm test:e2e
+const useSystemChrome = process.env.PLAYWRIGHT_CHROME === '1'
 
 export default defineConfig({
   testDir: './e2e',
   timeout: 40_000,
   expect: { timeout: 8_000 },
-  fullyParallel: false,
-  workers: 1,
+  fullyParallel: true,
+  workers: process.env.CI ? 2 : 4,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
