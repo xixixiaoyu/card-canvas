@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Layers2, Moon, PenLine, Redo2, Search, Sun, Undo2 } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Layers2, Moon, PenLine, Redo2, Sun, Undo2 } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
 import SpotlightSearch from './components/canvas/SpotlightSearch.vue'
@@ -10,7 +10,9 @@ import DataMenu from './components/ui/DataMenu.vue'
 import ToastStack from './components/ui/ToastStack.vue'
 import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
+import { getItemRect } from './lib/card-metrics'
 import { cardHasTag } from './lib/galaxy'
+import type { SpotlightTarget } from './lib/global-search'
 import { FOCUS_BOARD_ITEM_ID } from './data/seed'
 import { useBoardStore } from './stores/board'
 import { useToastStore } from './stores/toast'
@@ -26,7 +28,11 @@ const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
 const isCaptureOpen = ref(false)
 const isSpotlightOpen = ref(false)
 const editingCard = ref<Card | null>(null)
+const stageReady = ref(false)
+const pendingTeleport = ref<SpotlightTarget | null>(null)
 let booting = true
+let teleportToken = 0
+let teleportRunning = false
 
 const camera = computed<CanvasCamera | null>(
   () => stageRef.value?.camera ?? null,
@@ -59,9 +65,26 @@ async function initializeBoard() {
   }
 }
 
+function nextFrame() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
+}
+
+function cancelPendingTeleport() {
+  if (!pendingTeleport.value) return
+  teleportToken += 1
+  pendingTeleport.value = null
+  teleportRunning = false
+}
+
 watch(
   () => workspace.activeBoardId,
   (boardId, previous) => {
+    stageReady.value = false
+    if (pendingTeleport.value && pendingTeleport.value.boardId !== boardId) {
+      cancelPendingTeleport()
+    }
     if (booting || !previous || boardId === previous) return
 
     void board.loadBoard(boardId).catch((error) => {
@@ -69,6 +92,116 @@ watch(
     })
   },
 )
+
+watch(
+  () => board.status,
+  (status) => {
+    if (status === 'ready') void completePendingTeleport()
+  },
+)
+
+function handleStageReady(boardId: string) {
+  if (boardId !== workspace.activeBoardId) return
+  stageReady.value = true
+  void completePendingTeleport()
+}
+
+async function completePendingTeleport() {
+  const target = pendingTeleport.value
+  if (!target || teleportRunning) return
+  if (
+    board.status !== 'ready' ||
+    board.activeBoardId !== target.boardId ||
+    !stageReady.value
+  ) {
+    return
+  }
+
+  const token = teleportToken
+  teleportRunning = true
+
+  try {
+    await nextTick()
+    await nextFrame()
+    await nextFrame()
+    if (token !== teleportToken) return
+
+    const entry =
+      board.entries.find((candidate) => candidate.item.id === target.itemId) ??
+      board.entries.find((candidate) => candidate.card.id === target.cardId)
+
+    if (!entry) {
+      toast.push('目标卡片已不在该白板上。', { tone: 'error' })
+      pendingTeleport.value = null
+      return
+    }
+
+    let camera = stageRef.value?.camera
+    for (let attempt = 0; !camera && attempt < 3; attempt += 1) {
+      await nextFrame()
+      camera = stageRef.value?.camera
+    }
+    if (!camera) {
+      toast.push('画布尚未准备好，请稍后重试。', { tone: 'error' })
+      pendingTeleport.value = null
+      return
+    }
+
+    board.selectItem(entry.item.id)
+    await nextTick()
+    document
+      .querySelector<HTMLElement>(
+        `[data-world-item][data-item-id="${entry.item.id}"]`,
+      )
+      ?.focus({ preventScroll: true })
+
+    const rect = getItemRect(entry.item)
+    const currentScale = camera.getViewport().scale
+    const targetScale =
+      currentScale < 0.5 || currentScale > 1.4 ? 1 : currentScale
+
+    await camera.flyTo(
+      rect.x + rect.width / 2,
+      rect.y + rect.height / 2,
+      targetScale,
+      400,
+    )
+
+    if (token === teleportToken) {
+      board.pulseItem(entry.item.id)
+    }
+  } catch (error) {
+    console.error('[card-canvas] Unable to teleport to card', error)
+    toast.push('无法飞往目标卡片。', { tone: 'error' })
+  } finally {
+    if (token === teleportToken) {
+      pendingTeleport.value = null
+      teleportRunning = false
+    }
+  }
+}
+
+function handleSpotlightSelect(target: SpotlightTarget) {
+  teleportToken += 1
+  pendingTeleport.value = { ...target }
+  teleportRunning = false
+  board.clearFilterTag()
+
+  if (target.boardId === workspace.activeBoardId) {
+    void completePendingTeleport()
+    return
+  }
+
+  stageReady.value = false
+  if (!workspace.switchBoard(target.boardId)) {
+    pendingTeleport.value = null
+    toast.push('目标白板不存在。', { tone: 'error' })
+    return
+  }
+
+  // The board watcher loads the target and the new CanvasStage will emit
+  // `ready`; completePendingTeleport resumes only after both signals.
+}
 
 function openCapture() {
   editingCard.value = null
@@ -211,6 +344,8 @@ onBeforeUnmount(() => {
     ref="stageRef"
     :board-id="workspace.activeBoardId"
     @background-pointerdown="handleCanvasBackground"
+    @ready="handleStageReady"
+    @search="openSpotlight"
   >
     <h1 class="sr-only">Card Canvas 无限白板</h1>
     <p class="sr-only" aria-live="polite">{{ selectionAnnouncement }}</p>
@@ -262,7 +397,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 06.5 / Spotlight
+              Phase 07.5 / Global Spotlight
             </p>
           </div>
 
@@ -306,17 +441,6 @@ onBeforeUnmount(() => {
               <Redo2 :size="14" :stroke-width="1.7" aria-hidden="true" />
             </button>
           </div>
-
-          <button
-            type="button"
-            data-canvas-ui
-            class="hidden h-10 w-10 items-center justify-center rounded-full border border-stone-200/80 bg-white/60 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 sm:flex"
-            aria-label="搜索卡片"
-            title="搜索 · ⌘F"
-            @click="openSpotlight()"
-          >
-            <Search :size="14" :stroke-width="1.7" aria-hidden="true" />
-          </button>
 
           <button
             type="button"
@@ -478,7 +602,10 @@ onBeforeUnmount(() => {
     :board-id="workspace.activeBoardId"
   />
 
-  <SpotlightSearch v-model:open="isSpotlightOpen" :camera="camera" />
+  <SpotlightSearch
+    v-model:open="isSpotlightOpen"
+    @select="handleSpotlightSelect"
+  />
 
   <ToastStack />
 </template>

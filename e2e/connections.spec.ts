@@ -135,24 +135,32 @@ test('creates, labels, persists, deletes and cascades a connection', async ({
 
   await page.keyboard.press('Delete')
   await expect(page.locator('[data-line]')).toHaveCount(0)
+  const undoButton = page.locator('button[aria-label="撤销"]')
+  const redoButton = page.locator('button[aria-label="重做"]')
+  await expect(undoButton).toBeEnabled()
+  await expect(undoButton).toHaveAttribute('title', /删除连线/)
 
   await page.keyboard.press('Control+z')
   await expect(page.locator('[data-line]')).toHaveCount(1)
+  await expect(redoButton).toBeEnabled()
   await expect(page.locator('.connection-label-pill')).toHaveText(
     '底层神经机制相同',
   )
 
   await page.keyboard.press('Control+Shift+z')
   await expect(page.locator('[data-line]')).toHaveCount(0)
+  await expect(undoButton).toHaveAttribute('title', /删除连线/)
 
   await page.keyboard.press('Control+z')
   await expect(page.locator('[data-line]')).toHaveCount(1)
+  await expect(redoButton).toBeEnabled()
 
   const card = page.locator('[data-world-item]').nth(0)
   await card.hover()
   await card.getByRole('button', { name: '删除卡片' }).click()
   await expect(page.locator('[data-world-item]')).toHaveCount(2)
   await expect(page.locator('[data-line]')).toHaveCount(0)
+  await expect(undoButton).toHaveAttribute('title', /删除卡片/)
 
   await page.keyboard.press('Control+z')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)

@@ -13,6 +13,8 @@ import ConnectionLayer from './ConnectionLayer.vue'
 
 const emit = defineEmits<{
   'background-pointerdown': []
+  ready: [boardId: string]
+  search: []
 }>()
 
 const props = withDefaults(
@@ -176,6 +178,7 @@ onMounted(async () => {
 
   hasRestoredView = true
   isReady.value = true
+  emit('ready', props.boardId)
 })
 
 onBeforeUnmount(() => {
@@ -253,6 +256,7 @@ defineExpose({
         @zoom-out="zoomOut"
         @reset-zoom="resetZoom"
         @fit="fitAll(true)"
+        @search="emit('search')"
       />
     </div>
   </section>

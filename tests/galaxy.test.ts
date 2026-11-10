@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { cardHasTag, isCardDimmed, isConnectionDimmed } from '../src/lib/galaxy'
+import {
+  cardHasTag,
+  isCardDimmed,
+  isConnectionDimmed,
+  tagMatches,
+} from '../src/lib/galaxy'
 import type { Card, Connection } from '../src/types'
 
 function card(id: string, tags: string[]): Card {
@@ -27,6 +32,19 @@ function connection(fromCardId: string, toCardId: string): Connection {
 }
 
 describe('galaxy dimming', () => {
+  it('matches a parent tag to every descendant', () => {
+    expect(tagMatches('心理学/防御机制', '心理学')).toBe(true)
+    expect(tagMatches('心理学/边界', '心理学')).toBe(true)
+    expect(tagMatches('心理学', '心理学')).toBe(true)
+    expect(cardHasTag(boundary, '心理学')).toBe(true)
+  })
+
+  it('isolates sibling branches', () => {
+    expect(cardHasTag(boundary, '心理学/防御机制')).toBe(false)
+    expect(cardHasTag(voice, '心理学/边界')).toBe(false)
+    expect(tagMatches('心理学/防御机制', '心理学/防御')).toBe(false)
+  })
+
   it('matches tags exactly and case-insensitively', () => {
     expect(cardHasTag(voice, '心理学/防御机制')).toBe(true)
     expect(cardHasTag(voice, 'PSYCHOLOGY')).toBe(false)

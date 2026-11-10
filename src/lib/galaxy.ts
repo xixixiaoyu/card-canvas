@@ -1,12 +1,22 @@
 import type { Card, Connection } from '../types'
 
-export function cardHasTag(card: Card, tag: string) {
-  const target = tag.trim().toLocaleLowerCase()
-  if (!target) return false
+/**
+ * Hierarchical tags use `/` as a path separator. A focused parent includes
+ * every descendant, while siblings remain isolated:
+ *   #心理学       -> #心理学, #心理学/防御机制, #心理学/边界
+ *   #心理学/防御  -> #心理学/防御机制
+ *   #心理学/边界  -> not #心理学/防御机制
+ */
+export function tagMatches(tag: string, targetTag: string) {
+  const candidate = tag.trim().toLocaleLowerCase()
+  const target = targetTag.trim().toLocaleLowerCase()
+  if (!candidate || !target) return false
 
-  return card.tags.some(
-    (candidate) => candidate.trim().toLocaleLowerCase() === target,
-  )
+  return candidate === target || candidate.startsWith(`${target}/`)
+}
+
+export function cardHasTag(card: Card, tag: string) {
+  return card.tags.some((candidate) => tagMatches(candidate, tag))
 }
 
 export function isCardDimmed(card: Card, activeTag: string | null) {

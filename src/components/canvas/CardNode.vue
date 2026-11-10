@@ -2,6 +2,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Grip, Link2, Pencil, Trash2 } from '@lucide/vue'
 import { removeCardHeight, setCardHeight } from '../../lib/card-metrics'
+import { tagMatches } from '../../lib/galaxy'
 import { useCardDrag } from '../../composables/useCardDrag'
 import { canvasCameraKey, type CanvasCamera } from '../../composables/useCanvas'
 import { connectionKey } from '../../composables/useConnection'
@@ -140,6 +141,7 @@ function tagTone(index: number) {
       width: `${item.width ?? 420}px`,
     }"
     :data-card-id="card.id"
+    :data-item-id="item.id"
     :aria-labelledby="titleId"
     :aria-current="selected ? 'true' : undefined"
     data-world-item
@@ -186,16 +188,15 @@ function tagTone(index: number) {
                 :class="[
                   tagTone(index),
                   {
-                    'is-active':
-                      activeFilterTag?.toLocaleLowerCase() ===
-                      tag.toLocaleLowerCase(),
+                    'is-active': activeFilterTag
+                      ? tagMatches(tag, activeFilterTag)
+                      : false,
                   },
                 ]"
                 data-card-interactive
                 :data-filter-tag="tag"
                 :aria-pressed="
-                  activeFilterTag?.toLocaleLowerCase() ===
-                  tag.toLocaleLowerCase()
+                  activeFilterTag ? tagMatches(tag, activeFilterTag) : false
                 "
                 :title="`聚焦 #${tag}`"
                 @pointerdown.stop

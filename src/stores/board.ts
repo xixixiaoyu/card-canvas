@@ -8,6 +8,7 @@ import {
 } from '../lib/tab-sync'
 import { normalizeTags } from '../lib/tags'
 import type { BoardItem, Card, Connection } from '../types'
+import { plainRecord } from '../lib/plain-record'
 import { useToastStore } from './toast'
 
 export type BoardStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -54,10 +55,6 @@ function normalizeCard(card: Card): Card {
  * proxied nested arrays) are not cloneable, so every store -> Dexie write goes
  * through a plain snapshot.
  */
-function plainRecord<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T
-}
-
 /**
  * The board store owns the durable graph (cards + spatial projections) that
  * the canvas renders. During a card drag no store writes happen; the final

@@ -1,54 +1,119 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { CornerDownLeft, Search, X } from '@lucide/vue'
-import type { CanvasCamera } from '../../composables/useCanvas'
-import { getItemRect } from '../../lib/card-metrics'
+import { db } from '../../db'
 import {
-  searchSpotlightCards,
-  type SpotlightMatch,
-} from '../../lib/spotlight-search'
-import { useBoardStore, type BoardEntry } from '../../stores/board'
+  searchGlobalEntries,
+  type GlobalSearchEntry,
+  type GlobalSearchResult,
+  type SpotlightTarget,
+} from '../../lib/global-search'
+import { plainRecord } from '../../lib/plain-record'
+import { useBoardStore } from '../../stores/board'
+import { useWorkspaceStore } from '../../stores/workspace'
 
 const props = defineProps<{
   open: boolean
-  camera?: CanvasCamera | null
 }>()
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
+  select: [target: SpotlightTarget]
 }>()
 
-interface SpotlightResult extends SpotlightMatch {
-  entry: BoardEntry
-}
-
 const board = useBoardStore()
+const workspace = useWorkspaceStore()
 const query = ref('')
 const selectedIndex = ref(0)
 const inputEl = ref<HTMLInputElement | null>(null)
 const resultEls = ref<Array<HTMLElement | null>>([])
+const entries = ref<GlobalSearchEntry[]>([])
+const indexLoading = ref(false)
+const indexError = ref('')
 
 let previousFocus: HTMLElement | null = null
 let skipFocusRestore = false
+let indexToken = 0
 
-const entriesByCard = computed(
-  () => new Map(board.entries.map((entry) => [entry.card.id, entry])),
-)
-
-const results = computed<SpotlightResult[]>(() =>
-  searchSpotlightCards(board.cards, query.value)
-    .flatMap((match) => {
-      const entry = entriesByCard.value.get(match.card.id)
-      return entry ? [{ ...match, entry }] : []
-    })
-    .slice(0, 8),
+const results = computed<GlobalSearchResult[]>(() =>
+  searchGlobalEntries(entries.value, query.value, workspace.activeBoardId),
 )
 
 const selectedResult = computed(() => results.value[selectedIndex.value])
 const hasQuery = computed(() => query.value.trim().length > 0)
+const cardCount = computed(
+  () => new Set(entries.value.map((entry) => entry.card.id)).size,
+)
 const resultLabel = computed(() =>
   hasQuery.value ? `${results.value.length} 个结果` : '最近卡片',
 )
+
+async function loadGlobalIndex() {
+  const token = ++indexToken
+  indexLoading.value = true
+  indexError.value = ''
+  entries.value = []
+
+  try {
+    const [storedCards, storedItems, storedBoards] = await Promise.all([
+      db.cards.toArray(),
+      db.boardItems.toArray(),
+      db.boards.toArray(),
+    ])
+    if (token !== indexToken) return
+
+    const snapshot = plainRecord({
+      cards: storedCards,
+      items: storedItems,
+      boards: storedBoards,
+    })
+    const boardsById = new Map(
+      snapshot.boards.map((entry) => [entry.id, entry]),
+    )
+    const cardsById = new Map(
+      snapshot.cards
+        .filter((card) => !card.isDeleted)
+        .map((card) => [card.id, card]),
+    )
+    const next = new Map<string, GlobalSearchEntry>()
+
+    for (const item of snapshot.items) {
+      const card = cardsById.get(item.cardId)
+      const targetBoard = boardsById.get(item.boardId)
+      if (!card || !targetBoard) continue
+
+      next.set(item.id, {
+        card,
+        itemId: item.id,
+        boardId: item.boardId,
+        boardName: targetBoard.name,
+      })
+    }
+
+    // The current board may have just-captured cards whose Dexie transaction
+    // has not settled yet. Overlay the live store for immediate searchability.
+    const activeName = workspace.activeBoardName
+    for (const entry of board.entries) {
+      const card = plainRecord(entry.card)
+      next.set(entry.item.id, {
+        card,
+        itemId: entry.item.id,
+        boardId: workspace.activeBoardId,
+        boardName: activeName,
+      })
+    }
+
+    if (token === indexToken) entries.value = [...next.values()]
+  } catch (cause) {
+    console.error('[card-canvas] Unable to build global search index', cause)
+    if (token === indexToken) {
+      indexError.value = '无法读取全局卡片'
+      entries.value = []
+    }
+  } finally {
+    if (token === indexToken) indexLoading.value = false
+  }
+}
 
 watch(
   () => props.open,
@@ -61,12 +126,14 @@ watch(
           : null
       query.value = ''
       selectedIndex.value = 0
+      void loadGlobalIndex()
       await nextTick()
       inputEl.value?.focus()
       inputEl.value?.select()
       return
     }
 
+    indexToken += 1
     await nextTick()
     if (skipFocusRestore) {
       skipFocusRestore = false
@@ -113,37 +180,13 @@ function moveSelection(delta: number) {
 function choose(result = selectedResult.value) {
   if (!result) return
 
-  const entry = result.entry
-  const rect = getItemRect(entry.item)
-  const currentScale = props.camera?.getViewport().scale ?? 1
-  const targetScale =
-    currentScale < 0.5 || currentScale > 1.4 ? 1 : currentScale
-
-  board.clearFilterTag()
-  board.selectItem(entry.item.id)
   skipFocusRestore = true
   close()
-
-  const targetCardId = entry.card.id
-  void nextTick(() => {
-    const target = [
-      ...document.querySelectorAll<HTMLElement>('[data-world-item]'),
-    ].find((element) => element.dataset.cardId === targetCardId)
-    target?.focus({ preventScroll: true })
+  emit('select', {
+    cardId: result.entry.card.id,
+    boardId: result.entry.boardId,
+    itemId: result.entry.itemId,
   })
-
-  const flight = props.camera?.flyTo(
-    rect.x + rect.width / 2,
-    rect.y + rect.height / 2,
-    targetScale,
-    400,
-  )
-
-  if (flight) {
-    void flight.then(() => board.pulseItem(entry.item.id))
-  } else {
-    board.pulseItem(entry.item.id)
-  }
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -219,7 +262,7 @@ function handleKeydown(event: KeyboardEvent) {
             v-model="query"
             type="text"
             class="min-w-0 flex-1 bg-transparent text-[14px] text-stone-800 outline-none placeholder:text-stone-400 dark:text-zinc-100 dark:placeholder:text-zinc-600"
-            placeholder="搜索标题、正文或标签…"
+            placeholder="搜索所有白板的标题、正文或标签…"
             aria-label="搜索关键词"
             autocomplete="off"
             spellcheck="false"
@@ -238,7 +281,7 @@ function handleKeydown(event: KeyboardEvent) {
           class="flex items-center justify-between px-4 pb-1.5 pt-3 font-mono text-[8px] uppercase tracking-[0.2em] text-stone-400 dark:text-zinc-600"
         >
           <span>{{ resultLabel }}</span>
-          <span>{{ board.entries.length }} CARDS ON BOARD</span>
+          <span>{{ cardCount }} CARDS · {{ entries.length }} PLACEMENTS</span>
         </div>
 
         <div
@@ -248,7 +291,7 @@ function handleKeydown(event: KeyboardEvent) {
         >
           <button
             v-for="(result, index) in results"
-            :key="result.card.id"
+            :key="`${result.entry.itemId}`"
             :ref="(element) => setResultEl(element, index)"
             type="button"
             class="spotlight-result group flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors"
@@ -260,6 +303,7 @@ function handleKeydown(event: KeyboardEvent) {
             role="option"
             :aria-selected="index === selectedIndex"
             data-spotlight-result
+            :data-result-board="result.entry.boardId"
             @pointermove="selectedIndex = index"
             @click="choose(result)"
           >
@@ -271,10 +315,24 @@ function handleKeydown(event: KeyboardEvent) {
             </span>
 
             <span class="min-w-0 flex-1">
-              <span
-                class="block truncate font-serif text-[14px] font-medium tracking-[-0.01em] text-stone-800 dark:text-zinc-100"
-              >
-                {{ result.card.title }}
+              <span class="flex items-start justify-between gap-2">
+                <span
+                  class="block min-w-0 truncate font-serif text-[14px] font-medium tracking-[-0.01em] text-stone-800 dark:text-zinc-100"
+                >
+                  {{ result.card.title }}
+                </span>
+                <span
+                  class="max-w-[9rem] shrink-0 truncate rounded-full border px-1.5 py-0.5 font-mono text-[8px] tracking-[0.04em]"
+                  :class="
+                    result.entry.boardId === workspace.activeBoardId
+                      ? 'border-amber-500/30 bg-amber-500/[0.08] text-amber-700 dark:border-amber-300/25 dark:bg-amber-300/[0.06] dark:text-amber-200'
+                      : 'border-stone-200/70 bg-white/50 text-stone-500 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-zinc-400'
+                  "
+                  :title="result.entry.boardName"
+                  data-board-badge
+                >
+                  {{ result.entry.boardName }}
+                </span>
               </span>
 
               <span
@@ -315,7 +373,38 @@ function handleKeydown(event: KeyboardEvent) {
           </button>
 
           <div
-            v-if="!results.length"
+            v-if="indexLoading"
+            class="flex flex-col items-center justify-center px-4 py-10 text-center"
+          >
+            <Search
+              :size="18"
+              :stroke-width="1.5"
+              class="animate-pulse text-stone-300 dark:text-zinc-700"
+              aria-hidden="true"
+            />
+            <p class="mt-3 text-[12px] text-stone-500 dark:text-zinc-400">
+              正在载入全局卡片…
+            </p>
+          </div>
+
+          <div
+            v-else-if="indexError"
+            class="flex flex-col items-center justify-center px-4 py-10 text-center"
+          >
+            <p class="text-[12px] text-rose-600 dark:text-rose-300">
+              {{ indexError }}
+            </p>
+            <button
+              type="button"
+              class="mt-3 rounded-full border border-stone-300/80 px-3 py-1 text-[10px] text-stone-600 hover:bg-stone-100 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/[0.06]"
+              @click="loadGlobalIndex"
+            >
+              重试
+            </button>
+          </div>
+
+          <div
+            v-else-if="!results.length"
             class="flex flex-col items-center justify-center px-4 py-10 text-center"
           >
             <Search

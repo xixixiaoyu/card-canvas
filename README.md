@@ -1,8 +1,8 @@
 # Card Canvas
 
-卡片笔记与无限白板工具 · **Phase 06.5 / Spotlight Teleport**
+卡片笔记与无限白板工具 · **Phase 07.5 / Global Spotlight**
 
-Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 2D 白板** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统；Phase 06.5 加入 Spotlight 穿梭搜索、电影感运镜与星系暗化；Phase 07 取消待整理池，速记保存即上板。
+Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 2D 白板** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统；Phase 06.5 加入 Spotlight 穿梭搜索、电影感运镜与星系暗化；Phase 07 取消待整理池，速记保存即上板；Phase 07.5 把穿梭扩展到全库跨板检索，并补上标签层级聚合。
 
 ## 技术栈
 
@@ -26,8 +26,8 @@ pnpm dev
 pnpm format:check       # Prettier
 pnpm lint               # ESLint
 pnpm typecheck          # vue-tsc
-pnpm test               # Vitest：几何、运镜居中、搜索、暗化、连线、捕获、store
-pnpm test:e2e           # Playwright：搜索运镜 / 暗化 / 捕获 / 连线 / 多标签 / 视口
+pnpm test               # Vitest：几何、运镜居中、全局搜索、层级标签、暗化、连线、捕获
+pnpm test:e2e           # Playwright：跨板穿梭 / 层级星系 / 搜索 / 暗化 / 捕获 / 连线 / 视口
 pnpm build              # typecheck + vite build
 pnpm preview
 ```
@@ -84,18 +84,24 @@ pnpm preview
 - **级联**：卡片删除时，关联连线同步清理；`⌘Z` 恢复卡片时会一并恢复连线与 Label
 - **抗缩放**：连线在卡片拖拽的 rAF 中通过事件总线直接更新 SVG `d`，不写 Pinia / Dexie；30% 与 250% 下端点漂移 < 1.5px
 
-## 穿梭搜索（Spotlight Teleport）
+## 全局穿梭搜索（Global Spotlight）
 
-- **唤出**：`⌘F` / `Ctrl F` 或 `/`；焦点在任意输入框、文本域、连线 Label 或已选中文本时不会劫持快捷键
-- **浮层**：居中靠上的磨砂搜索结果面板；自动聚焦输入框，点击遮罩或 `Esc` 关闭，`Esc` 独占关闭自身
-- **检索**：只在当前白板卡片中匹配 `title`、`content` 与 `tags`；多词为 AND，标题命中优先，空查询展示最近卡片
+- **唤出**：`⌘F` / `Ctrl F` 或 `/`；HUD 右侧也有搜索图标，触屏设备可直接点按
+- **数据源**：Dexie 全库 cards + boardItems + boards；当前白板用 Pinia 快照补一层，刚捕获但事务未落盘的卡片也能立即搜到
+- **浮层**：居中靠上的磨砂搜索面板；自动聚焦输入框，点击遮罩或 `Esc` 关闭，`Esc` 独占关闭自身
+- **检索**：匹配 `title`、`content`、`tags`；多词为 AND，标题命中优先，空查询展示最近卡片
+- **结果**：一条结果对应一个**白板投影**；右侧显示来源白板徽标，当前板徽标用暖琥珀强调。同一张卡在多个板上出现时，会如实显示多条
 - **键盘**：`↑` / `↓` 切换结果，`Enter` 确认，`Tab` 留在搜索框，`Esc` 退出
-- **运镜**：确认后浮层淡出，相机以 `easeOutCubic` 在 400ms 内把卡片**几何中心**对齐视口正中；当前缩放低于 50% 或高于 140% 时顺滑回到 100% 黄金阅读缩放
-- **落点反馈**：抵达后卡片被选中，并亮起 1.2s 呼吸光环（浅色暖琥珀 / 深色冷蓝）
-- **可打断**：飞行中滚轮、缩放、空格/中键/触摸拖拽或任意指针按下都会立即冻结当前视口，把控制权交还给用户
+- **同板穿梭**：浮层淡出后，400ms `easeOutCubic` 把卡片几何中心对齐视口正中
+- **跨板穿梭**：关闭浮层 → 切换白板 → 等待 `board.status === ready` → 等待新 `CanvasStage` 发出 `ready` → 等两帧 → 读取新相机与卡片坐标 → `flyTo` → 选中 + 1.2s 呼吸光环；不会在 DOM 尚未挂载时飞向 `(0, 0)`
+- **阅读缩放**：当前缩放低于 50% 或高于 140% 时顺滑回到 100%
+- **可打断**：飞行中滚轮、缩放、指针按下或拖拽都会冻结当前视口，把控制权交还用户
 
 ## 星系暗化（Galaxy Dimming）
 
+- **层级标签**：以 `/` 分隔的树状标签，父标签会聚合并高亮全部子分支；兄弟分支严格隔离
+  - 聚焦 `#心理学` → 命中 `#心理学`、`#心理学/防御机制`、`#心理学/边界`
+  - 聚焦 `#心理学/防御机制` → 不命中 `#心理学/边界`
 - **聚焦**：点击卡片上的任意标签芯片，把该标签设为 `activeFilterTag`；再次点击同一标签取消
 - **背景恢复**：点击空白画布清空选中、标签聚焦与文本选区
 - **视觉**：命中卡片保持原样；非命中卡片以 300ms 过渡统一降到 `opacity: 0.15`，缩小白板即可看到概念的宏观星系分布
@@ -105,7 +111,7 @@ pnpm preview
 ## 键盘与无障碍
 
 - **速记**：`⌘K` / `⌥N` 打开；`Tab` 焦点锁定在弹窗内，背景 `inert`；`Esc` 关闭
-- **搜索**：`⌘F` / `/` 打开；`↑` / `↓` 选择，`Enter` 飞往，`Esc` 关闭；输入、编辑或选中文本时不会误触
+- **搜索**：`⌘F` / `/` 或 HUD 搜索按钮打开；`↑` / `↓` 选择，`Enter` 跨板飞往，`Esc` 关闭；输入、编辑或选中文本时不会误触
 - **画布卡片**：可聚焦；方向键移动 `10px`，`Shift + 方向键` 移动 `1px`；`Enter` / `Space` 选中
 - **连线**：`Tab` 聚焦后选中；`Enter` 编辑说明，`Delete` / `Backspace` 删除
 - **撤销 / 重做**：`⌘Z` / `⇧⌘Z`（Windows 支持 `Ctrl+Y`），顶栏也有按钮
@@ -116,7 +122,7 @@ pnpm preview
 - 顶栏白板切换器：新建、重命名、切换、两步确认删除
 - `boards` 表为 Dexie v2；删除白板级联删除其 `boardItems` 与 `connections`，卡片实体保留
 - 每块白板独立保存视口（`localStorage`），刷新/切板后恢复缩放与平移
-- Spotlight 搜索只检索当前白板；星系聚焦也是局部 UI 状态，切板自动清空
+- Spotlight 检索全库卡片并按投影显示；星系聚焦是局部 UI 状态，切板自动清空
 - 卡片实体全局存储，投影属于白板；速记始终落在当前白板
 - 删除白板后，保留的卡片若已无任何投影，会在下次加载时迁移到当前白板
 
@@ -147,7 +153,7 @@ src/
 │   │   ├── CanvasHUD.vue        # 缩放 / 居中悬浮胶囊
 │   │   ├── CardNode.vue         # 世界卡片、拖拽手柄、标签与呼吸光环
 │   │   ├── ConnectionLayer.vue  # SVG 连线层、命中路径、Label 胶囊
-│   │   └── SpotlightSearch.vue  # 穿梭搜索浮层、键盘导航与运镜触发
+│   │   └── SpotlightSearch.vue  # 全局搜索浮层、白板徽标与键盘导航
 │   ├── board/
 │   │   └── BoardSwitcher.vue    # 多白板新建 / 重命名 / 切换 / 删除
 │   ├── capture/
@@ -167,8 +173,10 @@ src/
 │   ├── card-drag-bus.ts         # 卡片拖拽帧事件 → 连线直接更新
 │   ├── capture-placement.ts     # 选中卡片旁 / 中心级联的落点规则
 │   ├── card-metrics.ts          # 实测卡片世界高度 / 包围盒
-│   ├── galaxy.ts                # 标签命中与连线暗化规则
+│   ├── galaxy.ts                # 层级标签命中与连线暗化规则
+│   ├── global-search.ts         # 全库投影索引、白板徽标与结果排序
 │   ├── geometry.ts              # 边缘中点匹配、贝塞尔、Label 中点
+│   ├── plain-record.ts          # 响应式对象 → Dexie/搜索索引的安全快照
 │   ├── spotlight-search.ts      # 标题/正文/标签本地搜索与排序
 │   ├── tab-sync.ts              # BroadcastChannel 跨标签页同步
 │   ├── tags.ts                  # 标签归一化 / 解析 / 合并
@@ -190,6 +198,9 @@ e2e/                             # Playwright 端到端测试
 - **实体与投影解耦**：`Card` 是内容实体，`BoardItem` 是该卡片在某块白板上的世界坐标投影。
 - **坐标换算**：`useCanvas.ts` 导出纯函数 `screenToWorld` / `worldToScreen` / `viewportForWorldCenter`；`useCanvas()` 返回绑定实时相机的二参数版本，并通过 provide/inject 暴露给世界卡片。
 - **运镜力学**：`flyTo` 用 `viewportForWorldCenter` 把世界点放到容器中心，rAF + `easeOutCubic` 同步插值 pan/scale；任何滚轮或指针主动操作都会 `freezeMotion()` 并 resolve 飞行 Promise。
+- **跨板 hydration 握手**：App 维护 `stageReady` 与 `pendingTeleport`，切板后必须等 board ready + 新 CanvasStage `ready` + 两帧，再用新相机读取实测坐标；搜索组件只负责选择目标，不直接切板或飞旧相机。
+- **全局索引边界**：`global-search.ts` 只读取 `plainRecord` 快照；一个结果对应一个 `BoardItem` 投影，同一卡片多板放置会显示多条并带白板徽标。
+- **层级标签单一真相**：`tagMatches` 同时被卡片暗化、标签选中态和连线判断复用，避免三处各写一套前缀规则。
 - **搜索与聚焦**：`spotlight-search.ts` 是纯函数检索；`galaxy.ts` 只回答“卡片是否命中标签 / 连线是否两端都暗化”，视图层不复制规则。
 - **捕获即上板**：`captureAndPlace` 在一个动作里创建 `Card` + `BoardItem`，只记录一条历史；卡片实体不携带 `boardId` 或坐标。
 - **落点选址**：纯函数 `capture-placement.ts` 负责“选中卡片右侧优先 → 下 / 左 / 上 → 中心 32px 级联”的确定性规则；无投影的历史卡片在加载/刷新时自动迁移到当前白板右侧。
