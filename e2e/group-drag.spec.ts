@@ -19,13 +19,46 @@ async function dragBox(
   for (let step = 1; step <= 10; step += 1) {
     await page.mouse.move(sx + (dx * step) / 10, sy + (dy * step) / 10)
   }
-  await page.waitForTimeout(120)
+  await settleAnimationFrames(page)
 }
 
 async function box(locator: ReturnType<Page['locator']>) {
   const value = await locator.boundingBox()
   if (!value) throw new Error('missing box')
   return value
+}
+
+async function settleAnimationFrames(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }),
+  )
+}
+
+async function rigidDragError(
+  page: Page,
+  before: Awaited<ReturnType<typeof box>>[],
+  source: number,
+  includeY = false,
+) {
+  const cards = page.locator('[data-world-item]')
+  const during = await Promise.all(
+    before.map((_, index) => box(cards.nth(index))),
+  )
+  const dx = during[source].x - before[source].x
+  const dy = during[source].y - before[source].y
+
+  return Math.max(
+    ...during.flatMap((entry, index) => {
+      const errors = [Math.abs(entry.x - before[index].x - dx)]
+      if (includeY) {
+        errors.push(Math.abs(entry.y - before[index].y - dy))
+      }
+      return errors
+    }),
+  )
 }
 
 async function largestVisibleSelectedIndex(page: Page) {
@@ -281,17 +314,9 @@ test('rigid offsets survive at 40% and 200% zoom', async ({ page }) => {
   const line40 = await page.locator('[data-line]').getAttribute('d')
   await dragBox(page, cards.nth(source40), 30, 18)
   expect(await page.locator('[data-line]').getAttribute('d')).not.toBe(line40)
-  const during40 = await Promise.all([
-    box(cards.nth(0)),
-    box(cards.nth(1)),
-    box(cards.nth(2)),
-  ])
-  const dx40 = during40[source40].x - before40[source40].x
-  for (let index = 0; index < 3; index += 1) {
-    expect(Math.abs(during40[index].x - before40[index].x - dx40)).toBeLessThan(
-      2,
-    )
-  }
+  await expect
+    .poll(() => rigidDragError(page, before40, source40), { timeout: 3_000 })
+    .toBeLessThan(2)
   await page.mouse.up()
   await page.waitForTimeout(400)
 
@@ -306,21 +331,11 @@ test('rigid offsets survive at 40% and 200% zoom', async ({ page }) => {
   const line200 = await page.locator('[data-line]').getAttribute('d')
   await dragBox(page, cards.nth(source200), 24, 12, 'edge')
   expect(await page.locator('[data-line]').getAttribute('d')).not.toBe(line200)
-  const during200 = await Promise.all([
-    box(cards.nth(0)),
-    box(cards.nth(1)),
-    box(cards.nth(2)),
-  ])
-  const dx200 = during200[source200].x - before200[source200].x
-  const dy200 = during200[source200].y - before200[source200].y
-  for (let index = 0; index < 3; index += 1) {
-    expect(
-      Math.abs(during200[index].x - before200[index].x - dx200),
-    ).toBeLessThan(2)
-    expect(
-      Math.abs(during200[index].y - before200[index].y - dy200),
-    ).toBeLessThan(2)
-  }
+  await expect
+    .poll(() => rigidDragError(page, before200, source200, true), {
+      timeout: 3_000,
+    })
+    .toBeLessThan(2)
   await page.mouse.up()
   await expect(page.locator('[data-world-item].is-selected')).toHaveCount(3)
 })

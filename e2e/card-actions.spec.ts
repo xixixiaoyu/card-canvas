@@ -7,6 +7,7 @@ test('edits, deletes and undoes card actions', async ({ page }) => {
   const first = page.locator('[data-world-item]').first()
   const originalTitle = (await first.locator('h2').textContent())?.trim()
   expect(originalTitle).toBeTruthy()
+  const undoButton = page.locator('button[aria-label="撤销"]')
 
   await first.hover()
   await first.getByRole('button', { name: '编辑卡片' }).click()
@@ -37,6 +38,7 @@ test('edits, deletes and undoes card actions', async ({ page }) => {
   await edited.getByRole('button', { name: '删除卡片' }).click()
   await expect(page.locator('[data-world-item]')).toHaveCount(2)
 
+  await expect(undoButton).toBeEnabled()
   await page.keyboard.press('Control+z')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
 

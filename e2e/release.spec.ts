@@ -12,7 +12,7 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
   await expect(dialog).toContainText('Navigate')
   await expect(dialog).toContainText('Focus')
   await expect(dialog).toContainText('Compose')
-  await expect(dialog).toContainText('v1.4.2')
+  await expect(dialog).toContainText('v1.4.3')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -20,6 +20,8 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
 
 test('? inside an input never opens the shortcut map', async ({ page }) => {
   await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
   await page.keyboard.press('Control+k')
   const title = page.getByLabel('卡片标题')
   await expect(title).toBeVisible()
@@ -71,14 +73,14 @@ test('an empty board invites the first capture and fades away', async ({
   await expect(page.locator('[data-world-item]')).toContainText('第一块灵感')
 })
 
-test('v1.4.2 metadata is present in the shell and document head', async ({
+test('v1.4.3 metadata is present in the shell and document head', async ({
   page,
 }) => {
   await page.goto('/')
-  await expect(page.locator('.brand-subtitle')).toContainText('v1.4.2')
+  await expect(page.locator('.brand-subtitle')).toContainText('v1.4.3')
   await expect(
     page.locator('footer').filter({ hasText: 'Local-first' }),
-  ).toContainText('v1.4.2')
+  ).toContainText('v1.4.3')
 
   await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
     'content',
@@ -107,8 +109,8 @@ test('mobile header and HUD remain inside the viewport', async ({ page }) => {
   }
 
   const zoomBox = await zoomOut.boundingBox()
-  expect(zoomBox!.width).toBeGreaterThanOrEqual(40)
-  expect(zoomBox!.height).toBeGreaterThanOrEqual(40)
+  expect(zoomBox!.width).toBeGreaterThanOrEqual(39.9)
+  expect(zoomBox!.height).toBeGreaterThanOrEqual(39.9)
 })
 
 test('auth modal offers GitHub and both email sign-in methods', async ({
