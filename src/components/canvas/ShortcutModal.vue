@@ -36,7 +36,7 @@ const groups: ShortcutGroup[] = [
     icon: PenLine,
     items: [
       { keys: ['⌘', 'K'], label: '速记并直接上板' },
-      { keys: ['⌥', 'N'], label: '备用速记入口' },
+      { keys: ['⇧', 'N'], label: '备用速记入口' },
       { keys: ['⌘', '↵'], label: '保存速记' },
     ],
   },

@@ -395,7 +395,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     return
   }
 
-  if (event.altKey && !mod && !event.shiftKey && event.code === 'KeyN') {
+  if (!mod && event.shiftKey && !event.altKey && event.code === 'KeyN') {
     event.preventDefault()
     openCapture()
   }

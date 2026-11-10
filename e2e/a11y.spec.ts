@@ -30,3 +30,16 @@ test('capture traps focus and cards are keyboard movable', async ({ page }) => {
   expect(after).not.toBeNull()
   expect(after!.x - before!.x).toBeGreaterThan(4)
 })
+
+test('backup capture shortcut avoids browser-reserved Alt+N', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  await page.keyboard.press('Alt+n')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  await page.keyboard.press('Shift+N')
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
