@@ -174,6 +174,72 @@ describe('board store', () => {
     expect(await db.boardItems.get(item!.id)).toBeDefined()
   })
 
+  it('commits a group move as one atomic history entry', async () => {
+    const board = await freshBoard()
+    const first = board.items[0]
+    const second = board.items[1]
+    const before = {
+      first: { x: first.x, y: first.y },
+      second: { x: second.x, y: second.y },
+    }
+
+    expect(
+      await board.commitItemPositions([
+        { itemId: first.id, x: first.x + 120, y: first.y + 40 },
+        { itemId: second.id, x: second.x + 120, y: second.y + 40 },
+      ]),
+    ).toBe(true)
+
+    expect(board.items.find((item) => item.id === first.id)).toMatchObject({
+      x: before.first.x + 120,
+      y: before.first.y + 40,
+    })
+    expect(board.items.find((item) => item.id === second.id)).toMatchObject({
+      x: before.second.x + 120,
+      y: before.second.y + 40,
+    })
+    expect(board.undoLabel).toBe('移动 2 张卡片')
+    expect(await db.boardItems.get(first.id)).toMatchObject({
+      x: before.first.x + 120,
+      y: before.first.y + 40,
+    })
+
+    await board.undo()
+    expect(board.items.find((item) => item.id === first.id)).toMatchObject(
+      before.first,
+    )
+    expect(board.items.find((item) => item.id === second.id)).toMatchObject(
+      before.second,
+    )
+    expect(await db.boardItems.get(second.id)).toMatchObject(before.second)
+
+    await board.redo()
+    expect(board.items.find((item) => item.id === first.id)).toMatchObject({
+      x: before.first.x + 120,
+      y: before.first.y + 40,
+    })
+  })
+
+  it('rolls back every card when a group persist fails', async () => {
+    const board = await freshBoard()
+    const first = board.items[0]
+    const second = board.items[1]
+    const before = board.items.map((item) => ({ ...item }))
+    const spy = vi
+      .spyOn(db.boardItems, 'bulkPut')
+      .mockRejectedValueOnce(new Error('quota'))
+
+    expect(
+      await board.commitItemPositions([
+        { itemId: first.id, x: first.x + 50, y: first.y + 50 },
+        { itemId: second.id, x: second.x + 50, y: second.y + 50 },
+      ]),
+    ).toBe(false)
+    expect(board.items.map((item) => ({ ...item }))).toEqual(before)
+    expect(board.undoLabel).not.toBe('移动 2 张卡片')
+    spy.mockRestore()
+  })
+
   it('undoes and redoes an edit', async () => {
     const board = await freshBoard()
     const card = board.cards[0]

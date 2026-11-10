@@ -4,8 +4,8 @@ import { Copy } from '@lucide/vue'
 import { canvasCameraKey } from '../../composables/useCanvas'
 import { getItemRect } from '../../lib/card-metrics'
 import {
-  subscribeCardDragEnd,
-  subscribeCardDragPosition,
+  subscribeCardDragBatch,
+  subscribeCardDragEndBatch,
 } from '../../lib/card-drag-bus'
 import {
   buildMarkdown,
@@ -100,13 +100,15 @@ const toolbarPosition = computed(() => {
 
 const selectableCount = computed(() => selectedEntries.value.length)
 
-const disposePosition = subscribeCardDragPosition((event) => {
-  livePositions.set(event.itemId, { x: event.x, y: event.y })
+const disposePosition = subscribeCardDragBatch((event) => {
+  for (const item of event.items) {
+    livePositions.set(item.itemId, { x: item.x, y: item.y })
+  }
   liveTick.value += 1
 })
 
-const disposeEnd = subscribeCardDragEnd((event) => {
-  livePositions.delete(event.itemId)
+const disposeEnd = subscribeCardDragEndBatch((event) => {
+  for (const item of event.items) livePositions.delete(item.itemId)
   liveTick.value += 1
 })
 

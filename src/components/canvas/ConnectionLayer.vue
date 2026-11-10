@@ -7,9 +7,10 @@ import {
 import { getItemRect } from '../../lib/card-metrics'
 import { isConnectionDimmed } from '../../lib/galaxy'
 import {
-  subscribeCardDragEnd,
-  subscribeCardDragPosition,
+  subscribeCardDragBatch,
+  subscribeCardDragEndBatch,
 } from '../../lib/card-drag-bus'
+import { connectionsTouchingCards } from '../../lib/drag-topology'
 import {
   connectionGeometry,
   draftGeometry,
@@ -185,15 +186,15 @@ function setLabelPosition(group: Element, geometry: ConnectionGeometry) {
   label?.setAttribute('y', String(geometry.midpoint.y - 16))
 }
 
-function refreshLivePaths(cardId: string) {
+function refreshLivePathsForCards(cardIds: Set<string>) {
   const svg = svgRoot.value
-  if (!svg) return
+  if (!svg || !cardIds.size) return
 
-  for (const entry of board.connections) {
-    if (entry.fromCardId !== cardId && entry.toCardId !== cardId) continue
+  const itemsByCard = new Map(board.items.map((item) => [item.cardId, item]))
 
-    const fromItem = itemForCard(entry.fromCardId)
-    const toItem = itemForCard(entry.toCardId)
+  for (const entry of connectionsTouchingCards(board.connections, cardIds)) {
+    const fromItem = itemsByCard.get(entry.fromCardId)
+    const toItem = itemsByCard.get(entry.toCardId)
     if (!fromItem || !toItem) continue
 
     const group = svg.querySelector(`[data-connection-id="${entry.id}"]`)
@@ -208,19 +209,28 @@ function refreshLivePaths(cardId: string) {
   }
 }
 
-const disposeDragPosition = subscribeCardDragPosition((event) => {
-  livePositions.set(event.itemId, { x: event.x, y: event.y })
-  refreshLivePaths(event.cardId)
+const disposeDragBatch = subscribeCardDragBatch((event) => {
+  const cardIds = new Set<string>()
+  for (const item of event.items) {
+    livePositions.set(item.itemId, { x: item.x, y: item.y })
+    cardIds.add(item.cardId)
+  }
+  refreshLivePathsForCards(cardIds)
 })
 
-const disposeDragEnd = subscribeCardDragEnd((event) => {
-  livePositions.delete(event.itemId)
-  requestAnimationFrame(() => refreshLivePaths(event.cardId))
+const disposeDragEndBatch = subscribeCardDragEndBatch((event) => {
+  const cardIds = new Set<string>()
+  for (const item of event.items) {
+    livePositions.delete(item.itemId)
+    cardIds.add(item.cardId)
+  }
+
+  requestAnimationFrame(() => refreshLivePathsForCards(cardIds))
 })
 
 onBeforeUnmount(() => {
-  disposeDragPosition()
-  disposeDragEnd()
+  disposeDragBatch()
+  disposeDragEndBatch()
 })
 </script>
 

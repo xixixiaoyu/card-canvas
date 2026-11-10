@@ -1,5 +1,9 @@
 import { nextTick, onBeforeUnmount, readonly, ref, type Ref } from 'vue'
-import { emitCardDragEnd, emitCardDragPosition } from '../lib/card-drag-bus'
+import { emitCardDragBatch, emitCardDragEndBatch } from '../lib/card-drag-bus'
+import {
+  resolveGroupPositions,
+  type GroupDragPosition,
+} from '../lib/group-drag'
 import type { BoardItem } from '../types'
 import type { CanvasCamera } from './useCanvas'
 
@@ -8,6 +12,8 @@ export interface CardDragPosition {
   y: number
 }
 
+export type CardDragCommit = GroupDragPosition
+
 export interface UseCardDragOptions {
   /** Positioned element that receives capture and the live world translation. */
   root: Ref<HTMLElement | null>
@@ -15,31 +21,42 @@ export interface UseCardDragOptions {
   lift: Ref<HTMLElement | null>
   camera: CanvasCamera
   getItem: () => Pick<BoardItem, 'id' | 'cardId' | 'x' | 'y'>
+  getGroupItems?: () => Array<Pick<BoardItem, 'id' | 'cardId' | 'x' | 'y'>>
   ignoreSelector?: string
   onSelect?: (event: PointerEvent) => void
   onClick?: (event: PointerEvent) => void
-  onDragStart?: (event: PointerEvent) => void
   onCommit?: (position: CardDragPosition) => void
+  onCommitGroup?: (positions: CardDragCommit[]) => void
 }
 
 export interface UseCardDragReturn {
   isDragging: Readonly<Ref<boolean>>
+  isGroupDragging: Readonly<Ref<boolean>>
   onPointerDown: (event: PointerEvent) => void
   cancel: () => void
 }
 
 const DRAG_THRESHOLD = 3
 
+interface DragGroupCard {
+  id: string
+  cardId: string
+  x: number
+  y: number
+  element: HTMLElement | null
+}
+
 /**
- * Card drag mechanics with screen-to-world scale compensation.
+ * Pointer-driven card movement with optional rigid-body group support.
  *
- * During a drag the card is translated through a direct DOM transform in
- * world units. Neither Pinia nor Dexie is touched until pointerup. The card's
- * grab offset is captured once, so cursor and card remain locked together even
- * if the canvas scale changes mid-gesture.
+ * The pointer-down card is the only Master Source: it owns capture and window
+ * listeners, computes one world-space delta, and applies that exact delta to
+ * every selected card's DOM transform. Nothing is written to Pinia or Dexie
+ * until pointerup.
  */
 export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
   const isDragging = ref(false)
+  const isGroupDragging = ref(false)
   const ignoreSelector =
     options.ignoreSelector ?? '[data-card-selectable], [data-card-interactive]'
 
@@ -51,31 +68,20 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
   let containerRect: DOMRect | null = null
   let pendingDelta: CardDragPosition | null = null
   let frameId = 0
-  let dragItemId: string | null = null
-  let dragCardId: string | null = null
+  let group: DragGroupCard[] = []
 
   function applyPendingTransform() {
-    const root = options.root.value
-    if (!root || !pendingDelta) return
+    if (!pendingDelta || !group.length) return
 
-    root.style.transform = `translate3d(${pendingDelta.x}px, ${pendingDelta.y}px, 0)`
-
-    if (dragItemId && dragCardId) {
-      emitCardDragPosition({
-        itemId: dragItemId,
-        cardId: dragCardId,
-        x: latestPosition.x,
-        y: latestPosition.y,
-      })
+    const delta = pendingDelta
+    for (const item of group) {
+      item.element?.style.setProperty(
+        'transform',
+        `translate3d(${delta.x}px, ${delta.y}px, 0)`,
+      )
     }
-  }
 
-  function emitDragEnd() {
-    if (!dragItemId || !dragCardId) return
-
-    emitCardDragEnd({ itemId: dragItemId, cardId: dragCardId })
-    dragItemId = null
-    dragCardId = null
+    emitCardDragBatch({ items: resolveGroupPositions(group, delta) })
   }
 
   function scheduleTransform() {
@@ -87,14 +93,23 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     })
   }
 
-  function clearTransform() {
+  function clearGroupTransforms() {
     if (frameId) {
       cancelAnimationFrame(frameId)
       frameId = 0
     }
 
+    for (const item of group) item.element?.style.removeProperty('transform')
     pendingDelta = null
-    options.root.value?.style.removeProperty('transform')
+  }
+
+  function emitGroupEnd() {
+    if (!group.length) return
+
+    emitCardDragEndBatch({
+      items: group.map((item) => ({ itemId: item.id, cardId: item.cardId })),
+    })
+    group = []
   }
 
   function syncPositionFromPointer(clientX: number, clientY: number) {
@@ -143,18 +158,25 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     activePointerId = null
   }
 
+  function resetGroup() {
+    clearGroupTransforms()
+    group = []
+    isDragging.value = false
+    isGroupDragging.value = false
+  }
+
   function cancel() {
     if (activePointerId === null) {
-      clearTransform()
-      isDragging.value = false
-      emitDragEnd()
+      clearGroupTransforms()
+      emitGroupEnd()
+      resetGroup()
       return
     }
 
     finishPointer()
-    clearTransform()
-    isDragging.value = false
-    emitDragEnd()
+    clearGroupTransforms()
+    emitGroupEnd()
+    resetGroup()
   }
 
   function handleWindowPointerMove(event: PointerEvent) {
@@ -164,16 +186,11 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
       event.clientX - startClient.x,
       event.clientY - startClient.y,
     )
-
     if (!isDragging.value && distance < DRAG_THRESHOLD) return
 
     event.preventDefault()
     event.stopPropagation()
-
-    if (!isDragging.value) {
-      isDragging.value = true
-      options.onDragStart?.(event)
-    }
+    isDragging.value = true
 
     syncPositionFromPointer(event.clientX, event.clientY)
     scheduleTransform()
@@ -183,15 +200,11 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     if (event.pointerId !== activePointerId) return
 
     event.stopPropagation()
-
     const wasDragging = isDragging.value
-    const root = options.root.value
 
     if (wasDragging) {
       event.preventDefault()
 
-      // Freeze the final frame synchronously before the store updates the base
-      // left/top values, so the card never flashes back to its old position.
       if (frameId) {
         cancelAnimationFrame(frameId)
         frameId = 0
@@ -205,21 +218,30 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     if (!wasDragging) {
       isDragging.value = false
       options.onClick?.(event)
-      emitDragEnd()
+      resetGroup()
       return
     }
 
-    // Start the drop animation immediately, then let Vue move the item to its
-    // new base position before removing the temporary world translation.
+    const positions = resolveGroupPositions(
+      group,
+      pendingDelta ?? { x: 0, y: 0 },
+    )
+
     isDragging.value = false
 
     try {
-      options.onCommit?.({ ...latestPosition })
+      if (positions.length > 1) {
+        options.onCommitGroup?.(positions)
+      } else if (positions[0]) {
+        options.onCommit?.({ x: positions[0].x, y: positions[0].y })
+      }
       await nextTick()
     } finally {
-      root?.style.removeProperty('transform')
+      clearGroupTransforms()
+      emitGroupEnd()
+      group = []
       pendingDelta = null
-      emitDragEnd()
+      isGroupDragging.value = false
     }
   }
 
@@ -237,21 +259,23 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     if (activePointerId !== null) cancel()
   }
 
+  function elementForItem(itemId: string, sourceId: string, root: HTMLElement) {
+    if (itemId === sourceId) return root
+
+    return document.querySelector<HTMLElement>(
+      `[data-world-item][data-item-id="${itemId}"]`,
+    )
+  }
+
   function onPointerDown(event: PointerEvent) {
     const root = options.root.value
     if (!root) return
 
-    // While space is held the canvas owns the gesture: do not select, prevent
-    // default or capture the pointer, so the event reaches the pan handler.
     if (options.camera.isSpaceHeld?.value) return
-
     if (event.pointerType === 'touch' && !event.isPrimary) {
       event.stopPropagation()
       return
     }
-
-    // Only the primary mouse button starts a card drag. Middle click is left
-    // for canvas panning.
     if (event.button !== 0) return
     if (activePointerId !== null) return
 
@@ -259,7 +283,6 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     const isInternalInteraction =
       target instanceof Element && Boolean(target.closest(ignoreSelector))
 
-    // Card interactions never clear canvas selection or start a canvas pan.
     event.stopPropagation()
     options.onSelect?.(event)
 
@@ -272,9 +295,19 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     containerRect = options.camera.getContainerRect()
 
     const item = options.getItem()
-    dragItemId = item.id
-    dragCardId = item.cardId
     startItem = { x: item.x, y: item.y }
+
+    const provided = options.getGroupItems?.() ?? []
+    const groupById = new Map(provided.map((entry) => [entry.id, entry]))
+    if (!groupById.has(item.id)) groupById.set(item.id, item)
+    group = [...groupById.values()].map((entry) => ({
+      id: entry.id,
+      cardId: entry.cardId,
+      x: entry.x,
+      y: entry.y,
+      element: elementForItem(entry.id, item.id, root),
+    }))
+    isGroupDragging.value = group.length > 1
 
     const startWorld = options.camera.screenToWorld(
       { x: event.clientX, y: event.clientY },
@@ -287,8 +320,6 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     latestPosition = { x: item.x, y: item.y }
     pendingDelta = null
 
-    // Clear any stale inline transform and measure the untransformed card so
-    // the tiny lift scale pivots around the exact grabbed pixel.
     root.style.removeProperty('transform')
     const rootRect = root.getBoundingClientRect()
     const scale = options.camera.getViewport().scale || 1
@@ -319,6 +350,7 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
 
   return {
     isDragging: readonly(isDragging),
+    isGroupDragging: readonly(isGroupDragging),
     onPointerDown,
     cancel,
   }

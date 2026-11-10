@@ -934,6 +934,75 @@ export const useBoardStore = defineStore('board', () => {
     void commitItemPosition(itemId, item.x + dx, item.y + dy)
   }
 
+  async function commitItemPositions(
+    positions: Array<{ itemId: string; x: number; y: number }>,
+  ): Promise<boolean> {
+    const unique = new Map<string, { itemId: string; x: number; y: number }>()
+    for (const position of positions) {
+      if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) continue
+      unique.set(position.itemId, position)
+    }
+
+    const changes = [...unique.values()].flatMap((position) => {
+      const item = items.value.find((entry) => entry.id === position.itemId)
+      if (!item || (item.x === position.x && item.y === position.y)) return []
+      return [{ item, before: plainRecord(item), x: position.x, y: position.y }]
+    })
+
+    if (!changes.length) return true
+
+    const after = changes.map((change) =>
+      plainRecord({ ...change.item, x: change.x, y: change.y }),
+    )
+    const before = changes.map((change) => change.before)
+    const boardId = after[0]?.boardId
+
+    for (const item of after) replaceLocalItem(item)
+
+    try {
+      await db.transaction('rw', db.boardItems, async () => {
+        await db.boardItems.bulkPut(after)
+      })
+      if (boardId) broadcastWorkspaceChange('items', boardId)
+    } catch (cause) {
+      for (const item of before) replaceLocalItem(item)
+      console.error('[card-canvas] Unable to persist group positions', cause)
+      notifyFailure('卡片位置保存失败，已恢复。', {
+        label: '重试',
+        run: () => {
+          void commitItemPositions(
+            after.map((item) => ({
+              itemId: item.id,
+              x: item.x,
+              y: item.y,
+            })),
+          )
+        },
+      })
+      return false
+    }
+
+    record({
+      label: `移动 ${after.length} 张卡片`,
+      undo: async () => {
+        await db.transaction('rw', db.boardItems, async () => {
+          await db.boardItems.bulkPut(before)
+        })
+        for (const item of before) replaceLocalItem(item)
+        if (boardId) broadcastWorkspaceChange('items', boardId)
+      },
+      redo: async () => {
+        await db.transaction('rw', db.boardItems, async () => {
+          await db.boardItems.bulkPut(after)
+        })
+        for (const item of after) replaceLocalItem(item)
+        if (boardId) broadcastWorkspaceChange('items', boardId)
+      },
+    })
+
+    return true
+  }
+
   async function commitItemPosition(itemId: string, x: number, y: number) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return
 
@@ -1187,6 +1256,7 @@ export const useBoardStore = defineStore('board', () => {
     clearFilterTag,
     pulseItem,
     commitItemPosition,
+    commitItemPositions,
     nudgeItem,
     captureCard,
     updateCard,

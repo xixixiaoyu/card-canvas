@@ -223,12 +223,14 @@ function handleCardClick(itemId: string, event: PointerEvent) {
   }
 }
 
-function handleCardDragStart(itemId: string) {
-  // Phase 08A: a multi-selected cluster collapses to its source until the
-  // rigid-body group drag lands in Phase 08B.
-  if (board.selectedItemIds.size > 1 && board.selectedItemIds.has(itemId)) {
-    board.selectItem(itemId)
-  }
+function getDragGroup() {
+  return board.selectedItems
+}
+
+function handleGroupCommit(
+  positions: Parameters<typeof board.commitItemPositions>[0],
+) {
+  void board.commitItemPositions(positions)
 }
 
 function openCapture() {
@@ -396,12 +398,13 @@ onBeforeUnmount(() => {
       :data-canvas-focus="
         entry.item.id === FOCUS_BOARD_ITEM_ID ? '' : undefined
       "
+      :get-drag-group="getDragGroup"
       @select="handleCardSelect(entry.item.id, $event)"
       @click-card="handleCardClick(entry.item.id, $event)"
-      @drag-start="handleCardDragStart(entry.item.id)"
       @position-commit="
         board.commitItemPosition(entry.item.id, $event.x, $event.y)
       "
+      @position-commit-group="handleGroupCommit($event)"
       @nudge="board.nudgeItem(entry.item.id, $event.x, $event.y)"
       @edit="openEdit(entry.card)"
       @delete="handleDelete(entry.card)"
@@ -431,7 +434,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 08A / Marquee
+              Phase 08B / Rigid Group
             </p>
           </div>
 

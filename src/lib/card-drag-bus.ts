@@ -10,31 +10,41 @@ export interface CardDragEndEvent {
   cardId: string
 }
 
-type PositionListener = (event: CardDragPositionEvent) => void
-type EndListener = (event: CardDragEndEvent) => void
+export interface CardDragBatchEvent {
+  items: CardDragPositionEvent[]
+}
 
-const positionListeners = new Set<PositionListener>()
-const endListeners = new Set<EndListener>()
+export interface CardDragEndBatchEvent {
+  items: CardDragEndEvent[]
+}
+
+type BatchPositionListener = (event: CardDragBatchEvent) => void
+type BatchEndListener = (event: CardDragEndBatchEvent) => void
+
+const positionListeners = new Set<BatchPositionListener>()
+const endListeners = new Set<BatchEndListener>()
 
 /**
- * Card drags deliberately bypass Vue reactivity. Connected SVG paths get the
- * live world position through this tiny event bus and update their `d`
- * attributes in the same animation frame.
+ * Card drags deliberately bypass Vue reactivity. A whole selected group is
+ * broadcast in one batch so ConnectionLayer can union its endpoints and update
+ * every affected path exactly once per animation frame.
  */
-export function emitCardDragPosition(event: CardDragPositionEvent) {
+export function emitCardDragBatch(event: CardDragBatchEvent) {
+  if (!event.items.length) return
   for (const listener of positionListeners) listener(event)
 }
 
-export function emitCardDragEnd(event: CardDragEndEvent) {
+export function emitCardDragEndBatch(event: CardDragEndBatchEvent) {
+  if (!event.items.length) return
   for (const listener of endListeners) listener(event)
 }
 
-export function subscribeCardDragPosition(listener: PositionListener) {
+export function subscribeCardDragBatch(listener: BatchPositionListener) {
   positionListeners.add(listener)
   return () => positionListeners.delete(listener)
 }
 
-export function subscribeCardDragEnd(listener: EndListener) {
+export function subscribeCardDragEndBatch(listener: BatchEndListener) {
   endListeners.add(listener)
   return () => endListeners.delete(listener)
 }

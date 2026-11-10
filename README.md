@@ -1,8 +1,8 @@
 # Card Canvas
 
-卡片笔记与无限白板工具 · **Phase 08A / Marquee & Synthesis**
+卡片笔记与无限白板工具 · **Phase 08B / Rigid Group**
 
-Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 2D 白板** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统；Phase 06.5 加入 Spotlight 穿梭搜索、电影感运镜与星系暗化；Phase 07 取消待整理池，速记保存即上板；Phase 07.5 把穿梭扩展到全库跨板检索，并补上标签层级聚合；Phase 08A 加入框选多选、集群包围框与 Markdown 认知蒸馏导出。
+Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 2D 白板** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统；Phase 06.5 加入 Spotlight 穿梭搜索、电影感运镜与星系暗化；Phase 07 取消待整理池，速记保存即上板；Phase 07.5 把穿梭扩展到全库跨板检索，并补上标签层级聚合；Phase 08A 加入框选多选、集群包围框与 Markdown 认知蒸馏导出；Phase 08B 把多选升级为 Master 驱动的刚体拖拽、批量连线刷新与单步原子撤销。
 
 ## 技术栈
 
@@ -26,8 +26,8 @@ pnpm dev
 pnpm format:check       # Prettier
 pnpm lint               # ESLint
 pnpm typecheck          # vue-tsc
-pnpm test               # Vitest：框选 AABB、Markdown 排序、运镜居中、全局搜索、层级标签、连线
-pnpm test:e2e           # Playwright：框选/多选/复制 / 跨板穿梭 / 层级星系 / 捕获 / 连线
+pnpm test               # Vitest：刚体位移、批量拓扑、原子撤销、框选 AABB、Markdown、连线
+pnpm test:e2e           # Playwright：多卡刚体拖拽/40%/200%/撤销 / 框选/多选/复制 / 跨板穿梭 / 连线
 pnpm build              # typecheck + vite build
 pnpm preview
 ```
@@ -49,11 +49,12 @@ pnpm preview
 - **点击空白画布**：取消选中
 - **拖动卡片**：从卡片标题、右上角 grip、卡片留白或底栏拖动
 - **内容区**：正文与原子笔记文本可被选中；标签与正文不会误触发卡片拖拽
-- **拖拽死区**：屏幕位移小于 `3px` 视为点击；超过后才进入拖拽态
+- **拖拽死区**：屏幕位移小于 `3px` 视为点击；超过后才进入拖拽态；多选时单击卡片会精准收窄为单选
+- **多卡刚体**：从任意已选卡片拖拽，整个选中集群共享同一世界位移，相对间距在任何缩放级别保持不变
 - **空格优先**：按住空格时，即使从卡片上起手也进入画布平移，不改动卡片与选中态
 - **缩放补偿**：`worldDelta = screenDelta / viewport.scale`，在 30% 与 200% 下光标均与拾起点严格咬合
 - **高程反馈**：拾起时 `scale(1.018)`、漫反射阴影增强、`z-index` 置于最上层；放下后平滑回落
-- **持久化时机**：拖拽期间只写 DOM transform；`pointerup` 时一次性提交 Pinia，并异步 `db.boardItems.update`
+- **持久化时机**：拖拽期间只写 DOM transform；`pointerup` 时多卡通过一个 `bulkPut` 事务提交 Pinia，并只记录一条历史
 
 ## 即时速记（Capture to Board）
 
@@ -82,7 +83,7 @@ pnpm preview
 - **可选语义**：双击连线（或选中后按 `Enter`）在线条中点输入关系说明；`Enter` / 失焦保存，`Esc` 取消
 - **选择与删除**：点击连线或用 `Tab` 聚焦选中，`Delete` / `Backspace` 删除；所有新增、删除、Label 修改都进入撤销栈
 - **级联**：卡片删除时，关联连线同步清理；`⌘Z` 恢复卡片时会一并恢复连线与 Label
-- **抗缩放**：连线在卡片拖拽的 rAF 中通过事件总线直接更新 SVG `d`，不写 Pinia / Dexie；30% 与 250% 下端点漂移 < 1.5px
+- **抗缩放**：连线在卡片拖拽的 rAF 中通过批量事件总线直接更新 SVG `d`，不写 Pinia / Dexie；40% 与 200% 多卡刚体拖拽下内外部端点都保持吸附
 
 ## 全局穿梭搜索（Global Spotlight）
 
@@ -120,6 +121,22 @@ pnpm preview
 - **浮动工具栏**：选中 1 张以上时，在集群上方（空间不足时下方）出现极简胶囊；多选时额外显示虚线外包围框
 - **跟随相机**：相机通过 `viewport` 轻量 ref 暴露变换；只有 SelectionChrome 订阅，不把整张画布拖入逐帧深层响应式
 
+## 多卡刚体拖拽（Rigid Group Drag）
+
+- **Master Source**：pointerdown 落在已选卡片上时，只有这张卡注册 `setPointerCapture` 和 window 监听；它计算唯一的世界位移，所有成员共享，不会出现多张卡片争抢事件
+- **选择不塌陷**：pointerdown 严格保留完整多选；位移 `≥ 3px` 进入刚体拖拽，拖拽期间与释放后选择集都不变；位移 `< 3px` 的纯点击才收窄为当前卡片
+- **世界位移**：`ΔW = ΔS / scale`；所有卡片直接写 `translate3d(ΔWx, ΔWy, 0)` 到 GPU 合成层，不写 Pinia、不写 Dexie
+- **刚性视觉**：组拖拽期间禁用单卡 `scale(1.018)` 抬升，避免 Master 卡片在 200% 下产生额外包围盒偏移
+- **指针生命周期**：`pointercancel` / `blur` / `lostpointercapture` 都会清理所有卡的 transform 并广播结束；只在 `pointerup` 落盘
+
+## 批量连线与原子撤销
+
+- **`emitCardDragBatch`**：Master 每帧广播一次 `{ items: [{ itemId, cardId, x, y }] }`，不再为每张卡分别 emit
+- **拓扑裁剪**：`connectionsTouchingCards` 只保留至少一端在移动集合内的连线；内部连线两端同步，外部连线只有移动端更新
+- **单次刷新**：ConnectionLayer 每帧构建一次 `cardId → item` 映射，再遍历受影响连线直接改 `d`；复杂度约为 `O(items + affectedConnections)`，不是 `O(N × Connections)`
+- **单步撤销**：拖拽释放调用 `commitItemPositions`，一次 `db.boardItems.bulkPut` 写入全部终点，只压入一条历史「移动 N 张卡片」
+- **失败回滚**：`bulkPut` 失败时把所有卡片内存坐标恢复为起点，禁止“部分到终点、部分在起点”的撕裂态
+
 ## 认知蒸馏导出（Markdown Synthesis）
 
 - **复制入口**：选中集群后点击胶囊里的「复制 Markdown」
@@ -130,14 +147,14 @@ pnpm preview
 - **剪贴板**：优先 `navigator.clipboard.writeText`；失败时降级到屏幕外 textarea + `execCommand('copy')`，textarea 固定在 `-9999px` 且 `pointer-events:none`
 - **反馈**：成功 Toast「已复制 N 张卡片大纲到剪贴板」，工具栏短暂显示「已复制」
 
-> Phase 08B 才会把已选集群升级为刚体拖拽、批量连接刷新和单步批量撤销；08A 的多选底座已为它预留。
+> Phase 08B 已完成：多选集群现在可以直接拖拽，连线和撤销都按整个集群处理。
 
 ## 键盘与无障碍
 
 - **速记**：`⌘K` / `⌥N` 打开；`Tab` 焦点锁定在弹窗内，背景 `inert`；`Esc` 关闭
 - **搜索**：`⌘F` / `/` 或 HUD 搜索按钮打开；`↑` / `↓` 选择，`Enter` 跨板飞往，`Esc` 关闭；输入、编辑或选中文本时不会误触
 - **画布卡片**：可聚焦；方向键移动 `10px`，`Shift + 方向键` 移动 `1px`；`Enter` / `Space` 选中
-- **多选**：空白处拖拽框选；`Shift` 框选增量；已有多选时单击卡片收窄为单选
+- **多选**：空白处拖拽框选；`Shift` 框选增量；已有多选时单击卡片收窄为单选，拖拽则整组平移
 - **连线**：`Tab` 聚焦后选中；`Enter` 编辑说明，`Delete` / `Backspace` 删除
 - **撤销 / 重做**：`⌘Z` / `⇧⌘Z`（Windows 支持 `Ctrl+Y`），顶栏也有按钮
 - **屏幕阅读器**：选中变化通过 `aria-live` 播报；字符漂移、焦点环、`aria-current` 均已补齐
@@ -189,7 +206,7 @@ src/
 │       └── ToastStack.vue       # 错误 / 成功提示与重试
 ├── composables/
 │   ├── useCanvas.ts             # 相机、锚点缩放、坐标换算、手势状态机
-│   ├── useCardDrag.ts           # 卡片拖拽、死区、缩放补偿、落盘状态机
+│   ├── useCardDrag.ts           # 单卡/刚体组拖拽、死区、缩放补偿、Master Source
 │   ├── useConnection.ts         # 引线拖拽状态机、目标命中、键盘操作
 │   ├── useMarqueeSelect.ts      # 空白框选、世界 AABB、Shift 并集与 pointer capture
 │   └── useTheme.ts              # useDark + useToggle 主题管理
@@ -197,7 +214,9 @@ src/
 ├── db/index.ts                  # Dexie 单例（v2：boards 表）
 ├── lib/
 │   ├── backup.ts                # 全量导出 / 导入与校验
-│   ├── card-drag-bus.ts         # 卡片拖拽帧事件 → 连线直接更新
+│   ├── card-drag-bus.ts         # 批量拖拽帧事件 → 连线一次刷新
+│   ├── drag-topology.ts         # 受影响的内部/外部连线裁剪
+│   ├── group-drag.ts            # 统一世界位移与刚体位置计算
 │   ├── capture-placement.ts     # 选中卡片旁 / 中心级联的落点规则
 │   ├── card-metrics.ts          # 实测卡片世界高度 / 包围盒
 │   ├── galaxy.ts                # 层级标签命中与连线暗化规则
@@ -232,14 +251,15 @@ e2e/                             # Playwright 端到端测试
 - **层级标签单一真相**：`tagMatches` 同时被卡片暗化、标签选中态和连线判断复用，避免三处各写一套前缀规则。
 - **搜索与聚焦**：`spotlight-search.ts` 是纯函数检索；`galaxy.ts` 只回答“卡片是否命中标签 / 连线是否两端都暗化”，视图层不复制规则。
 - **选中真相**：`selectedItemIds` 是唯一的选中集合；`selectedItemId` 仅为单选兼容派生值，避免多选与跨板搜索互相覆盖。
+- **刚体来源**：只有 Master Source 计算指针世界位移，组内其他卡只消费同一个 delta，因此相对间距不可能因逐卡计算而漂移。
 - **框选轴性**：框选起点/终点先转成世界坐标，再用 `getItemRect` 的动态高度做 AABB；不读屏幕像素或静态 item.height。
 - **捕获即上板**：`captureAndPlace` 在一个动作里创建 `Card` + `BoardItem`，只记录一条历史；卡片实体不携带 `boardId` 或坐标。
 - **落点选址**：纯函数 `capture-placement.ts` 负责“选中卡片右侧优先 → 下 / 左 / 上 → 中心 32px 级联”的确定性规则；无投影的历史卡片在加载/刷新时自动迁移到当前白板右侧。
 - **乐观写入**：速记先把卡片与投影发布到 Pinia（UI 立即关闭、卡片立即选中），再异步事务写 `cards` + `boardItems`；失败时同时回滚两者并恢复草稿。
 - **绝对不动点缩放**：缩放动画每一帧都以固定世界锚点重算 pan，而非只在 wheel 事件里计算一次。
-- **性能隔离**：卡片拖拽期间使用普通对象 + rAF + 直接 DOM transform；只有 `pointerup` 提交一次 Pinia 与一次 Dexie update。
+- **性能隔离**：卡片拖拽期间使用普通对象 + rAF + 直接 DOM transform；多卡在 `pointerup` 提交一次 Pinia 与一次 `bulkPut`，只记录一条历史。
 - **连线同轴**：SVG 直接挂在 World Layer；端点/控制点全部基于世界坐标，不在 SVG 层重复折算 scale；命中路径 20px、视觉线 1.5px 并使用 `non-scaling-stroke`。
-- **连线的动静分离**：拖拽卡片时通过 `card-drag-bus` 把首帧世界坐标推给 SVG 层，直接改 `d`；拖拽期间不写 Dexie、不触发深层响应式。
+- **连线的动静分离**：拖拽卡片时通过 `card-drag-bus` 批量推送世界坐标，SVG 层每个 rAF 只刷新受影响连线；拖拽期间不写 Dexie、不触发深层响应式。
 - **响应式 → Dexie 边界**：所有写入前通过 `plainRecord` 深拷贝，避免把 Vue Proxy 交给 IndexedDB 结构化克隆。
 - **历史栈**：每个用户动作记录 `{ label, undo, redo }` 闭包，内存最多 50 步；撤销/重做本身不再入栈。
 - **跨标签页**：`BroadcastChannel` 广播 cards / items / connections / boards 变更，接收端重读 IndexedDB；`visibilitychange` 兜底。

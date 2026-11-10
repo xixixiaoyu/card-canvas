@@ -10,7 +10,7 @@ import {
 import { Grip, Link2, Pencil, Trash2 } from '@lucide/vue'
 import { removeCardHeight, setCardHeight } from '../../lib/card-metrics'
 import { tagMatches } from '../../lib/galaxy'
-import { useCardDrag } from '../../composables/useCardDrag'
+import { useCardDrag, type CardDragCommit } from '../../composables/useCardDrag'
 import { canvasCameraKey, type CanvasCamera } from '../../composables/useCanvas'
 import { connectionKey } from '../../composables/useConnection'
 import type { BoardItem, Card } from '../../types'
@@ -24,6 +24,7 @@ const props = withDefaults(
     isHighlighted?: boolean
     isDimmed?: boolean
     activeFilterTag?: string | null
+    getDragGroup?: () => BoardItem[]
     indexLabel?: string
   }>(),
   {
@@ -32,6 +33,7 @@ const props = withDefaults(
     isHighlighted: false,
     isDimmed: false,
     activeFilterTag: null,
+    getDragGroup: undefined,
     indexLabel: 'CARD',
   },
 )
@@ -39,8 +41,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: [event?: PointerEvent]
   clickCard: [event: PointerEvent]
-  dragStart: [event: PointerEvent]
   positionCommit: [position: { x: number; y: number }]
+  positionCommitGroup: [positions: CardDragCommit[]]
   nudge: [delta: { x: number; y: number }]
   edit: []
   delete: []
@@ -96,15 +98,16 @@ function handleLinkPointerDown(event: PointerEvent) {
   connection.beginDrag(event, props.item)
 }
 
-const { isDragging, onPointerDown } = useCardDrag({
+const { isDragging, isGroupDragging, onPointerDown } = useCardDrag({
   root: rootEl,
   lift: liftEl,
   camera,
   getItem: () => props.item,
+  getGroupItems: () => props.getDragGroup?.() ?? [props.item],
   onSelect: (event) => emit('select', event),
   onClick: (event) => emit('clickCard', event),
-  onDragStart: (event) => emit('dragStart', event),
   onCommit: (position) => emit('positionCommit', position),
+  onCommitGroup: (positions) => emit('positionCommitGroup', positions),
 })
 
 function handleKeydown(event: KeyboardEvent) {
@@ -144,6 +147,7 @@ function tagTone(index: number) {
     :class="{
       'is-selected': selected,
       'is-dragging': isDragging,
+      'is-group-dragging': isGroupDragging,
       'is-landing': landing,
       'is-dimmed': isDimmed,
     }"
@@ -599,6 +603,11 @@ function tagTone(index: number) {
 .card-node.is-dragging .card-lift {
   transform: scale(1.018);
   will-change: transform;
+}
+
+/* A rigid group must preserve every pairwise edge pixel: no per-card lift. */
+.card-node.is-group-dragging .card-lift {
+  transform: none;
 }
 
 .card-surface {
