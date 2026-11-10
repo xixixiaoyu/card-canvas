@@ -39,9 +39,11 @@ const camera = computed<CanvasCamera | null>(
 )
 
 const selectionAnnouncement = computed(() => {
-  const item = board.selectedItem
-  if (!item) return '未选中任何卡片'
+  const count = board.selectedItems.length
+  if (count === 0) return '未选中任何卡片'
+  if (count > 1) return `已选中 ${count} 张卡片`
 
+  const item = board.selectedItems[0]
   const card = board.cards.find((entry) => entry.id === item.cardId)
   return card ? `已选中：${card.title}` : '已选中卡片'
 })
@@ -203,6 +205,32 @@ function handleSpotlightSelect(target: SpotlightTarget) {
   // `ready`; completePendingTeleport resumes only after both signals.
 }
 
+function handleCardSelect(itemId: string, event?: Event) {
+  if (board.selectedItemIds.has(itemId)) return
+
+  if (event instanceof PointerEvent && event.shiftKey) {
+    board.selectItems([...board.selectedItemIds, itemId])
+    return
+  }
+
+  board.selectItem(itemId)
+}
+
+function handleCardClick(itemId: string, event: PointerEvent) {
+  if (event.shiftKey) return
+  if (board.selectedItemIds.size > 1 && board.selectedItemIds.has(itemId)) {
+    board.selectItem(itemId)
+  }
+}
+
+function handleCardDragStart(itemId: string) {
+  // Phase 08A: a multi-selected cluster collapses to its source until the
+  // rigid-body group drag lands in Phase 08B.
+  if (board.selectedItemIds.size > 1 && board.selectedItemIds.has(itemId)) {
+    board.selectItem(itemId)
+  }
+}
+
 function openCapture() {
   editingCard.value = null
   isCaptureOpen.value = true
@@ -213,8 +241,12 @@ function openSpotlight() {
   isSpotlightOpen.value = true
 }
 
-function handleCanvasBackground() {
-  board.clearSelection()
+function handleCanvasBackground(payload?: { shiftKey?: boolean }) {
+  if (payload?.shiftKey) {
+    board.selectItems([...board.selectedItemIds])
+  } else {
+    board.clearSelection()
+  }
   board.clearFilterTag()
   window.getSelection()?.removeAllRanges()
 }
@@ -355,7 +387,7 @@ onBeforeUnmount(() => {
       :key="entry.item.id"
       :item="entry.item"
       :card="entry.card"
-      :selected="board.selectedItemId === entry.item.id"
+      :selected="board.selectedItemIds.has(entry.item.id)"
       :landing="board.landingItemId === entry.item.id"
       :is-highlighted="board.pulseItemId === entry.item.id"
       :is-dimmed="isCardOutsideGalaxy(entry.card)"
@@ -364,7 +396,9 @@ onBeforeUnmount(() => {
       :data-canvas-focus="
         entry.item.id === FOCUS_BOARD_ITEM_ID ? '' : undefined
       "
-      @select="board.selectItem(entry.item.id)"
+      @select="handleCardSelect(entry.item.id, $event)"
+      @click-card="handleCardClick(entry.item.id, $event)"
+      @drag-start="handleCardDragStart(entry.item.id)"
       @position-commit="
         board.commitItemPosition(entry.item.id, $event.x, $event.y)
       "
@@ -397,7 +431,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 07.5 / Global Spotlight
+              Phase 08A / Marquee
             </p>
           </div>
 

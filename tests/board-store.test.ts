@@ -211,6 +211,27 @@ describe('board store', () => {
     expect((await db.cards.get(card.id))?.isDeleted).toBeUndefined()
   })
 
+  it('supports multi-item selection without losing connection exclusivity', async () => {
+    const board = await freshBoard()
+    const [first, second] = board.items
+
+    board.selectItems([first.id, second.id])
+    expect(board.selectedItemIds.size).toBe(2)
+    expect(board.selectedItems).toHaveLength(2)
+    expect(board.selectedItemId).toBeNull()
+
+    board.selectConnection('connection-test')
+    expect(board.selectedItemIds.size).toBe(0)
+    expect(board.selectedConnectionId).toBe('connection-test')
+
+    board.selectItems([first.id])
+    expect(board.selectedConnectionId).toBeNull()
+    expect(board.selectedItemId).toBe(first.id)
+
+    board.clearSelection()
+    expect(board.selectedItemIds.size).toBe(0)
+  })
+
   it('toggles the galaxy filter without mutating cards', async () => {
     const board = await freshBoard()
     const before = JSON.parse(JSON.stringify(board.cards))

@@ -1,7 +1,7 @@
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, h, nextTick, ref, type Ref } from 'vue'
+import { defineComponent, h, nextTick, ref, shallowRef, type Ref } from 'vue'
 import QuickCapture from '../src/components/capture/QuickCapture.vue'
 import type { CanvasCamera } from '../src/composables/useCanvas'
 import { db } from '../src/db'
@@ -11,6 +11,7 @@ import { useToastStore } from '../src/stores/toast'
 let wrapper: VueWrapper | null = null
 
 const camera: CanvasCamera = {
+  viewport: shallowRef({ panX: 0, panY: 0, scale: 1 }),
   getViewport: () => ({ panX: 0, panY: 0, scale: 1 }),
   getContainerRect: () => new DOMRect(0, 0, 800, 600),
   screenToWorld: (point) => point,

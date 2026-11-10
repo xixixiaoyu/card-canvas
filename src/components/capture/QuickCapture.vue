@@ -143,7 +143,10 @@ function buildPlacement() {
     },
     rect,
   )
-  const selected = board.selectedItem ? getItemRect(board.selectedItem) : null
+  const selected =
+    board.selectedItemId && board.selectedItem
+      ? getItemRect(board.selectedItem)
+      : null
   const placement = chooseCapturePlacement({
     viewport: {
       left: topLeft.x,

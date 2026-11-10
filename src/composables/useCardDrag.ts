@@ -16,7 +16,9 @@ export interface UseCardDragOptions {
   camera: CanvasCamera
   getItem: () => Pick<BoardItem, 'id' | 'cardId' | 'x' | 'y'>
   ignoreSelector?: string
-  onSelect?: () => void
+  onSelect?: (event: PointerEvent) => void
+  onClick?: (event: PointerEvent) => void
+  onDragStart?: (event: PointerEvent) => void
   onCommit?: (position: CardDragPosition) => void
 }
 
@@ -170,6 +172,7 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
 
     if (!isDragging.value) {
       isDragging.value = true
+      options.onDragStart?.(event)
     }
 
     syncPositionFromPointer(event.clientX, event.clientY)
@@ -201,6 +204,7 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
 
     if (!wasDragging) {
       isDragging.value = false
+      options.onClick?.(event)
       emitDragEnd()
       return
     }
@@ -257,7 +261,7 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
 
     // Card interactions never clear canvas selection or start a canvas pan.
     event.stopPropagation()
-    options.onSelect?.()
+    options.onSelect?.(event)
 
     if (isInternalInteraction) return
 

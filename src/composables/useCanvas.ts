@@ -3,6 +3,7 @@ import {
   onMounted,
   readonly,
   ref,
+  shallowRef,
   type InjectionKey,
   type Ref,
 } from 'vue'
@@ -32,6 +33,8 @@ export type ZoomLimit = 'min' | 'max' | null
 
 /** The live camera surface consumed by world-space components. */
 export interface CanvasCamera {
+  /** Low-cost reactive viewport signal for screen-space UI such as toolbars. */
+  viewport: Readonly<Ref<Viewport>>
   getViewport: () => Viewport
   getContainerRect: () => DOMRect | null
   screenToWorld: (
@@ -82,6 +85,7 @@ export interface UseCanvasOptions {
 }
 
 export interface UseCanvasReturn {
+  viewport: Readonly<Ref<Viewport>>
   zoomPercent: Readonly<Ref<number>>
   isPanning: Readonly<Ref<boolean>>
   isSpaceHeld: Readonly<Ref<boolean>>
@@ -238,6 +242,7 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
   const maxScale = Math.max(minScale, options.maxScale ?? DEFAULT_MAX_SCALE)
   const reducedMotion = usePreferredReducedMotion()
 
+  const viewport = shallowRef<Viewport>({ panX: 0, panY: 0, scale: 1 })
   const zoomPercent = ref(100)
   const isPanning = ref(false)
   const isSpaceHeld = ref(false)
@@ -365,6 +370,11 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
     applyGrid()
     syncFeedback()
+    viewport.value = {
+      panX: current.panX,
+      panY: current.panY,
+      scale: current.scale,
+    }
     options.onViewportChange?.({
       panX: current.panX,
       panY: current.panY,
@@ -1128,6 +1138,7 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
   onBeforeUnmount(destroy)
 
   return {
+    viewport,
     zoomPercent: readonly(zoomPercent),
     isPanning: readonly(isPanning),
     isSpaceHeld: readonly(isSpaceHeld),

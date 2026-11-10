@@ -6,13 +6,19 @@ import {
   type CanvasCamera,
 } from '../../composables/useCanvas'
 import { connectionKey, useConnection } from '../../composables/useConnection'
+import {
+  isCanvasBackground,
+  useMarqueeSelect,
+} from '../../composables/useMarqueeSelect'
 import { readViewport, writeViewport } from '../../lib/view-state'
+import { useBoardStore } from '../../stores/board'
 import type { Viewport } from '../../types'
 import CanvasHUD from './CanvasHUD.vue'
 import ConnectionLayer from './ConnectionLayer.vue'
+import SelectionChrome from './SelectionChrome.vue'
 
 const emit = defineEmits<{
-  'background-pointerdown': []
+  'background-pointerdown': [payload: { shiftKey: boolean }]
   ready: [boardId: string]
   search: []
 }>()
@@ -30,6 +36,7 @@ const props = withDefaults(
   },
 )
 
+const board = useBoardStore()
 const stageEl = ref<HTMLElement | null>(null)
 const worldEl = ref<HTMLElement | null>(null)
 const gridEl = ref<HTMLElement | null>(null)
@@ -58,6 +65,7 @@ function scheduleViewportSave(next: Viewport) {
 }
 
 const {
+  viewport,
   zoomPercent,
   isPanning,
   isSpaceHeld,
@@ -83,6 +91,7 @@ const {
 })
 
 const cameraApi: CanvasCamera = {
+  viewport,
   getViewport,
   getContainerRect,
   screenToWorld,
@@ -96,20 +105,36 @@ provide(canvasCameraKey, cameraApi)
 const connection = useConnection({ camera: cameraApi })
 provide(connectionKey, connection)
 
-function handleBackgroundPointerDown(event: PointerEvent) {
-  if (event.button !== 0) return
-  // Space + drag is a canvas pan, not a selection gesture.
-  if (isSpaceHeld.value) return
+const {
+  isActive: marqueeActive,
+  box: marqueeBox,
+  canStart: canStartMarquee,
+  start: startMarquee,
+} = useMarqueeSelect({
+  stage: stageEl,
+  camera: cameraApi,
+  isSpaceHeld,
+  getItems: () => board.items,
+  getSelectedIds: () => [...board.selectedItemIds],
+  setSelectedIds: (ids) => board.selectItems(ids),
+})
 
-  const target = event.target
-  if (
-    target instanceof Element &&
-    target.closest('[data-canvas-ui], [data-world-item]')
-  ) {
+function handleStagePointerDown(event: PointerEvent) {
+  if (event.pointerType !== 'mouse') {
+    if (
+      event.button === 0 &&
+      !isSpaceHeld.value &&
+      isCanvasBackground(event.target)
+    ) {
+      emit('background-pointerdown', { shiftKey: event.shiftKey })
+    }
     return
   }
 
-  emit('background-pointerdown')
+  if (!canStartMarquee(event)) return
+
+  emit('background-pointerdown', { shiftKey: event.shiftKey })
+  startMarquee(event)
 }
 
 function fitAll(animate = true) {
@@ -222,7 +247,7 @@ defineExpose({
       'is-ready': isReady,
     }"
     aria-label="Card Canvas 无限画布"
-    @pointerdown="handleBackgroundPointerDown"
+    @pointerdown="handleStagePointerDown"
   >
     <p class="sr-only">
       画布操作：双指滑动平移，捏合缩放；按住空格并拖动鼠标，或使用鼠标中键拖动画布。拖动卡片标题或右上角把手可以移动卡片；正文可选择文字；点击空白取消选中。
@@ -237,10 +262,24 @@ defineExpose({
     <div class="canvas-glow-dark absolute inset-0 z-0" aria-hidden="true" />
     <div class="canvas-noise absolute inset-0 z-0" aria-hidden="true" />
 
+    <div
+      v-if="marqueeActive && marqueeBox"
+      class="marquee-box"
+      :style="{
+        left: `${marqueeBox.left}px`,
+        top: `${marqueeBox.top}px`,
+        width: `${marqueeBox.width}px`,
+        height: `${marqueeBox.height}px`,
+      }"
+      aria-hidden="true"
+    />
+
     <div ref="worldEl" class="canvas-world" data-canvas-world>
       <ConnectionLayer />
       <slot />
     </div>
+
+    <SelectionChrome />
 
     <div class="pointer-events-none absolute inset-0 z-20">
       <slot name="overlay" />
@@ -263,6 +302,22 @@ defineExpose({
 </template>
 
 <style scoped>
+.marquee-box {
+  position: fixed;
+  z-index: 25;
+  pointer-events: none;
+  border: 1px dashed rgba(217, 119, 6, 0.8);
+  border-radius: 10px;
+  background: rgba(217, 119, 6, 0.08);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45) inset;
+}
+
+.dark .marquee-box {
+  border-color: rgba(147, 197, 253, 0.75);
+  background: rgba(147, 197, 253, 0.07);
+  box-shadow: 0 0 18px rgba(147, 197, 253, 0.12);
+}
+
 .canvas-hud-dock {
   bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 }

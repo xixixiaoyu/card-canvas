@@ -1,8 +1,8 @@
 # Card Canvas
 
-卡片笔记与无限白板工具 · **Phase 07.5 / Global Spotlight**
+卡片笔记与无限白板工具 · **Phase 08A / Marquee & Synthesis**
 
-Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 2D 白板** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统；Phase 06.5 加入 Spotlight 穿梭搜索、电影感运镜与星系暗化；Phase 07 取消待整理池，速记保存即上板；Phase 07.5 把穿梭扩展到全库跨板检索，并补上标签层级聚合。
+Phase 01 建立工程、领域模型与双主题；Phase 02 建立无限画布的平移缩放与坐标系；Phase 03 让卡片成为可选中、可拖拽、可落盘的物理实体；Phase 04 打通 **1D 速记 → 2D 白板** 的知识摄入闭环；Phase 05 补齐测试、可访问性、多白板、撤销重做与数据安全；Phase 06 加入低阻力、自动贴边的认知连线系统；Phase 06.5 加入 Spotlight 穿梭搜索、电影感运镜与星系暗化；Phase 07 取消待整理池，速记保存即上板；Phase 07.5 把穿梭扩展到全库跨板检索，并补上标签层级聚合；Phase 08A 加入框选多选、集群包围框与 Markdown 认知蒸馏导出。
 
 ## 技术栈
 
@@ -26,8 +26,8 @@ pnpm dev
 pnpm format:check       # Prettier
 pnpm lint               # ESLint
 pnpm typecheck          # vue-tsc
-pnpm test               # Vitest：几何、运镜居中、全局搜索、层级标签、暗化、连线、捕获
-pnpm test:e2e           # Playwright：跨板穿梭 / 层级星系 / 搜索 / 暗化 / 捕获 / 连线 / 视口
+pnpm test               # Vitest：框选 AABB、Markdown 排序、运镜居中、全局搜索、层级标签、连线
+pnpm test:e2e           # Playwright：框选/多选/复制 / 跨板穿梭 / 层级星系 / 捕获 / 连线
 pnpm build              # typecheck + vite build
 pnpm preview
 ```
@@ -108,11 +108,36 @@ pnpm preview
 - **连线保留**：只要连线一端命中该标签就保持清晰；两端都被暗化时，整组连线（含 Label）同步降到 0.15
 - **纯前端状态**：`activeFilterTag`、`pulseItemId` 均只驻留 Pinia，不写入 Dexie，不改变表结构
 
+## 框选与多选（Marquee Selection）
+
+- **空白框选**：在纯画布背景按下左键拖拽，半透明琥珀/冷蓝虚线框实时出现
+- **世界坐标 AABB**：屏幕框选矩形经 `screenToWorld` 转换后，与 `getItemRect` 实测的世界包围盒相交；10%–300% 缩放不改变判定
+- **命中语义**：卡片只要与框选区**相交**就选中，不要求完全包围
+- **普通框选**：重置原有选择；**Shift + 框选**：在现有选择上取并集
+- **点击语义**：已有多选时，单击其中一张卡片不会在 pointerdown 立刻清空其他选择；如果 pointerup 前没有有效拖拽，才收窄为当前卡片
+- **手势优先级**：文本选择 > 引线把手 > 卡片操作 > 卡片拖拽 > 空格/中键画布平移 > 空白框选；框选通过 `setPointerCapture` 保证快速移出视口不丢选区
+- **多选状态**：`selectedItemIds: Set<BoardItemId>` 单一真相；卡片、搜索、连接、删除清理都围绕投影 ID，而不是全局 Card ID
+- **浮动工具栏**：选中 1 张以上时，在集群上方（空间不足时下方）出现极简胶囊；多选时额外显示虚线外包围框
+- **跟随相机**：相机通过 `viewport` 轻量 ref 暴露变换；只有 SelectionChrome 订阅，不把整张画布拖入逐帧深层响应式
+
+## 认知蒸馏导出（Markdown Synthesis）
+
+- **复制入口**：选中集群后点击胶囊里的「复制 Markdown」
+- **阅读顺序**：先按世界 Y 从上到下，Y 差 `80px` 内视为同一行，再按 X 从左到右
+- **卡片结构**：`### 标题`、`#标签`、正文、原子笔记列表
+- **连线语义**：仅导出**两端都在选中集合内**的 Connection；关系挂在来源卡片下，如
+  `> ↳ 关联 [边界不是墙]：底层神经机制相同`
+- **剪贴板**：优先 `navigator.clipboard.writeText`；失败时降级到屏幕外 textarea + `execCommand('copy')`，textarea 固定在 `-9999px` 且 `pointer-events:none`
+- **反馈**：成功 Toast「已复制 N 张卡片大纲到剪贴板」，工具栏短暂显示「已复制」
+
+> Phase 08B 才会把已选集群升级为刚体拖拽、批量连接刷新和单步批量撤销；08A 的多选底座已为它预留。
+
 ## 键盘与无障碍
 
 - **速记**：`⌘K` / `⌥N` 打开；`Tab` 焦点锁定在弹窗内，背景 `inert`；`Esc` 关闭
 - **搜索**：`⌘F` / `/` 或 HUD 搜索按钮打开；`↑` / `↓` 选择，`Enter` 跨板飞往，`Esc` 关闭；输入、编辑或选中文本时不会误触
 - **画布卡片**：可聚焦；方向键移动 `10px`，`Shift + 方向键` 移动 `1px`；`Enter` / `Space` 选中
+- **多选**：空白处拖拽框选；`Shift` 框选增量；已有多选时单击卡片收窄为单选
 - **连线**：`Tab` 聚焦后选中；`Enter` 编辑说明，`Delete` / `Backspace` 删除
 - **撤销 / 重做**：`⌘Z` / `⇧⌘Z`（Windows 支持 `Ctrl+Y`），顶栏也有按钮
 - **屏幕阅读器**：选中变化通过 `aria-live` 播报；字符漂移、焦点环、`aria-current` 均已补齐
@@ -152,6 +177,7 @@ src/
 │   │   ├── CanvasStage.vue      # 视口容器、世界层、相机上下文与初始取景
 │   │   ├── CanvasHUD.vue        # 缩放 / 居中悬浮胶囊
 │   │   ├── CardNode.vue         # 世界卡片、拖拽手柄、标签与呼吸光环
+│   │   ├── SelectionChrome.vue  # 多选包围框、浮动工具栏与 Markdown 复制
 │   │   ├── ConnectionLayer.vue  # SVG 连线层、命中路径、Label 胶囊
 │   │   └── SpotlightSearch.vue  # 全局搜索浮层、白板徽标与键盘导航
 │   ├── board/
@@ -165,6 +191,7 @@ src/
 │   ├── useCanvas.ts             # 相机、锚点缩放、坐标换算、手势状态机
 │   ├── useCardDrag.ts           # 卡片拖拽、死区、缩放补偿、落盘状态机
 │   ├── useConnection.ts         # 引线拖拽状态机、目标命中、键盘操作
+│   ├── useMarqueeSelect.ts      # 空白框选、世界 AABB、Shift 并集与 pointer capture
 │   └── useTheme.ts              # useDark + useToggle 主题管理
 ├── data/seed.ts                 # 首次启动示例数据
 ├── db/index.ts                  # Dexie 单例（v2：boards 表）
@@ -176,6 +203,8 @@ src/
 │   ├── galaxy.ts                # 层级标签命中与连线暗化规则
 │   ├── global-search.ts         # 全库投影索引、白板徽标与结果排序
 │   ├── geometry.ts              # 边缘中点匹配、贝塞尔、Label 中点
+│   ├── markdownExport.ts        # 阅读顺序、连线语义与剪贴板降级
+│   ├── selection.ts             # 世界坐标 AABB 框选几何
 │   ├── plain-record.ts          # 响应式对象 → Dexie/搜索索引的安全快照
 │   ├── spotlight-search.ts      # 标题/正文/标签本地搜索与排序
 │   ├── tab-sync.ts              # BroadcastChannel 跨标签页同步
@@ -202,6 +231,8 @@ e2e/                             # Playwright 端到端测试
 - **全局索引边界**：`global-search.ts` 只读取 `plainRecord` 快照；一个结果对应一个 `BoardItem` 投影，同一卡片多板放置会显示多条并带白板徽标。
 - **层级标签单一真相**：`tagMatches` 同时被卡片暗化、标签选中态和连线判断复用，避免三处各写一套前缀规则。
 - **搜索与聚焦**：`spotlight-search.ts` 是纯函数检索；`galaxy.ts` 只回答“卡片是否命中标签 / 连线是否两端都暗化”，视图层不复制规则。
+- **选中真相**：`selectedItemIds` 是唯一的选中集合；`selectedItemId` 仅为单选兼容派生值，避免多选与跨板搜索互相覆盖。
+- **框选轴性**：框选起点/终点先转成世界坐标，再用 `getItemRect` 的动态高度做 AABB；不读屏幕像素或静态 item.height。
 - **捕获即上板**：`captureAndPlace` 在一个动作里创建 `Card` + `BoardItem`，只记录一条历史；卡片实体不携带 `boardId` 或坐标。
 - **落点选址**：纯函数 `capture-placement.ts` 负责“选中卡片右侧优先 → 下 / 左 / 上 → 中心 32px 级联”的确定性规则；无投影的历史卡片在加载/刷新时自动迁移到当前白板右侧。
 - **乐观写入**：速记先把卡片与投影发布到 Pinia（UI 立即关闭、卡片立即选中），再异步事务写 `cards` + `boardItems`；失败时同时回滚两者并恢复草稿。

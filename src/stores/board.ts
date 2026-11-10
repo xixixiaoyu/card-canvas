@@ -67,7 +67,7 @@ export const useBoardStore = defineStore('board', () => {
   const cards = ref<Card[]>([])
   const items = ref<BoardItem[]>([])
   const connections = ref<Connection[]>([])
-  const selectedItemId = ref<string | null>(null)
+  const selectedItemIds = ref<Set<string>>(new Set())
   const selectedConnectionId = ref<string | null>(null)
   const landingItemId = ref<string | null>(null)
   const activeFilterTag = ref<string | null>(null)
@@ -123,9 +123,17 @@ export const useBoardStore = defineStore('board', () => {
     })
   })
 
-  const selectedItem = computed(
-    () => items.value.find((item) => item.id === selectedItemId.value) ?? null,
+  const selectedItems = computed(() =>
+    items.value.filter((item) => selectedItemIds.value.has(item.id)),
   )
+
+  const selectedItemId = computed(() =>
+    selectedItemIds.value.size === 1
+      ? (selectedItems.value[0]?.id ?? null)
+      : null,
+  )
+
+  const selectedItem = computed(() => selectedItems.value[0] ?? null)
 
   const selectedConnection = computed(
     () =>
@@ -312,7 +320,7 @@ export const useBoardStore = defineStore('board', () => {
         a.id.localeCompare(b.id),
       )
       connections.value = snapshot.connections
-      selectedItemId.value = null
+      selectedItemIds.value = new Set()
       selectedConnectionId.value = null
       activeFilterTag.value = null
       pulseItemId.value = null
@@ -474,7 +482,7 @@ export const useBoardStore = defineStore('board', () => {
     } catch (cause) {
       removeLocalCard(card.id)
       removeLocalItem(item.id)
-      if (selectedItemId.value === item.id) selectedItemId.value = null
+      removeSelectedItem(item.id)
 
       console.error('[card-canvas] Unable to capture and place card', cause)
       throw cause instanceof Error ? cause : new Error(String(cause))
@@ -489,7 +497,7 @@ export const useBoardStore = defineStore('board', () => {
         })
         removeLocalCard(card.id)
         removeLocalItem(item.id)
-        if (selectedItemId.value === item.id) selectedItemId.value = null
+        removeSelectedItem(item.id)
         broadcastWorkspaceChange('all')
       },
       redo: async () => {
@@ -584,7 +592,7 @@ export const useBoardStore = defineStore('board', () => {
       broadcastWorkspaceChange('items', boardId)
     } catch (cause) {
       removeLocalItem(item.id)
-      if (selectedItemId.value === item.id) selectedItemId.value = null
+      removeSelectedItem(item.id)
 
       console.error('[card-canvas] Unable to persist board item', cause)
       notifyFailure('投放未能写入本地库，已撤销。', {
@@ -602,7 +610,7 @@ export const useBoardStore = defineStore('board', () => {
       undo: async () => {
         await db.boardItems.delete(item.id)
         removeLocalItem(item.id)
-        if (selectedItemId.value === item.id) selectedItemId.value = null
+        removeSelectedItem(item.id)
         broadcastWorkspaceChange('items', boardId)
       },
       redo: async () => {
@@ -653,12 +661,7 @@ export const useBoardStore = defineStore('board', () => {
     for (const connection of localConnections) {
       removeLocalConnection(connection.id)
     }
-    if (
-      selectedItemId.value &&
-      !items.value.some((item) => item.id === selectedItemId.value)
-    ) {
-      selectedItemId.value = null
-    }
+    pruneSelectedItems()
     if (
       selectedConnectionId.value &&
       !connections.value.some(
@@ -1059,12 +1062,7 @@ export const useBoardStore = defineStore('board', () => {
         .equals(boardId)
         .toArray()
 
-      if (
-        selectedItemId.value &&
-        !items.value.some((item) => item.id === selectedItemId.value)
-      ) {
-        selectedItemId.value = null
-      }
+      pruneSelectedItems()
 
       if (
         selectedConnectionId.value &&
@@ -1111,18 +1109,46 @@ export const useBoardStore = defineStore('board', () => {
 
   // --- selection -----------------------------------------------------------
 
+  function removeSelectedItem(itemId: string) {
+    if (!selectedItemIds.value.has(itemId)) return
+
+    const next = new Set(selectedItemIds.value)
+    next.delete(itemId)
+    selectedItemIds.value = next
+  }
+
+  function pruneSelectedItems() {
+    const next = new Set(
+      [...selectedItemIds.value].filter((itemId) =>
+        items.value.some((item) => item.id === itemId),
+      ),
+    )
+    if (next.size !== selectedItemIds.value.size) {
+      selectedItemIds.value = next
+    }
+  }
+
   function selectItem(itemId: string) {
-    selectedItemId.value = itemId
+    selectItems([itemId])
+  }
+
+  function selectItems(itemIds: Iterable<string>) {
+    const next = new Set(
+      [...itemIds].filter((itemId) =>
+        items.value.some((item) => item.id === itemId),
+      ),
+    )
+    selectedItemIds.value = next
     selectedConnectionId.value = null
   }
 
   function selectConnection(connectionId: string) {
     selectedConnectionId.value = connectionId
-    selectedItemId.value = null
+    selectedItemIds.value = new Set()
   }
 
   function clearSelection() {
-    selectedItemId.value = null
+    selectedItemIds.value = new Set()
     selectedConnectionId.value = null
   }
 
@@ -1131,7 +1157,9 @@ export const useBoardStore = defineStore('board', () => {
     items,
     connections,
     entries,
+    selectedItemIds,
     selectedItemId,
+    selectedItems,
     selectedItem,
     landingItemId,
     activeFilterTag,
@@ -1152,6 +1180,7 @@ export const useBoardStore = defineStore('board', () => {
     startSync,
     stopSync,
     selectItem,
+    selectItems,
     selectConnection,
     clearSelection,
     toggleFilterTag,

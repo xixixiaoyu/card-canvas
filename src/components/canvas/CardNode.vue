@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import {
+  computed,
+  inject,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+} from 'vue'
 import { Grip, Link2, Pencil, Trash2 } from '@lucide/vue'
 import { removeCardHeight, setCardHeight } from '../../lib/card-metrics'
 import { tagMatches } from '../../lib/galaxy'
@@ -30,7 +37,9 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  select: []
+  select: [event?: PointerEvent]
+  clickCard: [event: PointerEvent]
+  dragStart: [event: PointerEvent]
   positionCommit: [position: { x: number; y: number }]
   nudge: [delta: { x: number; y: number }]
   edit: []
@@ -39,6 +48,7 @@ const emit = defineEmits<{
 }>()
 
 const identityCamera: CanvasCamera = {
+  viewport: shallowRef({ panX: 0, panY: 0, scale: 1 }),
   getViewport: () => ({ panX: 0, panY: 0, scale: 1 }),
   getContainerRect: () => null,
   screenToWorld: (point) => ({ x: point.x, y: point.y }),
@@ -91,7 +101,9 @@ const { isDragging, onPointerDown } = useCardDrag({
   lift: liftEl,
   camera,
   getItem: () => props.item,
-  onSelect: () => emit('select'),
+  onSelect: (event) => emit('select', event),
+  onClick: (event) => emit('clickCard', event),
+  onDragStart: (event) => emit('dragStart', event),
   onCommit: (position) => emit('positionCommit', position),
 })
 
