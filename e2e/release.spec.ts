@@ -12,7 +12,7 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
   await expect(dialog).toContainText('Navigate')
   await expect(dialog).toContainText('Focus')
   await expect(dialog).toContainText('Compose')
-  await expect(dialog).toContainText('v1.4.1')
+  await expect(dialog).toContainText('v1.4.2')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -71,14 +71,14 @@ test('an empty board invites the first capture and fades away', async ({
   await expect(page.locator('[data-world-item]')).toContainText('第一块灵感')
 })
 
-test('v1.4.1 metadata is present in the shell and document head', async ({
+test('v1.4.2 metadata is present in the shell and document head', async ({
   page,
 }) => {
   await page.goto('/')
-  await expect(page.locator('.brand-subtitle')).toContainText('v1.4.1')
+  await expect(page.locator('.brand-subtitle')).toContainText('v1.4.2')
   await expect(
     page.locator('footer').filter({ hasText: 'Local-first' }),
-  ).toContainText('v1.4.1')
+  ).toContainText('v1.4.2')
 
   await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
     'content',
