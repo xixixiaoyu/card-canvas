@@ -104,6 +104,8 @@ vercel
 vercel --prod
 ```
 
+生产项目已连接 GitHub `xixixiaoyu/card-canvas`；推送到 `main` 会自动触发 Production Deployment。
+
 在 Vercel Project Settings → Environment Variables 中配置同名变量：
 
 ```text
