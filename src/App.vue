@@ -15,6 +15,7 @@ import type { CanvasCamera } from './composables/useCanvas'
 import { getItemRect } from './lib/card-metrics'
 import { cardHasTag } from './lib/galaxy'
 import type { SpotlightTarget } from './lib/global-search'
+import { buildMarkdown, copyTextToClipboard } from './lib/markdownExport'
 import { FOCUS_BOARD_ITEM_ID } from './data/seed'
 import { useBoardStore } from './stores/board'
 import { useToastStore } from './stores/toast'
@@ -33,9 +34,11 @@ const isShortcutOpen = ref(false)
 const editingCard = ref<Card | null>(null)
 const stageReady = ref(false)
 const pendingTeleport = ref<SpotlightTarget | null>(null)
+const copiedCardId = ref<string | null>(null)
 let booting = true
 let teleportToken = 0
 let teleportRunning = false
+let copyFeedbackTimer: ReturnType<typeof setTimeout> | null = null
 
 const camera = computed<CanvasCamera | null>(
   () => stageRef.value?.camera ?? null,
@@ -226,6 +229,34 @@ function handleCardClick(itemId: string, event: PointerEvent) {
   }
 }
 
+async function handleCopyCardMarkdown(itemId: string) {
+  const entry = board.entries.find((candidate) => candidate.item.id === itemId)
+  if (!entry) return
+
+  const markdown = buildMarkdown(
+    [{ card: entry.card, item: entry.item }],
+    board.connections,
+  )
+  if (!markdown) return
+
+  const ok = await copyTextToClipboard(markdown)
+  if (!ok) {
+    toast.push('复制失败，请允许剪贴板权限后重试。', { tone: 'error' })
+    return
+  }
+
+  toast.push('已复制 1 张卡片大纲到剪贴板。', {
+    tone: 'success',
+    timeout: 2800,
+  })
+  copiedCardId.value = entry.card.id
+  if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
+  copyFeedbackTimer = setTimeout(() => {
+    copiedCardId.value = null
+    copyFeedbackTimer = null
+  }, 1600)
+}
+
 function getDragGroup() {
   return board.selectedItems
 }
@@ -384,6 +415,7 @@ onBeforeUnmount(() => {
   board.stopSync()
   workspace.stopSync()
   window.removeEventListener('keydown', handleGlobalKeydown)
+  if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
 })
 </script>
 
@@ -412,6 +444,11 @@ onBeforeUnmount(() => {
       :is-dimmed="isCardOutsideGalaxy(entry.card)"
       :active-filter-tag="board.activeFilterTag"
       :index-label="`CARD / ${String(index + 1).padStart(3, '0')}`"
+      :copyable="
+        board.selectedItemIds.size === 1 &&
+        board.selectedItemIds.has(entry.item.id)
+      "
+      :copied="copiedCardId === entry.card.id"
       :data-canvas-focus="
         entry.item.id === FOCUS_BOARD_ITEM_ID ? '' : undefined
       "
@@ -425,6 +462,7 @@ onBeforeUnmount(() => {
       @nudge="board.nudgeItem(entry.item.id, $event.x, $event.y)"
       @edit="openEdit(entry.card)"
       @delete="handleDelete(entry.card)"
+      @copy-markdown="handleCopyCardMarkdown(entry.item.id)"
       @tag-click="board.toggleFilterTag($event)"
     />
 

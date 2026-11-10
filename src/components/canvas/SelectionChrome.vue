@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
-import { Copy } from '@lucide/vue'
+import { Check, Copy } from '@lucide/vue'
 import { canvasCameraKey } from '../../composables/useCanvas'
 import { getItemRect } from '../../lib/card-metrics'
 import {
@@ -83,7 +83,7 @@ const toolbarPosition = computed(() => {
   const bounds = screenBounds.value
   if (!bounds) return null
 
-  const above = bounds.top - 48
+  const above = bounds.top - 52
   const below = bounds.top + bounds.height + 14
   const maxTop = Math.max(72, window.innerHeight - 96)
   const top =
@@ -146,7 +146,7 @@ async function copyMarkdown() {
 
 <template>
   <div
-    v-if="selectedEntries.length && isVisible"
+    v-if="selectableCount > 1 && isVisible"
     class="selection-chrome pointer-events-none"
     data-selection-chrome
   >
@@ -165,15 +165,22 @@ async function copyMarkdown() {
     <div
       v-if="toolbarPosition"
       class="selection-toolbar pointer-events-auto"
+      :class="{ 'is-copied': copied }"
       :style="{
         left: `${toolbarPosition.left}px`,
         top: `${toolbarPosition.top}px`,
       }"
+      :data-selected-count="selectableCount"
       data-canvas-ui
       @pointerdown.stop
       @click.stop
     >
-      <span class="selection-count"> {{ selectableCount }} SELECTED </span>
+      <span class="selection-context">
+        <span class="selection-status" aria-hidden="true" />
+        <span class="selection-count" aria-live="polite">
+          {{ selectableCount }} SELECTED
+        </span>
+      </span>
       <span class="selection-divider" aria-hidden="true" />
       <button
         type="button"
@@ -181,8 +188,11 @@ async function copyMarkdown() {
         :aria-label="copied ? '已复制 Markdown' : '复制 Markdown'"
         @click.stop="copyMarkdown"
       >
-        <Copy :size="12" :stroke-width="1.8" aria-hidden="true" />
-        {{ copied ? '已复制' : '复制 Markdown' }}
+        <span class="selection-copy-icon" aria-hidden="true">
+          <Check v-if="copied" :size="13" :stroke-width="2" />
+          <Copy v-else :size="13" :stroke-width="1.8" />
+        </span>
+        <span>{{ copied ? '已复制' : '复制 Markdown' }}</span>
       </button>
     </div>
   </div>
@@ -212,82 +222,151 @@ async function copyMarkdown() {
   position: fixed;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
   transform: translateX(-50%);
-  border: 1px solid rgba(214, 211, 209, 0.82);
+  border: 1px solid rgba(120, 113, 108, 0.2);
   border-radius: 9999px;
-  background: rgba(253, 251, 247, 0.9);
-  padding: 0.3rem 0.35rem 0.3rem 0.75rem;
+  background: rgba(250, 249, 247, 0.86);
+  padding: 0.1875rem;
   box-shadow:
-    0 10px 30px -16px rgba(41, 37, 36, 0.45),
-    0 1px 2px rgba(41, 37, 36, 0.06);
-  backdrop-filter: blur(16px);
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 12px 30px -18px rgba(41, 37, 36, 0.42),
+    0 2px 5px rgba(41, 37, 36, 0.05);
+  backdrop-filter: blur(20px) saturate(1.25);
+  transition:
+    border-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .dark .selection-toolbar {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(24, 24, 27, 0.9);
+  border-color: rgba(255, 255, 255, 0.13);
+  background: rgba(18, 18, 21, 0.82);
   box-shadow:
-    0 14px 34px -16px rgba(0, 0, 0, 0.8),
-    0 1px 2px rgba(0, 0, 0, 0.4);
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 16px 38px -18px rgba(0, 0, 0, 0.9),
+    0 2px 6px rgba(0, 0, 0, 0.32);
+}
+
+.selection-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.625rem 0 0.55rem;
+}
+
+.selection-status {
+  width: 0.3125rem;
+  height: 0.3125rem;
+  border-radius: 9999px;
+  background: rgb(180 83 9 / 0.85);
+  box-shadow: 0 0 0 3px rgb(217 119 6 / 0.09);
+}
+
+.dark .selection-status {
+  background: rgb(186 230 253 / 0.85);
+  box-shadow: 0 0 0 3px rgb(147 197 253 / 0.08);
 }
 
 .selection-count {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8px;
-  letter-spacing: 0.16em;
-  color: rgb(120 113 108);
+  font-size: 9px;
+  font-weight: 550;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  color: rgb(87 83 78);
 }
 
 .dark .selection-count {
-  color: rgb(161 161 170);
+  color: rgb(196 196 202);
 }
 
 .selection-divider {
   width: 1px;
-  height: 0.75rem;
-  background: rgba(214, 211, 209, 0.8);
+  height: 0.875rem;
+  flex: none;
+  background: rgba(120, 113, 108, 0.18);
 }
 
 .dark .selection-divider {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.11);
 }
 
 .selection-copy {
   display: inline-flex;
-  height: 1.75rem;
+  height: 2rem;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
+  border: 0;
   border-radius: 9999px;
-  background: rgb(41 37 36);
-  padding: 0 0.65rem;
-  font-size: 10px;
-  font-weight: 500;
-  color: rgb(250 250 249);
+  background: transparent;
+  padding: 0 0.75rem;
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: -0.005em;
+  color: rgb(41 37 36);
   transition:
     background-color 160ms ease,
+    color 160ms ease,
     transform 160ms ease;
 }
 
 .selection-copy:hover {
-  background: rgb(68 64 60);
+  background: rgba(231, 229, 224, 0.72);
 }
 
 .selection-copy:active {
-  transform: scale(0.97);
+  transform: scale(0.975);
 }
 
 .selection-copy:focus-visible {
-  outline: 2px solid rgba(217, 119, 6, 0.45);
+  outline: 2px solid rgba(217, 119, 6, 0.42);
   outline-offset: 2px;
 }
 
+.selection-copy-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(180 83 9);
+  transition: color 160ms ease;
+}
+
 .dark .selection-copy {
-  background: rgb(244 244 245);
-  color: rgb(24 24 27);
+  color: rgb(244 244 245);
 }
 
 .dark .selection-copy:hover {
-  background: white;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.dark .selection-copy:focus-visible {
+  outline-color: rgba(186, 230, 253, 0.42);
+}
+
+.dark .selection-copy-icon {
+  color: rgb(186 230 253);
+}
+
+.selection-toolbar.is-copied {
+  border-color: rgba(5, 150, 105, 0.26);
+}
+
+.dark .selection-toolbar.is-copied {
+  border-color: rgba(110, 231, 183, 0.2);
+}
+
+.selection-toolbar.is-copied .selection-copy-icon {
+  color: rgb(5 150 105);
+}
+
+.dark .selection-toolbar.is-copied .selection-copy-icon {
+  color: rgb(110 231 183);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .selection-toolbar,
+  .selection-copy,
+  .selection-copy-icon {
+    transition: none;
+  }
 }
 </style>

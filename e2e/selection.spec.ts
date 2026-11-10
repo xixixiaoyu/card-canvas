@@ -119,6 +119,31 @@ test('marquee selects, unions, collapses and clears', async ({ page }) => {
   await expect(page.locator('.selection-toolbar')).toHaveCount(0)
 })
 
+test('single selected card exposes Markdown copy in its action row', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  const card = page.locator('[data-world-item]').first()
+  await card.locator('h2').click()
+  await expect(card).toHaveClass(/is-selected/)
+  await expect(page.locator('.selection-toolbar')).toHaveCount(0)
+
+  const copy = card.getByRole('button', { name: '复制卡片为 Markdown' })
+  await expect(copy).toBeVisible()
+  await copy.click()
+
+  await expect(page.getByText('已复制 1 张卡片大纲到剪贴板。')).toBeVisible()
+  await expect(
+    card.getByRole('button', { name: '已复制 Markdown' }),
+  ).toBeVisible()
+  const markdown = await page.evaluate(() => navigator.clipboard.readText())
+  expect(markdown).toContain('### 声音的支点，与防御的回声')
+})
+
 test('marquee is scale-independent and yields to space/middle pan', async ({
   page,
 }) => {

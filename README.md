@@ -155,7 +155,8 @@ pnpm preview
 - **点击语义**：已有多选时，单击其中一张卡片不会在 pointerdown 立刻清空其他选择；如果 pointerup 前没有有效拖拽，才收窄为当前卡片
 - **手势优先级**：文本选择 > 引线把手 > 卡片操作 > 卡片拖拽 > 空格/中键画布平移 > 空白框选；框选通过 `setPointerCapture` 保证快速移出视口不丢选区
 - **多选状态**：`selectedItemIds: Set<BoardItemId>` 单一真相；卡片、搜索、连接、删除清理都围绕投影 ID，而不是全局 Card ID
-- **浮动工具栏**：选中 1 张以上时，在集群上方（空间不足时下方）出现极简胶囊；多选时额外显示虚线外包围框
+- **单卡操作**：选中单张卡片后，复制 Markdown 图标与编辑、删除并列出现在卡片操作区
+- **浮动工具栏**：选中 2 张以上时，在集群上方（空间不足时下方）出现极简胶囊，并显示虚线外包围框
 - **跟随相机**：相机通过 `viewport` 轻量 ref 暴露变换；只有 SelectionChrome 订阅，不把整张画布拖入逐帧深层响应式
 
 ## 多卡刚体拖拽（Rigid Group Drag）
@@ -176,13 +177,13 @@ pnpm preview
 
 ## 认知蒸馏导出（Markdown Synthesis）
 
-- **复制入口**：选中集群后点击胶囊里的「复制 Markdown」
+- **复制入口**：单卡使用卡片操作区的复制图标；集群使用浮动胶囊里的「复制 Markdown」
 - **阅读顺序**：先按世界 Y 从上到下，Y 差 `80px` 内视为同一行，再按 X 从左到右
 - **卡片结构**：`### 标题`、`#标签`、正文、原子笔记列表
 - **连线语义**：仅导出**两端都在选中集合内**的 Connection；关系挂在来源卡片下，如
   `> ↳ 关联 [边界不是墙]：底层神经机制相同`
 - **剪贴板**：优先 `navigator.clipboard.writeText`；失败时降级到屏幕外 textarea + `execCommand('copy')`，textarea 固定在 `-9999px` 且 `pointer-events:none`
-- **反馈**：成功 Toast「已复制 N 张卡片大纲到剪贴板」，工具栏短暂显示「已复制」
+- **反馈**：成功 Toast「已复制 N 张卡片大纲到剪贴板」；单卡复制图标切换为对勾，集群工具栏短暂显示「已复制」
 
 > v1.0.0 已完成：多选集群可以直接拖拽，连线和撤销都按整个集群处理。
 
@@ -324,8 +325,8 @@ e2e/                             # Playwright 端到端测试
 ## 质量防线
 
 - **Vitest**：93 项，覆盖几何、框选 AABB、刚体位移、连线拓扑、原子撤销、Markdown 排序、搜索与捕获。
-- **Playwright**：28 项，覆盖捕获、白板、连线、Spotlight、层级星系、多选、刚体拖拽、Markdown 导出、快捷键浮层与空板引导。
-- **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 33 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
+- **Playwright**：29 项，覆盖捕获、白板、连线、Spotlight、层级星系、多选、刚体拖拽、Markdown 导出、快捷键浮层与空板引导。
+- **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 30 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
 - **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。
 - 每次提交前运行 `format:check` / `lint` / `typecheck` / `test` / `build` / `test:e2e`。
 

@@ -7,7 +7,7 @@ import {
   ref,
   shallowRef,
 } from 'vue'
-import { Grip, Link2, Pencil, Trash2 } from '@lucide/vue'
+import { Check, Copy, Grip, Link2, Pencil, Trash2 } from '@lucide/vue'
 import { removeCardHeight, setCardHeight } from '../../lib/card-metrics'
 import { tagMatches } from '../../lib/galaxy'
 import { useCardDrag, type CardDragCommit } from '../../composables/useCardDrag'
@@ -26,6 +26,8 @@ const props = withDefaults(
     activeFilterTag?: string | null
     getDragGroup?: () => BoardItem[]
     indexLabel?: string
+    copyable?: boolean
+    copied?: boolean
   }>(),
   {
     selected: false,
@@ -35,6 +37,8 @@ const props = withDefaults(
     activeFilterTag: null,
     getDragGroup: undefined,
     indexLabel: 'CARD',
+    copyable: false,
+    copied: false,
   },
 )
 
@@ -46,6 +50,7 @@ const emit = defineEmits<{
   nudge: [delta: { x: number; y: number }]
   edit: []
   delete: []
+  copyMarkdown: []
   tagClick: [tag: string]
 }>()
 
@@ -224,6 +229,33 @@ function tagTone(index: number) {
 
             <div class="flex shrink-0 items-center gap-1">
               <div class="card-actions flex items-center gap-0.5">
+                <button
+                  v-if="copyable"
+                  type="button"
+                  class="card-action card-action--copy"
+                  :class="{ 'is-copied': copied }"
+                  data-card-interactive
+                  data-card-copy
+                  :aria-label="
+                    copied ? '已复制 Markdown' : '复制卡片为 Markdown'
+                  "
+                  :title="copied ? '已复制' : '复制 Markdown'"
+                  @pointerdown.stop
+                  @click.stop="emit('copyMarkdown')"
+                >
+                  <Check
+                    v-if="copied"
+                    :size="11"
+                    :stroke-width="2"
+                    aria-hidden="true"
+                  />
+                  <Copy
+                    v-else
+                    :size="11"
+                    :stroke-width="1.7"
+                    aria-hidden="true"
+                  />
+                </button>
                 <button
                   type="button"
                   class="card-action"
@@ -554,6 +586,11 @@ function tagTone(index: number) {
   color: rgb(68 64 60);
 }
 
+.card-action--copy:hover {
+  background: rgba(254, 243, 199, 0.82);
+  color: rgb(180, 83, 9);
+}
+
 .card-action--danger:hover {
   background: rgba(254, 226, 226, 0.8);
   color: rgb(190 18 60);
@@ -571,6 +608,23 @@ function tagTone(index: number) {
 .dark .card-action--danger:hover {
   background: rgba(136, 19, 55, 0.35);
   color: rgb(253 164 175);
+}
+
+.dark .card-action--copy:hover {
+  background: rgba(56, 189, 248, 0.1);
+  color: rgb(186, 230, 253);
+}
+
+.card-action--copy.is-copied,
+.card-action--copy.is-copied:hover {
+  background: rgba(209, 250, 229, 0.72);
+  color: rgb(5, 150, 105);
+}
+
+.dark .card-action--copy.is-copied,
+.dark .card-action--copy.is-copied:hover {
+  background: rgba(16, 185, 129, 0.12);
+  color: rgb(110, 231, 183);
 }
 
 .card-node:focus-visible .card-surface {
