@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { db } from '../db'
-import { seedBoardItems, seedCards } from '../data/seed'
+import { removeLegacyDemoData } from '../lib/demo-cleanup'
 import {
   broadcastWorkspaceChange,
   subscribeWorkspaceChange,
@@ -350,12 +350,17 @@ export const useBoardStore = defineStore('board', () => {
       try {
         await db.open()
 
+        if (import.meta.env.PROD) {
+          await removeLegacyDemoData()
+        }
+
         const [cardCount, itemCount] = await Promise.all([
           db.cards.count(),
           db.boardItems.count(),
         ])
 
-        if (cardCount === 0 && itemCount === 0) {
+        if (!import.meta.env.PROD && cardCount === 0 && itemCount === 0) {
+          const { seedBoardItems, seedCards } = await import('../data/seed')
           await db.transaction('rw', db.cards, db.boardItems, async () => {
             await db.cards.bulkPut(seedCards)
             await db.boardItems.bulkPut(seedBoardItems)

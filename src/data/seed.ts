@@ -1,6 +1,7 @@
 import type { BoardItem, Card } from '../types'
+import { DEMO_FOCUS_ITEM_ID } from '../lib/demo-data'
 
-export const FOCUS_BOARD_ITEM_ID = 'projection-001'
+export const FOCUS_BOARD_ITEM_ID = DEMO_FOCUS_ITEM_ID
 
 const seededAt = Date.now()
 

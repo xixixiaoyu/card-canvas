@@ -126,6 +126,8 @@ VITE_SUPABASE_ANON_KEY
 
 本地与 CI 的 E2E 默认使用 Playwright 自带 Chromium，并开启 fullyParallel：本地 4 workers，CI 2 workers。实测系统 Chrome 在多 worker 下会异常放大等待时间（全量从约 1 分钟退化到 5–6 分钟），因此仅保留 `test:e2e:chrome` 作为单 worker 真浏览器抽查。`.github/workflows/ci.yml` 会依次跑格式检查、lint、typecheck、单测、构建与 E2E。
 
+开发环境首次打开空数据库时会写入三张示例卡片，便于调试画布；生产构建默认保持空板，并会清理旧版本遗留在本地的固定 demo 记录。用户自行创建的卡片不会被清理。
+
 ## 画布操作
 
 - **触控板双指滑动**：平移
@@ -382,7 +384,7 @@ e2e/                             # Playwright 端到端测试
 
 ## 质量防线
 
-- **Vitest**：99 项，覆盖几何、框选 AABB、刚体位移、连线拓扑、原子撤销、Markdown 排序、搜索、捕获、云端映射与离线 outbox。
+- **Vitest**：101 项，覆盖几何、框选 AABB、刚体位移、连线拓扑、原子撤销、Markdown 排序、搜索、捕获、云端映射、离线 outbox 与旧 demo 清理。
 - **Playwright**：30 项，覆盖捕获、白板、连线、Spotlight、层级星系、多选、刚体拖拽、Markdown 导出、快捷键浮层与空板引导。
 - **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 30 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
 - **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。

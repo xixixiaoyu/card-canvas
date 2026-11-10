@@ -17,7 +17,7 @@ import { getItemRect } from './lib/card-metrics'
 import { cardHasTag } from './lib/galaxy'
 import type { SpotlightTarget } from './lib/global-search'
 import { buildMarkdown, copyTextToClipboard } from './lib/markdownExport'
-import { FOCUS_BOARD_ITEM_ID } from './data/seed'
+import { DEMO_FOCUS_ITEM_ID } from './lib/demo-data'
 import { useAuthStore } from './stores/auth'
 import { useBoardStore } from './stores/board'
 import { useSyncStore } from './stores/sync'
@@ -467,9 +467,7 @@ onBeforeUnmount(() => {
         board.selectedItemIds.has(entry.item.id)
       "
       :copied="copiedCardId === entry.card.id"
-      :data-canvas-focus="
-        entry.item.id === FOCUS_BOARD_ITEM_ID ? '' : undefined
-      "
+      :data-canvas-focus="entry.item.id === DEMO_FOCUS_ITEM_ID ? '' : undefined"
       :get-drag-group="getDragGroup"
       @select="handleCardSelect(entry.item.id, $event)"
       @click-card="handleCardClick(entry.item.id, $event)"
