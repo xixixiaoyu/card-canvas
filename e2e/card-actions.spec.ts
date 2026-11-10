@@ -46,3 +46,24 @@ test('edits, deletes and undoes card actions', async ({ page }) => {
     page.locator('[data-world-item]').filter({ hasText: 'E2E 编辑后的标题' }),
   ).toHaveCount(1)
 })
+
+test('double-click edits the card without stealing text selection', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  const card = page.locator('[data-world-item]').first()
+  await card.locator('h2').dblclick()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+
+  await card.locator('.atomic-paragraph').dblclick()
+  await expect(dialog).toHaveCount(0)
+  const selectedText = await page.evaluate(() =>
+    window.getSelection()?.toString(),
+  )
+  expect(selectedText?.trim().length).toBeGreaterThan(0)
+})

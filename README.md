@@ -2,7 +2,7 @@
 
 > 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
 >
-> **v1.3.0 · Local-First · 可选 Supabase 同步**
+> **v1.3.1 · Local-First · 可选 Supabase 同步**
 
 Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
 
@@ -140,6 +140,7 @@ VITE_SUPABASE_ANON_KEY
 ## 卡片交互
 
 - **点击卡片**：单选并显示主题化光环
+- **双击编辑**：双击标题、卡片留白或底栏打开编辑；双击正文仍保留选词
 - **点击空白画布**：取消选中
 - **拖动卡片**：从卡片标题、右上角 grip、卡片留白或底栏拖动
 - **内容区**：正文与原子笔记文本可被选中；标签与正文不会误触发卡片拖拽
@@ -253,7 +254,7 @@ VITE_SUPABASE_ANON_KEY
 - **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
 - **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
 - **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
-- **版本锚点**：浮层页脚展示 `v1.3.0`，与顶栏、页脚和数据菜单保持一致
+- **版本锚点**：浮层页脚展示 `v1.3.1`，与顶栏、页脚和数据菜单保持一致
 - **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
@@ -284,7 +285,7 @@ VITE_SUPABASE_ANON_KEY
 
 ## 版本与 PWA 元信息
 
-- 版本：`v1.3.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- 版本：`v1.3.1`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
 - `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
 - `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 SVG 图标；当前不注册 Service Worker，不伪造离线缓存
 - 首次启动请求 `navigator.storage.persist()`，尽力降低浏览器回收 IndexedDB 的概率
@@ -389,7 +390,7 @@ e2e/                             # Playwright 端到端测试
 ## 质量防线
 
 - **Vitest**：110 项，覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子 Markdown、有序列表、任务行替换、原子撤销、Markdown 排序、搜索、捕获、云端映射、离线 outbox 与旧 demo 清理。
-- **Playwright**：33 项，覆盖捕获、`/` 格式命令、白板、连线、Spotlight、层级星系、多选、刚体拖拽、任务勾选、行动透镜、Markdown 导出、快捷键浮层与空板引导。
+- **Playwright**：34 项，覆盖捕获、双击编辑、`/` 格式命令、白板、连线、Spotlight、层级星系、多选、刚体拖拽、任务勾选、行动透镜、Markdown 导出、快捷键浮层与空板引导。
 - **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 30 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
 - **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。
 - 每次提交前运行 `format:check` / `lint` / `typecheck` / `test` / `build` / `test:e2e`。
@@ -401,3 +402,5 @@ v1.1.0 以可选云端层扩展存储边界；v1.2.0 在不修改 Dexie schema �
 ## v1.3.0 快速格式版本
 
 v1.3.0 增加行首 `/` 格式菜单、有序列表渲染，并校准列表标记与首行文字的垂直对齐。
+
+v1.3.1 增加双击卡片进入编辑，并将选中态收敛为单独外环，减少卡片边界与光晕叠加带来的视觉噪声。

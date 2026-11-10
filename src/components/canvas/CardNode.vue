@@ -142,6 +142,21 @@ function handleKeydown(event: KeyboardEvent) {
   emit('nudge', delta)
 }
 
+function handleDoubleClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (
+    target.closest(
+      '[data-card-interactive], [data-card-selectable], [data-card-drag-handle]',
+    )
+  ) {
+    return
+  }
+
+  event.preventDefault()
+  emit('edit')
+}
+
 function tagTone(index: number) {
   return index % 2 === 0 ? 'tag-amber' : 'tag-sage'
 }
@@ -172,6 +187,7 @@ function tagTone(index: number) {
     @pointerdown="onPointerDown"
     @focus="emit('select')"
     @keydown="handleKeydown"
+    @dblclick="handleDoubleClick"
     @dragstart.prevent
   >
     <div ref="liftEl" class="card-lift relative w-full">
@@ -679,6 +695,10 @@ function tagTone(index: number) {
 }
 
 .card-node.is-selected .card-surface {
+  border-color: var(--card-hover-border);
+}
+
+.card-node.is-selected:focus-visible .card-surface {
   border-color: var(--card-selected-border);
 }
 
