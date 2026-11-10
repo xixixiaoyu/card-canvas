@@ -106,7 +106,7 @@ test('slash commands insert list and task syntax', async ({ page }) => {
   await content.fill('/')
   const keyboardMenu = page.locator('[data-slash-menu]')
   await expect(
-    keyboardMenu.getByRole('option', { name: /无序列表/ }),
+    keyboardMenu.getByRole('option', { name: /任务清单/ }),
   ).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('ArrowDown')
   await expect(

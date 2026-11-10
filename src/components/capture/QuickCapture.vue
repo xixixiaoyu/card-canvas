@@ -67,11 +67,11 @@ interface SlashCommand {
 
 const slashCommands: SlashCommand[] = [
   {
-    label: '无序列表',
-    hint: 'Bulleted list',
-    prefix: '- ',
-    aliases: ['ul', 'list', 'bullet'],
-    icon: List,
+    label: '任务清单',
+    hint: 'Checkbox',
+    prefix: '- [ ] ',
+    aliases: ['todo', 'task', 'checkbox'],
+    icon: ListTodo,
   },
   {
     label: '有序列表',
@@ -81,11 +81,11 @@ const slashCommands: SlashCommand[] = [
     icon: ListOrdered,
   },
   {
-    label: '任务清单',
-    hint: 'Checkbox',
-    prefix: '- [ ] ',
-    aliases: ['todo', 'task', 'checkbox'],
-    icon: ListTodo,
+    label: '无序列表',
+    hint: 'Bulleted list',
+    prefix: '- ',
+    aliases: ['ul', 'list', 'bullet'],
+    icon: List,
   },
 ]
 
