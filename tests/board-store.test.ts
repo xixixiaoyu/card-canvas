@@ -211,6 +211,18 @@ describe('board store', () => {
     expect((await db.cards.get(card.id))?.isDeleted).toBeUndefined()
   })
 
+  it('toggles the galaxy filter without mutating cards', async () => {
+    const board = await freshBoard()
+    const before = JSON.parse(JSON.stringify(board.cards))
+
+    expect(board.activeFilterTag).toBeNull()
+    board.toggleFilterTag('心理学/防御机制')
+    expect(board.activeFilterTag).toBe('心理学/防御机制')
+    board.toggleFilterTag('心理学/防御机制')
+    expect(board.activeFilterTag).toBeNull()
+    expect(board.cards).toEqual(before)
+  })
+
   it('creates a connection, rejects self/duplicates and persists it', async () => {
     const board = await freshBoard()
     const cardA = board.cards[0]

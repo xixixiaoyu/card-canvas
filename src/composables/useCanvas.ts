@@ -42,6 +42,13 @@ export interface CanvasCamera {
     worldPoint: WorldPoint,
     containerRect?: CanvasContainerRect,
   ) => ScreenPoint
+  /** Centre a world point in the viewport with a cinematic camera flight. */
+  flyTo: (
+    worldX: number,
+    worldY: number,
+    targetScale?: number,
+    duration?: number,
+  ) => Promise<void>
   /** Space-to-pan owns the gesture while held, even over a card. */
   isSpaceHeld?: Readonly<Ref<boolean>>
 }
@@ -96,6 +103,12 @@ export interface UseCanvasReturn {
   resetZoom: () => void
   fitToContent: (options?: FitOptions) => void
   focusElement: (selector: string, options?: FitOptions) => void
+  flyTo: (
+    worldX: number,
+    worldY: number,
+    targetScale?: number,
+    duration?: number,
+  ) => Promise<void>
   restoreViewport: (viewport: Viewport) => void
   destroy: () => void
 }
@@ -117,6 +130,20 @@ export function screenToWorld(
   return {
     x: (screenPoint.x - containerRect.left - viewport.panX) / scale,
     y: (screenPoint.y - containerRect.top - viewport.panY) / scale,
+  }
+}
+
+/** Viewport that places a world point exactly at the container centre. */
+export function viewportForWorldCenter(
+  worldPoint: WorldPoint,
+  containerWidth: number,
+  containerHeight: number,
+  scale: number,
+): Viewport {
+  return {
+    panX: containerWidth / 2 - worldPoint.x * scale,
+    panY: containerHeight / 2 - worldPoint.y * scale,
+    scale,
   }
 }
 
@@ -229,9 +256,10 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
   let zoomAnchor: ZoomAnchor | null = null
 
   let flyFrom: Viewport | null = null
-  let flyTo: Viewport | null = null
+  let flyTarget: Viewport | null = null
   let flyStartedAt = 0
   let flyDuration = 0
+  let flyResolver: (() => void) | null = null
 
   let activePointerId: number | null = null
   let panSource: PanSource = null
@@ -352,12 +380,19 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     lastFrameTime = 0
   }
 
+  function resolveFly() {
+    const resolve = flyResolver
+    flyResolver = null
+    resolve?.()
+  }
+
   function freezeMotion() {
     stopFrame()
     mode = 'idle'
     zoomAnchor = null
     flyFrom = null
-    flyTo = null
+    flyTarget = null
+    resolveFly()
     target.panX = current.panX
     target.panY = current.panY
     target.scale = current.scale
@@ -425,24 +460,25 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
       } else {
         keepRunning = true
       }
-    } else if (mode === 'fly' && flyFrom && flyTo) {
+    } else if (mode === 'fly' && flyFrom && flyTarget) {
       const progress = clamp((now - flyStartedAt) / flyDuration, 0, 1)
       const eased = easeOutCubic(progress)
 
-      current.panX = flyFrom.panX + (flyTo.panX - flyFrom.panX) * eased
-      current.panY = flyFrom.panY + (flyTo.panY - flyFrom.panY) * eased
-      current.scale = flyFrom.scale + (flyTo.scale - flyFrom.scale) * eased
+      current.panX = flyFrom.panX + (flyTarget.panX - flyFrom.panX) * eased
+      current.panY = flyFrom.panY + (flyTarget.panY - flyFrom.panY) * eased
+      current.scale = flyFrom.scale + (flyTarget.scale - flyFrom.scale) * eased
 
       if (progress >= 1) {
-        current.panX = flyTo.panX
-        current.panY = flyTo.panY
-        current.scale = flyTo.scale
+        current.panX = flyTarget.panX
+        current.panY = flyTarget.panY
+        current.scale = flyTarget.scale
         target.panX = current.panX
         target.panY = current.panY
         target.scale = current.scale
         flyFrom = null
-        flyTo = null
+        flyTarget = null
         mode = 'idle'
+        resolveFly()
       } else {
         keepRunning = true
       }
@@ -481,7 +517,9 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     applyTransform()
   }
 
-  function animateViewportTo(next: Viewport, duration = 420) {
+  function animateViewportTo(next: Viewport, duration = 420): Promise<void> {
+    resolveFly()
+
     const durationMs = reducedMotion.value === 'reduce' ? 0 : duration
     const clampedNext: Viewport = {
       panX: next.panX,
@@ -491,12 +529,12 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
     if (durationMs <= 0) {
       commitViewport(clampedNext)
-      return
+      return Promise.resolve()
     }
 
     freezeMotion()
     flyFrom = { ...current }
-    flyTo = clampedNext
+    flyTarget = clampedNext
     flyStartedAt = performance.now()
     flyDuration = durationMs
     target.panX = clampedNext.panX
@@ -504,6 +542,10 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     target.scale = clampedNext.scale
     mode = 'fly'
     scheduleFrame()
+
+    return new Promise<void>((resolve) => {
+      flyResolver = resolve
+    })
   }
 
   function zoomFactorForWheel(event: WheelEvent) {
@@ -538,6 +580,7 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
   function startZoomAt(screenPoint: ScreenPoint, factor: number) {
     if (!stageEl) return
+    if (mode === 'fly') freezeMotion()
 
     const baseScale = mode === 'zoom' ? target.scale : current.scale
     const nextScale = clamp(baseScale * factor, minScale, maxScale)
@@ -705,6 +748,33 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     fitBounds(bounds, fitOptions)
   }
 
+  function flyTo(
+    worldX: number,
+    worldY: number,
+    targetScale = 1,
+    duration = 400,
+  ): Promise<void> {
+    if (!stageEl || !Number.isFinite(worldX) || !Number.isFinite(worldY)) {
+      return Promise.resolve()
+    }
+
+    const scale = clamp(
+      Number.isFinite(targetScale) ? targetScale : 1,
+      minScale,
+      maxScale,
+    )
+
+    return animateViewportTo(
+      viewportForWorldCenter(
+        { x: worldX, y: worldY },
+        stageEl.clientWidth,
+        stageEl.clientHeight,
+        scale,
+      ),
+      Number.isFinite(duration) ? duration : 400,
+    )
+  }
+
   function focusElement(selector: string, fitOptions: FitOptions = {}) {
     const element = worldEl?.querySelector<HTMLElement>(selector)
     if (!element) {
@@ -742,6 +812,7 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     event.preventDefault()
 
     if (activePointerId !== null || !stageEl) return
+    if (mode === 'fly') freezeMotion()
 
     const rect = stageEl.getBoundingClientRect()
 
@@ -797,6 +868,8 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
   function handlePointerDown(event: PointerEvent) {
     if (!stageEl) return
+    // Any deliberate pointer interaction takes the camera back immediately.
+    if (mode === 'fly') freezeMotion()
     if (isCanvasUiTarget(event.target) || isEditableTarget(event.target)) return
     if (activePointerId !== null) return
 
@@ -1007,6 +1080,7 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
 
   function destroy() {
     stopFrame()
+    resolveFly()
 
     if (stageEl) {
       stageEl.removeEventListener('wheel', handleWheel)
@@ -1067,6 +1141,7 @@ export function useCanvas(options: UseCanvasOptions): UseCanvasReturn {
     resetZoom,
     fitToContent,
     focusElement,
+    flyTo,
     restoreViewport,
     destroy,
   }

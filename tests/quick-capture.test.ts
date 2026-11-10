@@ -15,6 +15,7 @@ const camera: CanvasCamera = {
   getContainerRect: () => new DOMRect(0, 0, 800, 600),
   screenToWorld: (point) => point,
   worldToScreen: (point) => point,
+  flyTo: async () => {},
 }
 
 function mountOpenCapture(initial = true) {

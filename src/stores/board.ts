@@ -73,6 +73,8 @@ export const useBoardStore = defineStore('board', () => {
   const selectedItemId = ref<string | null>(null)
   const selectedConnectionId = ref<string | null>(null)
   const landingItemId = ref<string | null>(null)
+  const activeFilterTag = ref<string | null>(null)
+  const pulseItemId = ref<string | null>(null)
   const status = ref<BoardStatus>('idle')
   const error = ref<string | null>(null)
   const past = ref<HistoryEntry[]>([])
@@ -86,6 +88,7 @@ export const useBoardStore = defineStore('board', () => {
   let unsubscribeSync: (() => void) | null = null
   let applyingHistory = false
   let landingTimer: ReturnType<typeof setTimeout> | null = null
+  let pulseTimer: ReturnType<typeof setTimeout> | null = null
 
   function markLanding(itemId: string) {
     landingItemId.value = itemId
@@ -93,6 +96,25 @@ export const useBoardStore = defineStore('board', () => {
     landingTimer = setTimeout(() => {
       if (landingItemId.value === itemId) landingItemId.value = null
     }, 520)
+  }
+
+  function pulseItem(itemId: string) {
+    pulseItemId.value = itemId
+    if (pulseTimer) clearTimeout(pulseTimer)
+    pulseTimer = setTimeout(() => {
+      if (pulseItemId.value === itemId) pulseItemId.value = null
+    }, 1200)
+  }
+
+  function toggleFilterTag(tag: string) {
+    const next = tag.trim()
+    if (!next) return
+
+    activeFilterTag.value = activeFilterTag.value === next ? null : next
+  }
+
+  function clearFilterTag() {
+    activeFilterTag.value = null
   }
 
   const entries = computed<BoardEntry[]>(() => {
@@ -295,6 +317,8 @@ export const useBoardStore = defineStore('board', () => {
       connections.value = snapshot.connections
       selectedItemId.value = null
       selectedConnectionId.value = null
+      activeFilterTag.value = null
+      pulseItemId.value = null
       activeBoardId.value = boardId
       past.value = []
       future.value = []
@@ -1113,6 +1137,8 @@ export const useBoardStore = defineStore('board', () => {
     selectedItemId,
     selectedItem,
     landingItemId,
+    activeFilterTag,
+    pulseItemId,
     selectedConnectionId,
     selectedConnection,
     status,
@@ -1131,6 +1157,9 @@ export const useBoardStore = defineStore('board', () => {
     selectItem,
     selectConnection,
     clearSelection,
+    toggleFilterTag,
+    clearFilterTag,
+    pulseItem,
     commitItemPosition,
     nudgeItem,
     captureCard,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { screenToWorld, worldToScreen } from '../src/composables/useCanvas'
+import {
+  screenToWorld,
+  viewportForWorldCenter,
+  worldToScreen,
+} from '../src/composables/useCanvas'
 import type { Viewport } from '../src/types'
 
 const viewport: Viewport = { panX: 321.5, panY: -87.25, scale: 1.75 }
@@ -34,6 +38,29 @@ describe('canvas coordinates', () => {
 
     expect(pinned.x).toBeCloseTo(anchor.x, 10)
     expect(pinned.y).toBeCloseTo(anchor.y, 10)
+  })
+
+  it('centres a card geometry midpoint exactly in the viewport', () => {
+    const item = { x: 120, y: -80, width: 400, height: 300 }
+    const centre = {
+      x: item.x + item.width / 2,
+      y: item.y + item.height / 2,
+    }
+    const centred = viewportForWorldCenter(centre, 1280, 720, 1.25)
+    const screen = worldToScreen(centre, { left: 0, top: 0 }, centred)
+
+    expect(screen.x).toBeCloseTo(640, 10)
+    expect(screen.y).toBeCloseTo(360, 10)
+  })
+
+  it('keeps the centre invariant at different zooms', () => {
+    const centre = { x: 900, y: 450 }
+    for (const scale of [0.3, 1, 2.5]) {
+      const centred = viewportForWorldCenter(centre, 1440, 900, scale)
+      const screen = worldToScreen(centre, { left: 0, top: 0 }, centred)
+      expect(screen.x).toBeCloseTo(720, 10)
+      expect(screen.y).toBeCloseTo(450, 10)
+    }
   })
 
   it('treats a zero scale as identity instead of dividing by zero', () => {

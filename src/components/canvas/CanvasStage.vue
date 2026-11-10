@@ -65,6 +65,7 @@ const {
   resetZoom,
   fitToContent,
   focusElement,
+  flyTo,
   screenToWorld,
   worldToScreen,
   getViewport,
@@ -84,6 +85,7 @@ const cameraApi: CanvasCamera = {
   getContainerRect,
   screenToWorld,
   worldToScreen,
+  flyTo,
   isSpaceHeld,
 }
 
@@ -197,6 +199,7 @@ defineExpose({
   resetZoom,
   fitToContent,
   focusElement,
+  flyTo,
   screenToWorld,
   worldToScreen,
   getViewport,

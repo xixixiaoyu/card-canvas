@@ -13,11 +13,17 @@ const props = withDefaults(
     card: Card
     selected?: boolean
     landing?: boolean
+    isHighlighted?: boolean
+    isDimmed?: boolean
+    activeFilterTag?: string | null
     indexLabel?: string
   }>(),
   {
     selected: false,
     landing: false,
+    isHighlighted: false,
+    isDimmed: false,
+    activeFilterTag: null,
     indexLabel: 'CARD',
   },
 )
@@ -28,6 +34,7 @@ const emit = defineEmits<{
   nudge: [delta: { x: number; y: number }]
   edit: []
   delete: []
+  tagClick: [tag: string]
 }>()
 
 const identityCamera: CanvasCamera = {
@@ -35,6 +42,7 @@ const identityCamera: CanvasCamera = {
   getContainerRect: () => null,
   screenToWorld: (point) => ({ x: point.x, y: point.y }),
   worldToScreen: (point) => ({ x: point.x, y: point.y }),
+  flyTo: async () => {},
 }
 
 const camera = inject(canvasCameraKey, identityCamera)
@@ -124,6 +132,7 @@ function tagTone(index: number) {
       'is-selected': selected,
       'is-dragging': isDragging,
       'is-landing': landing,
+      'is-dimmed': isDimmed,
     }"
     :style="{
       left: `${item.x}px`,
@@ -145,6 +154,12 @@ function tagTone(index: number) {
         class="card-selection pointer-events-none absolute -inset-1.5 rounded-[32px]"
         aria-hidden="true"
       />
+      <div
+        v-if="isHighlighted"
+        class="card-pulse pointer-events-none absolute -inset-2 rounded-[34px]"
+        data-card-pulse
+        aria-hidden="true"
+      />
 
       <div
         class="note-card card-surface relative w-full overflow-hidden rounded-[26px] border border-stone-200/80 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-zinc-900/80"
@@ -163,15 +178,31 @@ function tagTone(index: number) {
         <div class="card-body relative p-8">
           <header class="flex items-start justify-between gap-4">
             <div class="flex flex-wrap items-center gap-1.5">
-              <span
+              <button
                 v-for="(tag, index) in card.tags"
                 :key="tag"
-                class="tag-pill"
-                :class="tagTone(index)"
+                type="button"
+                class="tag-pill cursor-pointer"
+                :class="[
+                  tagTone(index),
+                  {
+                    'is-active':
+                      activeFilterTag?.toLocaleLowerCase() ===
+                      tag.toLocaleLowerCase(),
+                  },
+                ]"
                 data-card-interactive
+                :data-filter-tag="tag"
+                :aria-pressed="
+                  activeFilterTag?.toLocaleLowerCase() ===
+                  tag.toLocaleLowerCase()
+                "
+                :title="`聚焦 #${tag}`"
+                @pointerdown.stop
+                @click.stop="emit('tagClick', tag)"
               >
                 #{{ tag }}
-              </span>
+              </button>
             </div>
 
             <div class="flex shrink-0 items-center gap-1">
@@ -321,6 +352,63 @@ function tagTone(index: number) {
 </template>
 
 <style scoped>
+.card-node {
+  transition: opacity 300ms ease;
+}
+
+.card-node.is-dimmed {
+  opacity: 0.15;
+}
+
+.card-pulse {
+  border: 1.5px solid rgba(217, 119, 6, 0.58);
+  box-shadow:
+    0 0 0 6px rgba(217, 119, 6, 0.06),
+    0 0 30px rgba(217, 119, 6, 0.18);
+  animation: card-pulse 1200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dark .card-pulse {
+  border-color: rgba(147, 197, 253, 0.68);
+  box-shadow:
+    0 0 0 6px rgba(147, 197, 253, 0.06),
+    0 0 34px rgba(147, 197, 253, 0.22);
+}
+
+.tag-pill.is-active {
+  box-shadow: 0 0 0 1px currentColor inset;
+}
+
+.tag-pill:focus-visible {
+  outline: 2px solid rgba(180, 83, 9, 0.5);
+  outline-offset: 2px;
+}
+
+.dark .tag-pill:focus-visible {
+  outline-color: rgba(147, 197, 253, 0.55);
+}
+
+@keyframes card-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.965);
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.035);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-pulse {
+    animation: none;
+    opacity: 0.85;
+  }
+}
+
 .canvas-world-item.is-landing {
   animation: card-land-fade 260ms ease-out both;
 }

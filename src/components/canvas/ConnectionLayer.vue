@@ -5,6 +5,7 @@ import {
   type ConnectionController,
 } from '../../composables/useConnection'
 import { getItemRect } from '../../lib/card-metrics'
+import { isConnectionDimmed } from '../../lib/galaxy'
 import {
   subscribeCardDragEnd,
   subscribeCardDragPosition,
@@ -40,6 +41,7 @@ const livePositions = new Map<string, { x: number; y: number }>()
 interface RenderedConnection {
   connection: Connection
   geometry: ConnectionGeometry
+  dimmed: boolean
 }
 
 function itemForCard(cardId: string): BoardItem | undefined {
@@ -74,6 +76,7 @@ const rendered = computed<RenderedConnection[]>(() =>
       {
         connection: entry,
         geometry: geometryForPair(fromItem, toItem),
+        dimmed: isConnectionDimmed(entry, board.activeFilterTag, board.cards),
       },
     ]
   }),
@@ -245,6 +248,11 @@ onBeforeUnmount(() => {
       :key="entry.connection.id"
       :data-connection-id="entry.connection.id"
       class="connection-group"
+      :class="{
+        'is-dimmed': entry.dimmed,
+        'is-spotlight': Boolean(board.activeFilterTag) && !entry.dimmed,
+      }"
+      :data-dimmed="entry.dimmed ? 'true' : undefined"
     >
       <path
         data-hit
@@ -365,6 +373,19 @@ onBeforeUnmount(() => {
 
 .connection-group {
   pointer-events: none;
+  transition: opacity 300ms ease;
+}
+
+.connection-group.is-dimmed {
+  opacity: 0.15;
+}
+
+.connection-group.is-spotlight .connection-line:not(.is-selected) {
+  stroke: rgba(87, 83, 78, 0.72);
+}
+
+.connection-group.is-spotlight .connection-dot:not(.is-selected) {
+  fill: rgba(87, 83, 78, 0.78);
 }
 
 .connection-hit {
@@ -511,6 +532,14 @@ onBeforeUnmount(() => {
 .dark .connection-snap-ring {
   fill: rgba(147, 197, 253, 0.04);
   stroke: rgba(147, 197, 253, 0.4);
+}
+
+.dark .connection-group.is-spotlight .connection-line:not(.is-selected) {
+  stroke: rgba(244, 244, 245, 0.55);
+}
+
+.dark .connection-group.is-spotlight .connection-dot:not(.is-selected) {
+  fill: rgba(244, 244, 245, 0.62);
 }
 
 .dark .connection-label-pill {

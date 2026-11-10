@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Layers2, Moon, PenLine, Redo2, Sun, Undo2 } from '@lucide/vue'
+import { Layers2, Moon, PenLine, Redo2, Search, Sun, Undo2 } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
+import SpotlightSearch from './components/canvas/SpotlightSearch.vue'
 import BoardSwitcher from './components/board/BoardSwitcher.vue'
 import QuickCapture from './components/capture/QuickCapture.vue'
 import DataMenu from './components/ui/DataMenu.vue'
 import ToastStack from './components/ui/ToastStack.vue'
 import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
+import { cardHasTag } from './lib/galaxy'
 import { FOCUS_BOARD_ITEM_ID } from './data/seed'
 import { useBoardStore } from './stores/board'
 import { useToastStore } from './stores/toast'
@@ -22,6 +24,7 @@ const toast = useToastStore()
 
 const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
 const isCaptureOpen = ref(false)
+const isSpotlightOpen = ref(false)
 const editingCard = ref<Card | null>(null)
 let booting = true
 
@@ -72,6 +75,30 @@ function openCapture() {
   isCaptureOpen.value = true
 }
 
+function openSpotlight() {
+  if (!board.isHydrated || isCaptureOpen.value) return
+  isSpotlightOpen.value = true
+}
+
+function handleCanvasBackground() {
+  board.clearSelection()
+  board.clearFilterTag()
+  window.getSelection()?.removeAllRanges()
+}
+
+function isCardOutsideGalaxy(card: Card) {
+  return (
+    Boolean(board.activeFilterTag) && !cardHasTag(card, board.activeFilterTag!)
+  )
+}
+
+function hasTextSelection() {
+  const selection = window.getSelection()
+  return Boolean(
+    selection && !selection.isCollapsed && selection.toString().trim(),
+  )
+}
+
 function openEdit(card: Card) {
   editingCard.value = card
   isCaptureOpen.value = true
@@ -108,7 +135,7 @@ function isEditableTarget(target: EventTarget | null) {
 function handleGlobalKeydown(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing) return
 
-  if (isCaptureOpen.value) return
+  if (isSpotlightOpen.value || isCaptureOpen.value) return
   // Never steal shortcuts from inputs, textareas or future inline editors.
   if (isEditableTarget(event.target)) return
   // The store hydrates by replacing `cards`; capturing mid-hydration could be
@@ -116,6 +143,24 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   if (!board.isHydrated) return
 
   const mod = event.metaKey || event.ctrlKey
+
+  if (mod && !event.altKey && !event.shiftKey && event.code === 'KeyF') {
+    event.preventDefault()
+    openSpotlight()
+    return
+  }
+
+  if (
+    !mod &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key === '/' &&
+    !hasTextSelection()
+  ) {
+    event.preventDefault()
+    openSpotlight()
+    return
+  }
 
   if (mod && !event.altKey && event.code === 'KeyZ') {
     event.preventDefault()
@@ -165,7 +210,7 @@ onBeforeUnmount(() => {
     :key="workspace.activeBoardId"
     ref="stageRef"
     :board-id="workspace.activeBoardId"
-    @background-pointerdown="board.clearSelection()"
+    @background-pointerdown="handleCanvasBackground"
   >
     <h1 class="sr-only">Card Canvas 无限白板</h1>
     <p class="sr-only" aria-live="polite">{{ selectionAnnouncement }}</p>
@@ -177,6 +222,9 @@ onBeforeUnmount(() => {
       :card="entry.card"
       :selected="board.selectedItemId === entry.item.id"
       :landing="board.landingItemId === entry.item.id"
+      :is-highlighted="board.pulseItemId === entry.item.id"
+      :is-dimmed="isCardOutsideGalaxy(entry.card)"
+      :active-filter-tag="board.activeFilterTag"
       :index-label="`CARD / ${String(index + 1).padStart(3, '0')}`"
       :data-canvas-focus="
         entry.item.id === FOCUS_BOARD_ITEM_ID ? '' : undefined
@@ -188,6 +236,7 @@ onBeforeUnmount(() => {
       @nudge="board.nudgeItem(entry.item.id, $event.x, $event.y)"
       @edit="openEdit(entry.card)"
       @delete="handleDelete(entry.card)"
+      @tag-click="board.toggleFilterTag($event)"
     />
 
     <template #overlay>
@@ -213,7 +262,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              Phase 07 / Immediate Capture
+              Phase 06.5 / Spotlight
             </p>
           </div>
 
@@ -257,6 +306,17 @@ onBeforeUnmount(() => {
               <Redo2 :size="14" :stroke-width="1.7" aria-hidden="true" />
             </button>
           </div>
+
+          <button
+            type="button"
+            data-canvas-ui
+            class="hidden h-10 w-10 items-center justify-center rounded-full border border-stone-200/80 bg-white/60 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 sm:flex"
+            aria-label="搜索卡片"
+            title="搜索 · ⌘F"
+            @click="openSpotlight()"
+          >
+            <Search :size="14" :stroke-width="1.7" aria-hidden="true" />
+          </button>
 
           <button
             type="button"
@@ -348,6 +408,8 @@ onBeforeUnmount(() => {
           <span class="text-stone-300 dark:text-zinc-700">·</span>
           <span>Drag card to move</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
+          <span>⌘F search</span>
+          <span class="text-stone-300 dark:text-zinc-700">·</span>
           <span>⌘K to capture</span>
         </div>
       </footer>
@@ -415,6 +477,8 @@ onBeforeUnmount(() => {
     :camera="camera"
     :board-id="workspace.activeBoardId"
   />
+
+  <SpotlightSearch v-model:open="isSpotlightOpen" :camera="camera" />
 
   <ToastStack />
 </template>
