@@ -14,6 +14,7 @@ import { useCardDrag, type CardDragCommit } from '../../composables/useCardDrag'
 import { canvasCameraKey, type CanvasCamera } from '../../composables/useCanvas'
 import { connectionKey } from '../../composables/useConnection'
 import type { BoardItem, Card } from '../../types'
+import AtomicMarkdown from './AtomicMarkdown.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -51,6 +52,7 @@ const emit = defineEmits<{
   edit: []
   delete: []
   copyMarkdown: []
+  toggleTask: [lineIndex: number]
   tagClick: [tag: string]
 }>()
 
@@ -305,12 +307,11 @@ function tagTone(index: number) {
             {{ card.title }}
           </h2>
 
-          <p
+          <AtomicMarkdown
             class="card-content card-selectable mt-3.5 text-[0.9375rem] leading-[1.9] text-stone-600 dark:text-zinc-400"
-            data-card-selectable
-          >
-            {{ card.content }}
-          </p>
+            :content="card.content"
+            @toggle-task="emit('toggleTask', $event)"
+          />
 
           <template v-if="highlights.length">
             <div

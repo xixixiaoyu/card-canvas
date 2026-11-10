@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { Session, Subscription, User } from '@supabase/supabase-js'
-import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabase'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -23,13 +23,16 @@ export const useAuthStore = defineStore('auth', () => {
 
   function initialize() {
     if (initPromise) return initPromise
-    if (!isSupabaseConfigured || !supabase) {
+    if (!isSupabaseConfigured) {
       initialized.value = true
       return Promise.resolve()
     }
 
     initPromise = (async () => {
       try {
+        const supabase = await getSupabaseClient()
+        if (!supabase) throw new Error('Supabase 客户端无法初始化。')
+
         if (!subscription) {
           const {
             data: { subscription: authSubscription },
@@ -57,11 +60,6 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function sendMagicLink(address: string) {
-    if (!supabase) {
-      error.value = '当前部署未配置 Supabase。'
-      return false
-    }
-
     const normalized = address.trim()
     if (!normalized) {
       error.value = '请输入邮箱地址。'
@@ -72,6 +70,9 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null
 
     try {
+      const supabase = await getSupabaseClient()
+      if (!supabase) throw new Error('当前部署未配置 Supabase。')
+
       const { error: authError } = await supabase.auth.signInWithOtp({
         email: normalized,
         options: {
@@ -90,12 +91,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function signOut() {
-    if (!supabase) return
-
     loading.value = true
     error.value = null
 
     try {
+      const supabase = await getSupabaseClient()
+      if (!supabase) return
+
       let result = await supabase.auth.signOut()
       if (result.error) {
         result = await supabase.auth.signOut({ scope: 'local' })

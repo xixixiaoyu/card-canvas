@@ -7,6 +7,7 @@ import {
   subscribeWorkspaceChange,
 } from '../lib/tab-sync'
 import { normalizeTags } from '../lib/tags'
+import { toggleTaskLine } from '../lib/atomic-markdown'
 import type { BoardItem, Card, Connection } from '../types'
 import { plainRecord } from '../lib/plain-record'
 import { useToastStore } from './toast'
@@ -523,6 +524,7 @@ export const useBoardStore = defineStore('board', () => {
   async function updateCard(
     cardId: string,
     input: UpdateCardInput,
+    historyLabel = '编辑卡片',
   ): Promise<Card | null> {
     const previous = cards.value.find((card) => card.id === cardId)
     if (!previous) return null
@@ -550,7 +552,7 @@ export const useBoardStore = defineStore('board', () => {
     }
 
     record({
-      label: '编辑卡片',
+      label: historyLabel,
       undo: async () => {
         await db.cards.put(before)
         replaceLocalCard(before)
@@ -564,6 +566,26 @@ export const useBoardStore = defineStore('board', () => {
     })
 
     return next
+  }
+
+  async function toggleCardTask(cardId: string, lineIndex: number) {
+    const card = cards.value.find((entry) => entry.id === cardId)
+    if (!card) return false
+
+    const toggled = toggleTaskLine(card.content, lineIndex)
+    if (!toggled) return false
+
+    const updated = await updateCard(
+      cardId,
+      {
+        title: card.title,
+        content: toggled.content,
+        tags: card.tags,
+      },
+      toggled.checked ? '完成待办' : '取消完成待办',
+    )
+
+    return Boolean(updated)
   }
 
   // --- projections ---------------------------------------------------------
@@ -1265,6 +1287,7 @@ export const useBoardStore = defineStore('board', () => {
     nudgeItem,
     captureCard,
     updateCard,
+    toggleCardTask,
     placeCard,
     captureAndPlace,
     deleteCard,

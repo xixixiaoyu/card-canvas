@@ -1,9 +1,13 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { RealtimeChannel } from '@supabase/supabase-js'
+import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import { db } from '../db'
 import { plainRecord } from '../lib/plain-record'
-import { supabase, syncClientId } from '../lib/supabase'
+import {
+  getSupabaseClient,
+  isSupabaseConfigured,
+  syncClientId,
+} from '../lib/supabase'
 import { broadcastWorkspaceChange } from '../lib/tab-sync'
 import {
   isRemoteTombstone,
@@ -54,6 +58,7 @@ export const useSyncStore = defineStore('sync', () => {
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
   let unsubscribeOutbox: (() => void) | null = null
   let channel: RealtimeChannel | null = null
+  let realtimeClient: SupabaseClient | null = null
   let visibilityAttached = false
   let onlineAttached = false
 
@@ -97,7 +102,7 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   function scheduleSync(delay = PUSH_DEBOUNCE_MS) {
-    if (!activeUserId || !supabase) return
+    if (!activeUserId || !isSupabaseConfigured) return
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       phase.value = 'offline'
       return
@@ -122,6 +127,7 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   async function pushOutbox(userId: string) {
+    const supabase = await getSupabaseClient()
     if (!supabase) return
     const entries = await db.syncOutbox.orderBy('updatedAt').toArray()
     if (!entries.length) return
@@ -218,6 +224,7 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   async function pullRemote(userId: string) {
+    const supabase = await getSupabaseClient()
     if (!supabase) return false
     const storedCursor = await readMeta(SYNC_META_KEYS.pullCursor)
     const cursor = typeof storedCursor === 'string' ? storedCursor : null
@@ -254,7 +261,7 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   async function synchronize() {
-    if (!activeUserId || !supabase) return
+    if (!activeUserId || !isSupabaseConfigured) return
     if (running) return running
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       phase.value = 'offline'
@@ -298,9 +305,12 @@ export const useSyncStore = defineStore('sync', () => {
     return running
   }
 
-  function subscribeRealtime(userId: string) {
-    if (!supabase || channel) return
+  async function subscribeRealtime(userId: string) {
+    if (channel) return
+    const supabase = await getSupabaseClient()
+    if (!supabase) return
 
+    realtimeClient = supabase
     channel = supabase.channel(`card-canvas:${userId}:${syncClientId}`)
     for (const table of SYNC_TABLES) {
       channel.on(
@@ -344,7 +354,7 @@ export const useSyncStore = defineStore('sync', () => {
     stop()
     activeUserId = userId
 
-    if (!supabase) {
+    if (!isSupabaseConfigured) {
       phase.value = 'disabled'
       return Promise.resolve()
     }
@@ -371,7 +381,7 @@ export const useSyncStore = defineStore('sync', () => {
 
       await refreshPendingCount()
       await synchronize()
-      subscribeRealtime(userId)
+      await subscribeRealtime(userId)
     })()
   }
 
@@ -386,10 +396,11 @@ export const useSyncStore = defineStore('sync', () => {
     }
     unsubscribeOutbox?.()
     unsubscribeOutbox = null
-    if (channel && supabase) {
-      void supabase.removeChannel(channel)
+    if (channel && realtimeClient) {
+      void realtimeClient.removeChannel(channel)
       channel = null
     }
+    realtimeClient = null
     if (visibilityAttached) {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       visibilityAttached = false

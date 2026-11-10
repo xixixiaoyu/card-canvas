@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Layers2, Moon, PenLine, Redo2, Sun, Undo2 } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
+import ActionLens from './components/canvas/ActionLens.vue'
 import EmptyBoardState from './components/canvas/EmptyBoardState.vue'
 import ShortcutModal from './components/canvas/ShortcutModal.vue'
 import SpotlightSearch from './components/canvas/SpotlightSearch.vue'
@@ -36,6 +37,7 @@ const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
 const isCaptureOpen = ref(false)
 const isSpotlightOpen = ref(false)
 const isShortcutOpen = ref(false)
+const isActionTrayOpen = ref(false)
 const editingCard = ref<Card | null>(null)
 const stageReady = ref(false)
 const pendingTeleport = ref<SpotlightTarget | null>(null)
@@ -242,6 +244,37 @@ function handleCardClick(itemId: string, event: PointerEvent) {
   }
 }
 
+async function handleActionTaskFocus(task: { cardId: string; itemId: string }) {
+  const entry =
+    board.entries.find((candidate) => candidate.item.id === task.itemId) ??
+    board.entries.find((candidate) => candidate.card.id === task.cardId)
+  if (!entry) return
+
+  board.selectItem(entry.item.id)
+  await nextTick()
+  document
+    .querySelector<HTMLElement>(
+      `[data-world-item][data-item-id="${entry.item.id}"]`,
+    )
+    ?.focus({ preventScroll: true })
+
+  const camera = stageRef.value?.camera
+  if (!camera) return
+
+  const rect = getItemRect(entry.item)
+  const currentScale = camera.getViewport().scale
+  const targetScale =
+    currentScale < 0.5 || currentScale > 1.4 ? 1 : currentScale
+
+  await camera.flyTo(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+    targetScale,
+    400,
+  )
+  board.pulseItem(entry.item.id)
+}
+
 async function handleCopyCardMarkdown(itemId: string) {
   const entry = board.entries.find((candidate) => candidate.item.id === itemId)
   if (!entry) return
@@ -281,17 +314,32 @@ function handleGroupCommit(
 }
 
 function openCapture() {
+  isActionTrayOpen.value = false
   editingCard.value = null
   isCaptureOpen.value = true
 }
 
 function openSpotlight() {
-  if (!board.isHydrated || isCaptureOpen.value || isShortcutOpen.value) return
+  if (
+    !board.isHydrated ||
+    isCaptureOpen.value ||
+    isShortcutOpen.value ||
+    isActionTrayOpen.value
+  ) {
+    return
+  }
   isSpotlightOpen.value = true
 }
 
 function openShortcuts() {
-  if (!board.isHydrated || isCaptureOpen.value || isSpotlightOpen.value) return
+  if (
+    !board.isHydrated ||
+    isCaptureOpen.value ||
+    isSpotlightOpen.value ||
+    isActionTrayOpen.value
+  ) {
+    return
+  }
   isShortcutOpen.value = true
 }
 
@@ -356,7 +404,9 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
   // The modal owns Escape and Tab while it is open.
   if (isShortcutOpen.value) return
-  if (isSpotlightOpen.value || isCaptureOpen.value) return
+  if (isSpotlightOpen.value || isCaptureOpen.value || isActionTrayOpen.value) {
+    return
+  }
   // Never steal shortcuts from inputs, textareas or future inline editors.
   if (isEditableTarget(event.target)) return
   // The store hydrates by replacing `cards`; capturing mid-hydration could be
@@ -479,6 +529,7 @@ onBeforeUnmount(() => {
       @edit="openEdit(entry.card)"
       @delete="handleDelete(entry.card)"
       @copy-markdown="handleCopyCardMarkdown(entry.item.id)"
+      @toggle-task="board.toggleCardTask(entry.card.id, $event)"
       @tag-click="board.toggleFilterTag($event)"
     />
 
@@ -512,7 +563,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.1.0 · Local-first
+              v1.2.0 · Local-first
             </p>
           </div>
 
@@ -574,6 +625,11 @@ onBeforeUnmount(() => {
             </kbd>
           </button>
 
+          <ActionLens
+            v-model:open="isActionTrayOpen"
+            @focus="handleActionTaskFocus"
+            @toggle="board.toggleCardTask($event.cardId, $event.lineIndex)"
+          />
           <CloudAccount />
           <DataMenu />
 
@@ -635,7 +691,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.1.0</span>
+          <span>v1.2.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

@@ -2,7 +2,7 @@
 
 > 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
 >
-> **v1.1.0 · Local-First · 可选 Supabase 同步**
+> **v1.2.0 · Local-First · 可选 Supabase 同步**
 
 Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
 
@@ -149,6 +149,8 @@ VITE_SUPABASE_ANON_KEY
 - **缩放补偿**：`worldDelta = screenDelta / viewport.scale`，在 30% 与 200% 下光标均与拾起点严格咬合
 - **高程反馈**：拾起时 `scale(1.018)`、漫反射阴影增强、`z-index` 置于最上层；放下后平滑回落
 - **持久化时机**：拖拽期间只写 DOM transform；`pointerup` 时多卡通过一个 `bulkPut` 事务提交 Pinia，并只记录一条历史
+- **原子 Markdown**：支持加粗、斜体、行内代码、高亮、无序列表与任务框；标题、HTML 和表格不会被解析成富文本
+- **行动透镜**：顶栏汇总当前白板未完成任务，可直达对应卡片，也可在抽屉内直接勾选
 
 ## 即时速记（Capture to Board）
 
@@ -250,7 +252,7 @@ VITE_SUPABASE_ANON_KEY
 - **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
 - **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
 - **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
-- **版本锚点**：浮层页脚展示 `v1.1.0`，与顶栏、页脚和数据菜单保持一致
+- **版本锚点**：浮层页脚展示 `v1.2.0`，与顶栏、页脚和数据菜单保持一致
 - **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
@@ -281,7 +283,7 @@ VITE_SUPABASE_ANON_KEY
 
 ## 版本与 PWA 元信息
 
-- 版本：`v1.1.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- 版本：`v1.2.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
 - `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
 - `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 SVG 图标；当前不注册 Service Worker，不伪造离线缓存
 - 首次启动请求 `navigator.storage.persist()`，尽力降低浏览器回收 IndexedDB 的概率
@@ -379,17 +381,18 @@ e2e/                             # Playwright 端到端测试
 - **云端出站队列**：Dexie `v3` 新增 `syncOutbox` 与 `syncMeta`，只追加同步元数据，不改已有四张领域表的索引；本地写事务提交后再合并入队，失败不影响本地编辑。
 - **云端入站隔离**：远端拉取写入通过 suppression guard，禁止触发 outbox，避免同步回声；随后通过现有 refresh 管线刷新 Pinia。
 - **云端权限边界**：四张远端表启用 RLS，策略只允许 `auth.uid() = user_id`；公开前端只使用 publishable key 或旧版 anon key。
+- **原子 Markdown 边界**：正文由白名单 AST 直接渲染为 Vue 文本与内联元素，全程不使用 `v-html`；任务勾选只替换对应行，不改变 Dexie schema。
 - **主题持久化**：首次访问跟随系统；手动切换后明确写入 `light` / `dark`；首屏内联脚本恢复，避免闪烁。
 - **可访问性**：焦点陷阱、`inert` 背景、键盘移动、连线 `Tab` 聚焦、搜索 `role=listbox` + `aria-selected`、`aria-live` 选中播报与可见焦点环。
 
 ## 质量防线
 
-- **Vitest**：104 项，覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子撤销、Markdown 排序、搜索、捕获、云端映射、离线 outbox 与旧 demo 清理。
-- **Playwright**：30 项，覆盖捕获、白板、连线、Spotlight、层级星系、多选、刚体拖拽、Markdown 导出、快捷键浮层与空板引导。
+- **Vitest**：109 项，覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子 Markdown、任务行替换、原子撤销、Markdown 排序、搜索、捕获、云端映射、离线 outbox 与旧 demo 清理。
+- **Playwright**：32 项，覆盖捕获、白板、连线、Spotlight、层级星系、多选、刚体拖拽、任务勾选、行动透镜、Markdown 导出、快捷键浮层与空板引导。
 - **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 30 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
 - **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。
 - 每次提交前运行 `format:check` / `lint` / `typecheck` / `test` / `build` / `test:e2e`。
 
-## v1.1.0 云端版本
+## v1.2.0 原子 Markdown 版本
 
-v1.0.0 的画布、刚体拖拽和撤销契约保持不变。v1.1.0 以可选云端层扩展存储边界：Dexie schema 仅新增同步状态表，不改 `Card` / `BoardItem` / `Board` / `Connection` 的实体与投影关系，也不让网络请求进入拖拽热路径。
+v1.1.0 以可选云端层扩展存储边界；v1.2.0 在不修改 Dexie schema 的前提下增加白名单 Markdown、卡片内任务切换和行动透镜。画布、刚体拖拽、撤销与云端同步契约保持不变。
