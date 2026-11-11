@@ -70,15 +70,22 @@ async function rigidTransformError(page: Page, includeY = false) {
     }, includeY)
 }
 
-async function largestVisibleSelectedIndex(page: Page) {
-  const boxes = await page
-    .locator('[data-world-item]')
-    .evaluateAll((elements) =>
+async function largestVisibleSelectedIndex(page: Page, useEdge = false) {
+  const boxes = await page.locator('[data-world-item]').evaluateAll(
+    (elements, withEdge) =>
       elements.map((element, index) => {
         const rect = element.getBoundingClientRect()
         const title = element.querySelector('h2')?.getBoundingClientRect()
-        const clickX = title ? title.x + Math.min(30, title.width - 1) : -1
-        const clickY = title ? title.y + title.height * 0.8 : -1
+        const clickX = withEdge
+          ? rect.x + 16
+          : title
+            ? title.x + Math.min(30, title.width - 1)
+            : -1
+        const clickY = withEdge
+          ? rect.y + rect.height * 0.3
+          : title
+            ? title.y + title.height * 0.8
+            : -1
         return {
           index,
           selected: element.classList.contains('is-selected'),
@@ -92,7 +99,8 @@ async function largestVisibleSelectedIndex(page: Page) {
             rect.height > 120,
         }
       }),
-    )
+    useEdge,
+  )
   const visible = boxes
     .filter((entry) => entry.selected && entry.visible)
     .sort((a, b) => b.area - a.area)
@@ -331,7 +339,7 @@ test('rigid offsets survive at 40% and 200% zoom', async ({ page }) => {
 
   await zoomTo(page, 200, 'in')
   await page.waitForTimeout(600)
-  const source200 = await largestVisibleSelectedIndex(page)
+  const source200 = await largestVisibleSelectedIndex(page, true)
   const line200 = await page.locator('[data-line]').getAttribute('d')
   await dragBox(page, cards.nth(source200), 24, 12, 'edge')
   expect(await page.locator('[data-line]').getAttribute('d')).not.toBe(line200)
