@@ -42,6 +42,12 @@ async function readJson(response: Response): Promise<DeepSeekResponse | null> {
 function httpError(status: number, payload: DeepSeekResponse | null) {
   const upstream = responseMessage(payload)
 
+  if (status === 402 || /insufficient balance|余额不足/i.test(upstream)) {
+    return new AIClientError(
+      'insufficient_balance',
+      'DeepSeek 账户余额不足，请前往开放平台充值后重试。',
+    )
+  }
   if (status === 401 || status === 403) {
     return new AIClientError('unauthorized', 'API Key 无效或无权访问当前端点。')
   }

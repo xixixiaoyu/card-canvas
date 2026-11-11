@@ -2,7 +2,7 @@
 
 > 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
 >
-> **v1.5.0 · Local-First · 可选 AI 与 Supabase**
+> **v1.5.1 · Local-First · 可选 AI 与 Supabase**
 
 Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
 
@@ -128,7 +128,9 @@ AI 能力默认关闭，不配置 Key 时不会发送任何 AI 请求。打开�
 - **虫洞探针**：同时选中两张卡片，预览一句底层机制假说，确认后建立带标签连线，并完整进入撤销栈。
 - **层级标签**：速记中可主动请求建议；无标签卡片保存后也会由后台异步补齐 `学科/分支`，不阻塞 0ms 上板。
 
-API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git 或项目环境变量。启用 AI 功能后，相关卡片的标题与正文会发送到用户配置的模型端点。默认模型为 `deepseek-chat`，使用 SiliconFlow、OpenRouter 等兼容端点时可同时修改模型 ID。Vite 开发服务器通过 `/api/deepseek` 代理请求；Vercel 生产环境由 `api/deepseek.ts` Edge Function 转发。该方案避免浏览器跨域，但浏览器本地密钥仍可能被同源脚本读取，不属于服务器托管密钥的安全级别。
+DeepSeek 是默认且唯一的主通道。用户可在 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 自行注册、充值并创建 API Key，调用费用由用户账户按量直接结算。默认模型为 `deepseek-flash`；第三方兼容端点和 `deepseek-v4-pro` 保留在折叠的高级设置中。
+
+API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git 或项目环境变量。启用 AI 功能后，相关卡片的标题与正文会发送到 DeepSeek。Vite 开发服务器通过 `/api/deepseek` 代理请求；Vercel 生产环境由 `api/deepseek.ts` Edge Function 转发。该方案避免浏览器跨域，但浏览器本地密钥仍可能被同源脚本读取，不属于服务器托管密钥的安全级别。
 
 ### 同步语义
 
@@ -270,7 +272,7 @@ API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git
 - **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
 - **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
 - **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
-- **版本锚点**：浮层页脚展示 `v1.5.0`，与顶栏、页脚和数据菜单保持一致
+- **版本锚点**：浮层页脚展示 `v1.5.1`，与顶栏、页脚和数据菜单保持一致
 - **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
@@ -301,7 +303,7 @@ API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git
 
 ## 版本与 PWA 元信息
 
-- 版本：`v1.5.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- 版本：`v1.5.1`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
 - `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
 - `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 SVG 图标；当前不注册 Service Worker，不伪造离线缓存
 - 首次启动请求 `navigator.storage.persist()`，尽力降低浏览器回收 IndexedDB 的概率
@@ -445,3 +447,5 @@ v1.4.7 将云端增量拉取改为每张表独立分页的服务端时间游标�
 v1.4.8 将增量游标升级为服务端时间与记录 ID 的复合游标，避免同一时间戳下的分页记录被跳过；补齐同步进行中二次触发的重跑机制、账号切换中的异步中止保护，并防止新设备首次登录时默认白板覆盖远端白板名称。
 
 v1.5.0 加入 BYOK DeepSeek 凭证中心、生产同源代理、双卡虫洞探针和非阻塞层级标签推断。连线建议只在用户确认后落盘，自动标签在卡片上板后异步补齐，所有模型输出都经过长度与格式清洗。
+
+v1.5.1 将 DeepSeek 收口为默认主通道，默认模型迁移到 `deepseek-flash`，设置页只保留 API Key、申请充值入口和功能开关；模型与自定义端点折叠进高级设置，并增加余额不足提示。

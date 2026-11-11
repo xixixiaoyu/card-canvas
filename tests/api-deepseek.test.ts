@@ -39,7 +39,7 @@ describe('production DeepSeek proxy', () => {
           Authorization: 'Bearer local-test-key',
           'Content-Type': 'application/json',
         },
-        body: '{"model":"deepseek-chat"}',
+        body: '{"model":"deepseek-flash"}',
       }),
     )
 

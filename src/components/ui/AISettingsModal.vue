@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Eye, EyeOff, KeyRound, Sparkles, X } from '@lucide/vue'
-import { normalizeAIConfig } from '../../lib/ai/config'
+import {
+  ChevronDown,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Sparkles,
+  X,
+} from '@lucide/vue'
+import { DEEPSEEK_API_KEYS_URL, normalizeAIConfig } from '../../lib/ai/config'
 import { AIClientError, testAIConnection } from '../../lib/ai/deepseek'
 import { useAIStore } from '../../stores/ai'
 import type { AIConfig } from '../../types/ai'
@@ -78,7 +86,7 @@ function trapTabFocus(event: KeyboardEvent) {
 
   const focusables = [
     ...panel.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
     ),
   ].filter((element) => element.getClientRects().length > 0)
   if (!focusables.length) return
@@ -246,47 +254,88 @@ onBeforeUnmount(() => {
               </span>
             </label>
 
-            <label class="block">
-              <span
-                class="mb-2 block text-[11px] font-medium text-stone-600 dark:text-zinc-300"
+            <div
+              class="flex items-center justify-between gap-4 rounded-xl border border-amber-700/10 bg-amber-500/[0.045] px-3 py-2.5 dark:border-amber-200/10 dark:bg-amber-200/[0.035]"
+            >
+              <div>
+                <p
+                  class="text-[10px] font-medium text-stone-700 dark:text-zinc-200"
+                >
+                  还没有 DeepSeek API Key？
+                </p>
+                <p
+                  class="mt-0.5 text-[9px] leading-4 text-stone-400 dark:text-zinc-500"
+                >
+                  自行注册、充值，按实际用量由 DeepSeek 直接计费。
+                </p>
+              </div>
+              <a
+                :href="DEEPSEEK_API_KEYS_URL"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-700/15 bg-white/55 px-2.5 py-1.5 text-[9px] font-medium text-amber-800 transition-colors hover:bg-white dark:border-amber-200/15 dark:bg-white/[0.035] dark:text-amber-200 dark:hover:bg-white/[0.07]"
               >
-                模型
-              </span>
-              <input
-                v-model="draft.model"
-                type="text"
-                spellcheck="false"
-                aria-label="AI 模型"
-                class="h-11 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[11px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
-              />
-              <span
-                class="mt-1.5 block text-[10px] leading-5 text-stone-400 dark:text-zinc-500"
-              >
-                DeepSeek 默认使用 deepseek-chat；第三方兼容端点请同步填写其模型
-                ID。
-              </span>
-            </label>
+                申请并充值
+                <ExternalLink
+                  :size="10"
+                  :stroke-width="1.8"
+                  aria-hidden="true"
+                />
+              </a>
+            </div>
 
-            <label class="block">
-              <span
-                class="mb-2 block text-[11px] font-medium text-stone-600 dark:text-zinc-300"
-              >
-                API 端点
-              </span>
-              <input
-                v-model="draft.baseUrl"
-                type="url"
-                spellcheck="false"
-                aria-label="API 端点"
-                class="h-11 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[11px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
-              />
-              <span
-                class="mt-1.5 block text-[10px] leading-5 text-stone-400 dark:text-zinc-500"
-              >
-                默认端点经同源代理转发。自定义第三方地址时必须包含完整的 Chat
-                Completions 路径。
-              </span>
-            </label>
+            <details class="ai-advanced">
+              <summary>
+                <span>高级连接设置</span>
+                <ChevronDown
+                  :size="12"
+                  :stroke-width="1.7"
+                  aria-hidden="true"
+                />
+              </summary>
+              <div class="space-y-4 px-3 pb-3 pt-2">
+                <label class="block">
+                  <span
+                    class="mb-2 block text-[10px] font-medium text-stone-500 dark:text-zinc-400"
+                  >
+                    模型
+                  </span>
+                  <input
+                    v-model="draft.model"
+                    type="text"
+                    spellcheck="false"
+                    aria-label="AI 模型"
+                    class="h-10 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[11px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
+                  />
+                  <span
+                    class="mt-1.5 block text-[9px] leading-4 text-stone-400 dark:text-zinc-500"
+                  >
+                    默认 deepseek-flash。需要更强推理时可改用 deepseek-v4-pro。
+                  </span>
+                </label>
+
+                <label class="block">
+                  <span
+                    class="mb-2 block text-[10px] font-medium text-stone-500 dark:text-zinc-400"
+                  >
+                    API 端点
+                  </span>
+                  <input
+                    v-model="draft.baseUrl"
+                    type="url"
+                    spellcheck="false"
+                    aria-label="API 端点"
+                    class="h-10 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[11px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
+                  />
+                  <span
+                    class="mt-1.5 block text-[9px] leading-4 text-stone-400 dark:text-zinc-500"
+                  >
+                    默认端点经同源代理转发。自定义第三方兼容地址时必须包含完整的
+                    Chat Completions 路径。
+                  </span>
+                </label>
+              </div>
+            </details>
 
             <div
               class="space-y-2 rounded-2xl border border-stone-200/75 bg-white/35 p-3 dark:border-white/[0.08] dark:bg-white/[0.02]"
@@ -442,6 +491,59 @@ onBeforeUnmount(() => {
   background: rgb(180 83 9 / 0.72);
 }
 
+.ai-advanced {
+  overflow: hidden;
+  border: 1px solid rgb(231 229 228 / 0.9);
+  border-radius: 0.9rem;
+  background: rgb(255 255 255 / 0.28);
+}
+
+.ai-advanced summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  font-size: 10px;
+  color: rgb(120 113 108);
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.ai-advanced summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-advanced summary:hover {
+  background: rgb(245 245 244 / 0.7);
+  color: rgb(68 64 60);
+}
+
+.ai-advanced summary svg {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ai-advanced[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.dark .ai-advanced {
+  border-color: rgb(255 255 255 / 0.08);
+  background: rgb(255 255 255 / 0.015);
+}
+
+.dark .ai-advanced summary {
+  color: rgb(161 161 170);
+}
+
+.dark .ai-advanced summary:hover {
+  background: rgb(255 255 255 / 0.035);
+  color: rgb(228 228 231);
+}
+
 .ai-settings-enter-active,
 .ai-settings-leave-active {
   transition: opacity 180ms ease;
@@ -471,7 +573,9 @@ onBeforeUnmount(() => {
   .ai-settings-enter-active section,
   .ai-settings-leave-active section,
   .ai-switch,
-  .ai-switch::after {
+  .ai-switch::after,
+  .ai-advanced summary,
+  .ai-advanced summary svg {
     transition: none;
   }
 }

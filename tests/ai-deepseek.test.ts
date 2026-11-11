@@ -106,6 +106,26 @@ describe('DeepSeek client', () => {
     ])
   })
 
+  it('turns an insufficient balance response into an actionable error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json(
+            { error: { message: 'Insufficient Balance' } },
+            { status: 402 },
+          ),
+        ),
+    )
+
+    await expect(
+      chatCompletion(config, [{ role: 'user', content: 'test' }]),
+    ).rejects.toMatchObject({
+      code: 'insufficient_balance',
+    })
+  })
+
   it('fails before making a request when the key is empty', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

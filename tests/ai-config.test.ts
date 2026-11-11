@@ -21,7 +21,7 @@ describe('AI configuration', () => {
     ).toEqual({
       apiKey: 'key-123',
       baseUrl: '/api/deepseek',
-      model: 'deepseek-chat',
+      model: 'deepseek-flash',
       enableWormhole: false,
       enableAutoTags: true,
     })
@@ -48,5 +48,20 @@ describe('AI configuration', () => {
   it('falls back safely when stored JSON is corrupt', () => {
     localStorage.setItem(AI_CONFIG_STORAGE_KEY, '{not-json')
     expect(loadAIConfig()).toEqual(DEFAULT_AI_CONFIG)
+  })
+
+  it('migrates the retired default model without overriding custom endpoints', () => {
+    expect(
+      normalizeAIConfig({
+        baseUrl: '/api/deepseek',
+        model: 'deepseek-chat',
+      }).model,
+    ).toBe('deepseek-flash')
+    expect(
+      normalizeAIConfig({
+        baseUrl: 'https://example.com/v1/chat/completions',
+        model: 'deepseek-chat',
+      }).model,
+    ).toBe('deepseek-chat')
   })
 })

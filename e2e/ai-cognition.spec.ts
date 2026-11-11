@@ -10,7 +10,7 @@ async function seedAIConfig(page: Page) {
         JSON.stringify({
           apiKey: 'test-deepseek-key',
           baseUrl: '/api/deepseek',
-          model: 'deepseek-chat',
+          model: 'deepseek-flash',
           enableWormhole: true,
           enableAutoTags: true,
         }),
@@ -39,6 +39,12 @@ test('AI settings validate connectivity and persist the local configuration', as
 
   const dialog = page.getByRole('dialog', { name: 'AI 认知辅助' })
   await expect(dialog).toBeVisible()
+  await expect(
+    dialog.getByRole('link', { name: '申请并充值' }),
+  ).toHaveAttribute('href', 'https://platform.deepseek.com/api_keys')
+  await expect(dialog.getByLabel('AI 模型')).toBeHidden()
+  await dialog.locator('summary').click()
+  await expect(dialog.getByLabel('AI 模型')).toHaveValue('deepseek-flash')
   await dialog.getByLabel('DeepSeek API Key').fill('test-ui-key')
   await dialog.getByRole('button', { name: '测试连接' }).click()
   await expect(dialog).toContainText('连接正常')

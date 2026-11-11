@@ -14,6 +14,7 @@ export interface AIMessage {
 export type AIErrorCode =
   | 'missing_key'
   | 'unauthorized'
+  | 'insufficient_balance'
   | 'rate_limited'
   | 'network'
   | 'timeout'

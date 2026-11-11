@@ -2,7 +2,8 @@ import type { AIConfig } from '../../types/ai'
 
 export const AI_CONFIG_STORAGE_KEY = 'card-canvas:deepseek-config'
 export const DEFAULT_AI_ENDPOINT = '/api/deepseek'
-export const DEFAULT_AI_MODEL = 'deepseek-chat'
+export const DEFAULT_AI_MODEL = 'deepseek-flash'
+export const DEEPSEEK_API_KEYS_URL = 'https://platform.deepseek.com/api_keys'
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
   apiKey: '',
@@ -47,17 +48,22 @@ function browserStorage() {
 
 export function normalizeAIConfig(value: unknown): AIConfig {
   const source = asRecord(value)
+  const baseUrl = normalizeEndpoint(source.baseUrl)
+  const sourceModel =
+    typeof source.model === 'string' ? source.model.trim().slice(0, 160) : ''
+  const model =
+    !sourceModel ||
+    (sourceModel === 'deepseek-chat' && baseUrl === DEFAULT_AI_ENDPOINT)
+      ? DEFAULT_AI_MODEL
+      : sourceModel
 
   return {
     apiKey:
       typeof source.apiKey === 'string'
         ? source.apiKey.trim().slice(0, 4096)
         : '',
-    baseUrl: normalizeEndpoint(source.baseUrl),
-    model:
-      typeof source.model === 'string' && source.model.trim()
-        ? source.model.trim().slice(0, 160)
-        : DEFAULT_AI_MODEL,
+    baseUrl,
+    model,
     enableWormhole: source.enableWormhole !== false,
     enableAutoTags: source.enableAutoTags !== false,
   }
