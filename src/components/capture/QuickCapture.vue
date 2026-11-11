@@ -745,13 +745,9 @@ watch(
       }
 
       await nextTick()
-      if (props.template === 'daily-todo') {
-        contentEl.value?.focus()
-        const end = content.value.length
-        contentEl.value?.setSelectionRange(end, end)
-      } else {
-        titleEl.value?.focus()
-      }
+      contentEl.value?.focus()
+      const end = content.value.length
+      contentEl.value?.setSelectionRange(end, end)
       return
     }
 

@@ -9,6 +9,7 @@ test('capture lands directly on the canvas and survives reload', async ({
   await page.keyboard.press('Control+k')
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
+  await expect(page.getByLabel('卡片正文')).toBeFocused()
   await page.getByLabel('卡片标题').fill('E2E 速记')
   await page.getByLabel('卡片正文').fill('捕获即上板，不再经过待整理池。')
   await page.getByLabel('添加标签').fill('E2E')
