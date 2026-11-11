@@ -568,7 +568,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.4.4 · Local-first
+              v1.4.5 · Local-first
             </p>
           </div>
 
@@ -696,7 +696,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.4.4</span>
+          <span>v1.4.5</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

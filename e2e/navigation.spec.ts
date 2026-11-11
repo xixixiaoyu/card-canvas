@@ -94,6 +94,7 @@ test('space drag pans without changing zoom after using the HUD', async ({
 }) => {
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
+  await expect(page.locator('.canvas-stage')).toHaveClass(/is-ready/)
 
   const zoom = page.locator('[aria-label^="当前缩放"]')
   const initialZoom = Number.parseInt((await zoom.textContent()) ?? '100', 10)
