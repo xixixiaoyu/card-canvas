@@ -79,6 +79,7 @@ async function save() {
 
 describe('QuickCapture', () => {
   beforeEach(async () => {
+    localStorage.clear()
     await db.delete()
     await db.open()
     document.body.innerHTML = ''
@@ -129,6 +130,23 @@ describe('QuickCapture', () => {
     open.value = true
     await nextTick()
     expect(field('input[aria-label="卡片标题"]').value).toBe('未保存草稿')
+  })
+
+  it('uses a neutral title instead of copying the first body line', async () => {
+    mountOpenCapture()
+    setField(
+      'textarea[aria-label="卡片正文"]',
+      '这是一段没有标题的长正文，不应该整段变成卡片标题。',
+    )
+
+    await save()
+    await vi.waitFor(async () => {
+      expect(await db.cards.count()).toBe(1)
+    })
+
+    const [card] = await db.cards.toArray()
+    expect(card.title).toBe('未命名卡片')
+    expect(card.content).toContain('不应该整段变成卡片标题')
   })
 
   it('restores the draft and reopens when the IndexedDB write fails', async () => {

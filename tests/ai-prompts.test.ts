@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildConnectionRadarPrompt,
   buildTagPrompt,
+  buildTitlePrompt,
   parseConnectionLabel,
+  parseGeneratedTitle,
   parseRadarSuggestions,
   parseTagSuggestions,
 } from '../src/lib/ai/prompts'
@@ -34,6 +36,19 @@ describe('AI prompts and model output cleaning', () => {
       '心理学/防御机制',
     ])
     expect(prompt).toContain('当前标签体系：心理学/防御机制\n')
+  })
+
+  it('builds a title prompt and cleans generated card titles', () => {
+    const prompt = buildTitlePrompt('真正的和解不是表演强大。'.repeat(100))
+    expect(prompt).toContain('概括正文的核心命题')
+    expect(prompt.length).toBeLessThan(1500)
+    expect(parseGeneratedTitle('标题：**允许脆弱成为和解的入口。**')).toBe(
+      '允许脆弱成为和解的入口',
+    )
+    expect(parseGeneratedTitle('“不要懂事与重新被看见”')).toBe(
+      '不要懂事与重新被看见',
+    )
+    expect(parseGeneratedTitle('一'.repeat(50))).toHaveLength(28)
   })
 
   it('cleans and limits labels and tag suggestions', () => {

@@ -115,3 +115,37 @@ test('slash commands insert list and task syntax', async ({ page }) => {
   await page.keyboard.press('Enter')
   await expect(content).toHaveValue('1. ')
 })
+
+test('clicking the capture backdrop never discards a non-empty draft', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+  await page.keyboard.press('Control+k')
+
+  const dialog = page.locator('[data-quick-capture]')
+  const panel = dialog.locator('.capture-panel')
+  const title = page.getByLabel('卡片标题')
+  const content = page.getByLabel('卡片正文')
+  const panelBox = await panel.boundingBox()
+  expect(panelBox).not.toBeNull()
+  expect(panelBox!.width).toBeGreaterThan(700)
+  expect((await content.boundingBox())!.height).toBeGreaterThan(190)
+  expect(Math.abs(panelBox!.y + panelBox!.height / 2 - 450)).toBeLessThan(24)
+
+  await title.fill('不要丢掉我')
+  await content.fill('正在整理的一段想法')
+
+  await dialog.click({ position: { x: 8, y: 8 } })
+  await expect(dialog).toBeVisible()
+  await expect(title).toHaveValue('不要丢掉我')
+  await expect(content).toHaveValue('正在整理的一段想法')
+  await expect(content).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await page.keyboard.press('Control+k')
+  await expect(title).toHaveValue('不要丢掉我')
+  await expect(content).toHaveValue('正在整理的一段想法')
+})

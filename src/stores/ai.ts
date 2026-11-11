@@ -19,6 +19,9 @@ export const useAIStore = defineStore('ai', () => {
   const autoTagsEnabled = computed(
     () => hasKey.value && config.value.enableAutoTags,
   )
+  const autoTitleEnabled = computed(
+    () => hasKey.value && config.value.enableAutoTitle,
+  )
 
   function save(next: AIConfig) {
     config.value = saveAIConfig(normalizeAIConfig(next))
@@ -38,6 +41,7 @@ export const useAIStore = defineStore('ai', () => {
     hasKey,
     wormholeEnabled,
     autoTagsEnabled,
+    autoTitleEnabled,
     save,
     clearKey,
     reset,

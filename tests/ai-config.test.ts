@@ -24,6 +24,7 @@ describe('AI configuration', () => {
       model: 'deepseek-flash',
       enableWormhole: false,
       enableAutoTags: true,
+      enableAutoTitle: true,
     })
     expect(normalizeAIConfig(null)).toEqual(DEFAULT_AI_CONFIG)
   })

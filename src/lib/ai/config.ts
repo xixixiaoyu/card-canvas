@@ -11,6 +11,7 @@ export const DEFAULT_AI_CONFIG: AIConfig = {
   model: DEFAULT_AI_MODEL,
   enableWormhole: true,
   enableAutoTags: true,
+  enableAutoTitle: true,
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -66,6 +67,7 @@ export function normalizeAIConfig(value: unknown): AIConfig {
     model,
     enableWormhole: source.enableWormhole !== false,
     enableAutoTags: source.enableAutoTags !== false,
+    enableAutoTitle: source.enableAutoTitle !== false,
   }
 }
 

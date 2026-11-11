@@ -4,6 +4,7 @@ export interface AIConfig {
   model: string
   enableWormhole: boolean
   enableAutoTags: boolean
+  enableAutoTitle: boolean
 }
 
 export interface AIMessage {

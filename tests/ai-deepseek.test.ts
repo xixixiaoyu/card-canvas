@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AIClientError,
   chatCompletion,
+  inferTitle,
   inferTags,
 } from '../src/lib/ai/deepseek'
 import { DEFAULT_AI_CONFIG } from '../src/lib/ai/config'
@@ -131,6 +132,27 @@ describe('DeepSeek client', () => {
       '心理学/防御机制',
       '声乐/共鸣',
     ])
+  })
+
+  it('parses a generated title from a normal response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: '标题：允许脆弱成为和解的入口。',
+              },
+            },
+          ],
+        }),
+      ),
+    )
+
+    await expect(inferTitle(config, 'prompt', 'system')).resolves.toBe(
+      '允许脆弱成为和解的入口',
+    )
   })
 
   it('turns an insufficient balance response into an actionable error', async () => {

@@ -13,6 +13,7 @@ async function seedAIConfig(page: Page) {
           model: 'deepseek-flash',
           enableWormhole: true,
           enableAutoTags: true,
+          enableAutoTitle: true,
         }),
       )
     },
@@ -222,4 +223,68 @@ test('capture can request tag suggestions before saving', async ({ page }) => {
       .filter({ hasText: '共鸣位置' })
       .locator('[data-filter-tag="声乐/共鸣"]'),
   ).toBeVisible()
+})
+
+test('background AI replaces the neutral title without delaying capture', async ({
+  page,
+}) => {
+  await seedAIConfig(page)
+  await page.route('**/api/deepseek', async (route) => {
+    const request = route.request().postDataJSON() as {
+      messages?: Array<{ role?: string; content?: string }>
+    }
+    const system = request.messages?.[0]?.content ?? ''
+    const content = system.includes('标题编辑')
+      ? '允许脆弱成为和解的入口'
+      : '心理学/自我关系'
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [{ message: { content } }],
+      }),
+    })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: '打开速记' }).click()
+  const dialog = page.locator('[data-quick-capture]')
+  await dialog
+    .getByLabel('卡片正文')
+    .fill('真正的和解不是表演强大，而是允许脆弱重新被看见。')
+  await page.keyboard.press('Control+Enter')
+  await expect(dialog).toBeHidden()
+
+  const card = page
+    .locator('[data-world-item]')
+    .filter({ hasText: '真正的和解不是表演强大' })
+  await expect(card.locator('h2')).toHaveText('允许脆弱成为和解的入口', {
+    timeout: 8_000,
+  })
+  await expect(card).toContainText('真正的和解不是表演强大')
+
+  await page.reload()
+  await expect(
+    page
+      .locator('[data-world-item]')
+      .filter({ hasText: '真正的和解不是表演强大' })
+      .locator('h2'),
+  ).toHaveText('允许脆弱成为和解的入口')
+})
+
+test('capture uses a neutral title when AI is not configured', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '打开速记' }).click()
+  await page
+    .getByLabel('卡片正文')
+    .fill('没有标题时也不要直接把正文前半句拿来充当标题。')
+  await page.keyboard.press('Control+Enter')
+
+  const card = page
+    .locator('[data-world-item]')
+    .filter({ hasText: '没有标题时' })
+  await expect(card.locator('h2')).toHaveText('未命名卡片')
 })

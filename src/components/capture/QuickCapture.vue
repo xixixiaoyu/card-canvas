@@ -19,8 +19,13 @@ import {
   Sparkles,
   X,
 } from '@lucide/vue'
-import { buildTagPrompt, TAGS_SYSTEM_PROMPT } from '../../lib/ai/prompts'
-import { inferTags } from '../../lib/ai/deepseek'
+import {
+  buildTagPrompt,
+  buildTitlePrompt,
+  TAGS_SYSTEM_PROMPT,
+  TITLE_SYSTEM_PROMPT,
+} from '../../lib/ai/prompts'
+import { inferTags, inferTitle } from '../../lib/ai/deepseek'
 import {
   mergeTags,
   normalizeTags,
@@ -41,6 +46,8 @@ import { useAIStore } from '../../stores/ai'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
 import type { Card } from '../../types'
+
+const UNTITLED_CARD_TITLE = '未命名卡片'
 
 const props = defineProps<{
   open: boolean
@@ -70,6 +77,13 @@ const slashQuery = ref<string | null>(null)
 const slashStart = ref(0)
 const slashSelected = ref(0)
 const suggestingTags = ref(false)
+
+interface CaptureDraft {
+  title: string
+  content: string
+  tags: string[]
+  tagDraft: string
+}
 
 interface SlashCommand {
   label: string
@@ -118,10 +132,10 @@ const filteredSlashCommands = computed(() => {
 let restoreFocus: HTMLElement | null = null
 let restoreFocusAfterClose = false
 let saveAttempt = 0
-let lastMode: 'capture' | 'edit' = 'capture'
 let suppressModeSync = false
 let tagSuggestionController: AbortController | null = null
 const autoTagControllers = new Set<AbortController>()
+const draftsByBoard = new Map<string, CaptureDraft>()
 
 const canSave = computed(
   () => Boolean(title.value.trim()) || Boolean(content.value.trim()),
@@ -314,6 +328,65 @@ async function generateTagSuggestions() {
   }
 }
 
+async function autoTitleCapturedCard(
+  card: Card,
+  sourceContent: string,
+): Promise<Card> {
+  if (
+    !ai.autoTitleEnabled ||
+    !sourceContent ||
+    card.title !== UNTITLED_CARD_TITLE
+  ) {
+    return card
+  }
+
+  const controller = new AbortController()
+  autoTagControllers.add(controller)
+
+  try {
+    const generated = await inferTitle(
+      ai.config,
+      buildTitlePrompt(sourceContent),
+      TITLE_SYSTEM_PROMPT,
+      controller.signal,
+    )
+    if (
+      !generated ||
+      generated === UNTITLED_CARD_TITLE ||
+      controller.signal.aborted
+    ) {
+      return card
+    }
+
+    const current = board.cards.find(
+      (entry) => entry.id === card.id && !entry.isDeleted,
+    )
+    if (
+      !current ||
+      current.title !== UNTITLED_CARD_TITLE ||
+      current.content !== sourceContent
+    ) {
+      return current ?? card
+    }
+
+    return (
+      (await board.updateCard(
+        current.id,
+        {
+          title: generated,
+          content: current.content,
+          tags: current.tags,
+        },
+        'AI 生成标题',
+      )) ?? current
+    )
+  } catch {
+    return card
+  } finally {
+    autoTagControllers.delete(controller)
+  }
+}
+
 async function autoTagCapturedCard(card: Card, tagContext: string[]) {
   if (!ai.autoTagsEnabled || card.tags.length) return
 
@@ -382,9 +455,57 @@ function reset() {
   closeSlashMenu()
 }
 
+function hasDraftContent() {
+  return Boolean(
+    content.value.trim() || tags.value.length || tagDraft.value.trim(),
+  )
+}
+
+function rememberDraft() {
+  const boardId = props.boardId || 'board-main'
+  if (!canSave.value && !hasDraftContent()) {
+    draftsByBoard.delete(boardId)
+    return
+  }
+
+  draftsByBoard.set(boardId, {
+    title: title.value,
+    content: content.value,
+    tags: [...tags.value],
+    tagDraft: tagDraft.value,
+  })
+}
+
+function restoreDraft(boardId: string) {
+  const draft = draftsByBoard.get(boardId)
+  if (!draft) {
+    reset()
+    return
+  }
+
+  title.value = draft.title
+  content.value = draft.content
+  tags.value = [...draft.tags]
+  tagDraft.value = draft.tagDraft
+  closeSlashMenu()
+}
+
 function close(returnFocus = false) {
+  if (!props.card && props.template !== 'daily-todo' && !suppressModeSync) {
+    rememberDraft()
+  }
   restoreFocusAfterClose = returnFocus
   emit('update:open', false)
+}
+
+function handleBackdropClick() {
+  if (canSave.value || tags.value.length || tagDraft.value.trim()) {
+    if (content.value.trim()) contentEl.value?.focus()
+    else titleEl.value?.focus()
+    return
+  }
+
+  close()
 }
 
 /**
@@ -467,7 +588,8 @@ function save() {
       .split('\n')
       .map((line) => line.trim())
       .find(Boolean) ?? ''
-  const resolvedTitle = rawTitle || firstLine.slice(0, 48) || '未命名卡片'
+  const resolvedTitle = rawTitle || UNTITLED_CARD_TITLE
+  const needsAutoTitle = !rawTitle && Boolean(firstLine)
 
   const uniqueTags = mergeTags(
     tags.value,
@@ -520,8 +642,12 @@ function save() {
 
   void board
     .captureAndPlace(draft, props.boardId || 'board-main', placement)
-    .then(({ card }) => {
-      if (!draft.tags.length) void autoTagCapturedCard(card, tagContext)
+    .then(async ({ card }) => {
+      const enriched =
+        needsAutoTitle && ai.autoTitleEnabled
+          ? await autoTitleCapturedCard(card, rawContent)
+          : card
+      if (!draft.tags.length) void autoTagCapturedCard(enriched, tagContext)
     })
     .catch(restoreAfterFailure)
 }
@@ -604,21 +730,18 @@ watch(
       if (suppressModeSync) {
         suppressModeSync = false
       } else if (props.template === 'daily-todo') {
-        lastMode = 'capture'
         title.value = formatDailyTodoTitle()
         content.value = DAILY_TODO_CONTENT
         tags.value = [DAILY_TODO_TAG]
         tagDraft.value = ''
         closeSlashMenu()
       } else if (props.card) {
-        lastMode = 'edit'
         title.value = props.card.title
         content.value = props.card.content
         tags.value = [...props.card.tags]
         tagDraft.value = ''
-      } else if (lastMode === 'edit') {
-        lastMode = 'capture'
-        reset()
+      } else {
+        restoreDraft(props.boardId || 'board-main')
       }
 
       await nextTick()
@@ -656,17 +779,17 @@ onBeforeUnmount(() => {
     <Transition name="capture">
       <div
         v-if="open"
-        class="capture-backdrop fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-stone-950/20 px-4 pb-10 pt-[9vh] backdrop-blur-[3px] dark:bg-black/60"
+        class="capture-backdrop fixed inset-0 z-[80] flex justify-center overflow-y-auto bg-stone-950/20 px-4 backdrop-blur-[3px] dark:bg-black/60"
         data-canvas-ui
         data-quick-capture
-        @click.self="close()"
+        @click.self="handleBackdropClick"
       >
         <section
           ref="panelEl"
           role="dialog"
           aria-modal="true"
           aria-labelledby="quick-capture-heading"
-          class="capture-panel relative w-full max-w-[620px] overflow-hidden rounded-[26px] border border-stone-200/80 bg-[#fdfbf7]/[0.97] shadow-[0_40px_120px_-40px_rgba(41,37,36,0.45),0_2px_8px_rgba(41,37,36,0.06)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-900/[0.94] dark:shadow-[0_50px_140px_-40px_rgba(0,0,0,0.9)]"
+          class="capture-panel relative flex max-h-[calc(100dvh-2rem)] w-full max-w-[760px] flex-col overflow-hidden rounded-[28px] border border-stone-200/80 bg-[#fdfbf7]/[0.97] shadow-[0_40px_120px_-40px_rgba(41,37,36,0.45),0_2px_8px_rgba(41,37,36,0.06)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-900/[0.94] dark:shadow-[0_50px_140px_-40px_rgba(0,0,0,0.9)]"
           @click.stop
         >
           <div
@@ -675,7 +798,7 @@ onBeforeUnmount(() => {
           />
 
           <header
-            class="flex items-center justify-between gap-4 border-b border-stone-200/70 px-6 py-4 dark:border-white/[0.08]"
+            class="flex flex-none items-center justify-between gap-4 border-b border-stone-200/70 px-6 py-4 sm:px-7 dark:border-white/[0.08]"
           >
             <div class="flex items-center gap-3">
               <span
@@ -712,7 +835,7 @@ onBeforeUnmount(() => {
             </button>
           </header>
 
-          <div class="px-6 pb-5 pt-5">
+          <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-5 sm:px-7">
             <input
               ref="titleEl"
               v-model="title"
@@ -734,7 +857,7 @@ onBeforeUnmount(() => {
               <textarea
                 ref="contentEl"
                 v-model="content"
-                rows="5"
+                rows="8"
                 autocomplete="off"
                 name="card-canvas-card-content"
                 data-form-type="other"
@@ -748,7 +871,7 @@ onBeforeUnmount(() => {
                   isSlashMenuOpen ? 'quick-capture-slash-menu' : undefined
                 "
                 :aria-expanded="isSlashMenuOpen"
-                class="w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-[1.85] text-stone-700 caret-amber-600 outline-none placeholder:text-stone-400/90 dark:text-zinc-300 dark:caret-amber-400 dark:placeholder:text-zinc-600"
+                class="min-h-[13rem] w-full resize-none border-0 bg-transparent p-0 text-[0.9375rem] leading-[1.85] text-stone-700 caret-amber-600 outline-none placeholder:text-stone-400/90 dark:text-zinc-300 dark:caret-amber-400 dark:placeholder:text-zinc-600"
                 @input="updateSlashMenu"
                 @keydown="handleContentKeydown"
                 @click="updateSlashMenu"
@@ -885,7 +1008,7 @@ onBeforeUnmount(() => {
           </div>
 
           <footer
-            class="flex flex-wrap items-center justify-between gap-3 border-t border-stone-200/70 px-6 py-3.5 dark:border-white/[0.08]"
+            class="flex flex-none flex-wrap items-center justify-between gap-3 border-t border-stone-200/70 px-6 py-3.5 sm:px-7 dark:border-white/[0.08]"
           >
             <div
               class="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-400 dark:text-zinc-500"
@@ -930,6 +1053,20 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.capture-backdrop {
+  align-items: flex-start;
+  padding-top: max(1rem, env(safe-area-inset-top, 0px));
+  padding-bottom: max(2.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 640px) and (min-height: 680px) {
+  .capture-backdrop {
+    align-items: center;
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+  }
+}
+
 .capture-enter-active,
 .capture-leave-active {
   transition: opacity 180ms ease;

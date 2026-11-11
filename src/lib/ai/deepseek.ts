@@ -4,7 +4,7 @@ import type {
   AIErrorCode,
   AIMessage,
 } from '../../types/ai'
-import { parseTagSuggestions } from './prompts'
+import { parseGeneratedTitle, parseTagSuggestions } from './prompts'
 
 interface DeepSeekChoice {
   message?: { content?: unknown; reasoning_content?: unknown }
@@ -294,4 +294,21 @@ export async function inferTags(
     { maxTokens: 80, temperature: 0.1, timeoutMs: 15_000, signal },
   )
   return parseTagSuggestions(raw)
+}
+
+export async function inferTitle(
+  config: AIConfig,
+  prompt: string,
+  systemPrompt: string,
+  signal?: AbortSignal,
+) {
+  const raw = await chatCompletion(
+    config,
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt },
+    ],
+    { maxTokens: 80, temperature: 0.2, timeoutMs: 15_000, signal },
+  )
+  return parseGeneratedTitle(raw)
 }

@@ -396,6 +396,30 @@ onBeforeUnmount(() => {
                   class="ai-switch"
                 />
               </label>
+
+              <label
+                class="flex cursor-pointer items-center justify-between gap-4 rounded-xl px-2 py-1.5"
+              >
+                <span>
+                  <span
+                    class="block text-[13px] text-stone-700 dark:text-zinc-200"
+                  >
+                    标题为空时自动生成
+                  </span>
+                  <span
+                    class="mt-1 block text-[11px] leading-5 text-stone-400 dark:text-zinc-500"
+                  >
+                    上板不等待网络，标题由 AI 在后台补齐
+                  </span>
+                </span>
+                <input
+                  v-model="draft.enableAutoTitle"
+                  type="checkbox"
+                  role="switch"
+                  aria-label="标题为空时自动生成"
+                  class="ai-switch"
+                />
+              </label>
             </div>
 
             <div
