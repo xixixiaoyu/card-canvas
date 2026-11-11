@@ -14,9 +14,13 @@ import {
   List,
   ListOrdered,
   ListTodo,
+  LoaderCircle,
   PenLine,
+  Sparkles,
   X,
 } from '@lucide/vue'
+import { buildTagPrompt, TAGS_SYSTEM_PROMPT } from '../../lib/ai/prompts'
+import { inferTags } from '../../lib/ai/deepseek'
 import {
   mergeTags,
   normalizeTags,
@@ -27,6 +31,7 @@ import {
 import { chooseCapturePlacement } from '../../lib/capture-placement'
 import { getItemRect } from '../../lib/card-metrics'
 import type { CanvasCamera } from '../../composables/useCanvas'
+import { useAIStore } from '../../stores/ai'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
 import type { Card } from '../../types'
@@ -44,6 +49,7 @@ const emit = defineEmits<{
 
 const board = useBoardStore()
 const toast = useToastStore()
+const ai = useAIStore()
 
 const title = ref('')
 const content = ref('')
@@ -56,6 +62,7 @@ const panelEl = ref<HTMLElement | null>(null)
 const slashQuery = ref<string | null>(null)
 const slashStart = ref(0)
 const slashSelected = ref(0)
+const suggestingTags = ref(false)
 
 interface SlashCommand {
   label: string
@@ -105,6 +112,8 @@ let restoreFocus: HTMLElement | null = null
 let saveAttempt = 0
 let lastMode: 'capture' | 'edit' = 'capture'
 let suppressModeSync = false
+let tagSuggestionController: AbortController | null = null
+const autoTagControllers = new Set<AbortController>()
 
 const canSave = computed(
   () => Boolean(title.value.trim()) || Boolean(content.value.trim()),
@@ -209,6 +218,95 @@ function addTagsFromDraft() {
 
 function removeTag(tag: string) {
   tags.value = tags.value.filter((entry) => entry !== tag)
+}
+
+function existingBoardTags() {
+  return board.entries.flatMap((entry) => entry.card.tags)
+}
+
+async function generateTagSuggestions() {
+  if (
+    suggestingTags.value ||
+    !ai.hasKey ||
+    (!title.value.trim() && !content.value.trim())
+  ) {
+    return
+  }
+
+  tagSuggestionController?.abort()
+  const controller = new AbortController()
+  tagSuggestionController = controller
+  suggestingTags.value = true
+
+  try {
+    const suggestions = await inferTags(
+      ai.config,
+      buildTagPrompt(title.value, content.value, existingBoardTags()),
+      TAGS_SYSTEM_PROMPT,
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+
+    if (!suggestions.length) {
+      toast.push('这次没有找到稳定的层级标签。', {
+        tone: 'info',
+        timeout: 2200,
+      })
+      return
+    }
+
+    suggestions.forEach(addTag)
+  } catch (cause) {
+    if (controller.signal.aborted) return
+    toast.push(
+      cause instanceof Error ? cause.message : '标签建议暂时不可用。',
+      { tone: 'error', timeout: 4200 },
+    )
+  } finally {
+    if (tagSuggestionController === controller) {
+      tagSuggestionController = null
+      suggestingTags.value = false
+    }
+  }
+}
+
+async function autoTagCapturedCard(card: Card, tagContext: string[]) {
+  if (!ai.autoTagsEnabled || card.tags.length) return
+
+  const controller = new AbortController()
+  autoTagControllers.add(controller)
+
+  try {
+    const suggestions = await inferTags(
+      ai.config,
+      buildTagPrompt(card.title, card.content, tagContext),
+      TAGS_SYSTEM_PROMPT,
+      controller.signal,
+    )
+    if (!suggestions.length || controller.signal.aborted) return
+
+    const current = board.cards.find(
+      (entry) => entry.id === card.id && !entry.isDeleted,
+    )
+    if (!current) return
+
+    const nextTags = mergeTags(current.tags, suggestions)
+    if (nextTags.length === current.tags.length) return
+
+    await board.updateCard(
+      current.id,
+      {
+        title: current.title,
+        content: current.content,
+        tags: nextTags,
+      },
+      'AI 补充标签',
+    )
+  } catch {
+    // Background enrichment stays silent when offline or rate-limited.
+  } finally {
+    autoTagControllers.delete(controller)
+  }
 }
 
 function handleTagKeydown(event: KeyboardEvent) {
@@ -333,6 +431,7 @@ function save() {
     content: rawContent,
     tags: uniqueTags,
   }
+  const tagContext = existingBoardTags()
   const attempt = ++saveAttempt
   const editingCard = props.card
   const placement = buildPlacement()
@@ -362,14 +461,20 @@ function save() {
   }
 
   if (editingCard) {
-    void board.updateCard(editingCard.id, draft).then(() => {
+    void board.updateCard(editingCard.id, draft).then((updated) => {
       toast.push('卡片已更新。', { tone: 'success', timeout: 2200 })
+      if (updated && !draft.tags.length) {
+        void autoTagCapturedCard(updated, tagContext)
+      }
     }, restoreAfterFailure)
     return
   }
 
   void board
     .captureAndPlace(draft, props.boardId || 'board-main', placement)
+    .then(({ card }) => {
+      if (!draft.tags.length) void autoTagCapturedCard(card, tagContext)
+    })
     .catch(restoreAfterFailure)
 }
 
@@ -426,6 +531,7 @@ function handleWindowKeydown(event: KeyboardEvent) {
     // The modal owns Escape; stop the app-level handler from also reacting to
     // the same keystroke.
     event.stopImmediatePropagation()
+    tagSuggestionController?.abort()
     close()
     return
   }
@@ -464,6 +570,9 @@ watch(
       return
     }
 
+    tagSuggestionController?.abort()
+    tagSuggestionController = null
+    suggestingTags.value = false
     setBackgroundInert(false)
     restoreFocus?.focus()
     restoreFocus = null
@@ -472,6 +581,8 @@ watch(
 
 onMounted(() => window.addEventListener('keydown', handleWindowKeydown))
 onBeforeUnmount(() => {
+  tagSuggestionController?.abort()
+  autoTagControllers.forEach((controller) => controller.abort())
   window.removeEventListener('keydown', handleWindowKeydown)
   setBackgroundInert(false)
 })
@@ -662,6 +773,33 @@ onBeforeUnmount(() => {
                   @blur="addTagsFromDraft"
                 />
               </label>
+
+              <button
+                v-if="ai.hasKey"
+                type="button"
+                class="inline-flex h-8 items-center gap-1.5 rounded-full border border-amber-700/15 bg-amber-500/[0.065] px-2.5 text-[10px] text-amber-800 transition-[background-color,border-color,opacity] hover:border-amber-700/25 hover:bg-amber-500/[0.11] disabled:cursor-not-allowed disabled:opacity-40 dark:border-amber-200/15 dark:bg-amber-200/[0.045] dark:text-amber-200/90 dark:hover:border-amber-200/25 dark:hover:bg-amber-200/[0.075]"
+                :disabled="suggestingTags || !canSave"
+                :aria-busy="suggestingTags"
+                aria-label="AI 推荐标签"
+                title="AI 推荐层级标签"
+                data-ai-tag-suggest
+                @click="generateTagSuggestions"
+              >
+                <LoaderCircle
+                  v-if="suggestingTags"
+                  :size="12"
+                  :stroke-width="1.8"
+                  class="animate-spin"
+                  aria-hidden="true"
+                />
+                <Sparkles
+                  v-else
+                  :size="12"
+                  :stroke-width="1.7"
+                  aria-hidden="true"
+                />
+                <span class="hidden sm:inline">建议</span>
+              </button>
             </div>
           </div>
 

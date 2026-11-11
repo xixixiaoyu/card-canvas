@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { Database, Download, Upload } from '@lucide/vue'
+import { Database, Download, Sparkles, Upload } from '@lucide/vue'
 import { downloadBackup, importBackupFile } from '../../lib/backup'
 import { broadcastWorkspaceChange } from '../../lib/tab-sync'
 import { useBoardStore } from '../../stores/board'
@@ -10,6 +10,9 @@ import { useWorkspaceStore } from '../../stores/workspace'
 const board = useBoardStore()
 const workspace = useWorkspaceStore()
 const toast = useToastStore()
+const emit = defineEmits<{
+  'open-ai-settings': []
+}>()
 
 const rootEl = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -22,6 +25,11 @@ function close() {
 
 function toggle() {
   open.value = !open.value
+}
+
+function openAISettings() {
+  close()
+  emit('open-ai-settings')
 }
 
 function handlePointerDown(event: PointerEvent) {
@@ -141,6 +149,21 @@ onBeforeUnmount(() => {
         <div class="flex flex-col p-1.5">
           <button
             type="button"
+            class="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[11px] text-stone-600 transition-colors hover:bg-amber-50/80 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-amber-200/[0.055] dark:hover:text-zinc-100"
+            role="menuitem"
+            @click="openAISettings"
+          >
+            <Sparkles :size="13" :stroke-width="1.7" aria-hidden="true" />
+            AI 认知辅助
+            <span
+              class="ml-auto font-mono text-[8px] uppercase tracking-[0.12em] text-amber-700/55 dark:text-amber-200/45"
+            >
+              BYOK
+            </span>
+          </button>
+
+          <button
+            type="button"
             class="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[11px] text-stone-600 transition-colors hover:bg-stone-100/70 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-white/[0.04] dark:hover:text-zinc-100"
             role="menuitem"
             @click="handleExport"
@@ -178,7 +201,7 @@ onBeforeUnmount(() => {
         <p
           class="border-t border-stone-200/70 px-3.5 py-2 font-mono text-[8px] uppercase tracking-[0.14em] text-stone-400 dark:border-white/[0.08] dark:text-zinc-600"
         >
-          Cards · Wires · Boards · v1.4.8
+          Cards · Wires · Boards · AI · v1.5.0
         </p>
       </div>
     </Transition>

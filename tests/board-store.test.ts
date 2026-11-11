@@ -393,6 +393,28 @@ describe('board store', () => {
     expect(useToastStore().toasts[0].tone).toBe('info')
   })
 
+  it('creates a labelled connection as one undoable mutation', async () => {
+    const board = await freshBoard()
+    const cardA = board.cards[0]
+    const cardB = board.cards[1]
+
+    const connection = await board.createConnection(
+      cardA.id,
+      cardB.id,
+      '  共享  底层节律  ',
+    )
+    expect(connection?.label).toBe('共享 底层节律')
+    expect(await db.connections.get(connection!.id)).toMatchObject({
+      label: '共享 底层节律',
+    })
+    expect(board.undoLabel).toBe('建立连线')
+
+    await board.undo()
+    expect(board.connections).toHaveLength(0)
+    await board.redo()
+    expect(board.connections[0].label).toBe('共享 底层节律')
+  })
+
   it('deletes a connection and restores it with undo/redo', async () => {
     const board = await freshBoard()
     const connection = await board.createConnection(

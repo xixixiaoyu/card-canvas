@@ -18,6 +18,7 @@ import SpotlightSearch from './components/canvas/SpotlightSearch.vue'
 import CloudAccount from './components/auth/CloudAccount.vue'
 import BoardSwitcher from './components/board/BoardSwitcher.vue'
 import QuickCapture from './components/capture/QuickCapture.vue'
+import AISettingsModal from './components/ui/AISettingsModal.vue'
 import DataMenu from './components/ui/DataMenu.vue'
 import ToastStack from './components/ui/ToastStack.vue'
 import { useTheme } from './composables/useTheme'
@@ -46,6 +47,7 @@ const isCaptureOpen = ref(false)
 const isSpotlightOpen = ref(false)
 const isShortcutOpen = ref(false)
 const isActionTrayOpen = ref(false)
+const isAISettingsOpen = ref(false)
 const editingCard = ref<Card | null>(null)
 const stageReady = ref(false)
 const pendingTeleport = ref<SpotlightTarget | null>(null)
@@ -578,7 +580,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.4.8 · Local-first
+              v1.5.0 · Local-first
             </p>
           </div>
 
@@ -655,7 +657,7 @@ onBeforeUnmount(() => {
             @toggle="board.toggleCardTask($event.cardId, $event.lineIndex)"
           />
           <CloudAccount />
-          <DataMenu />
+          <DataMenu @open-ai-settings="isAISettingsOpen = true" />
 
           <button
             type="button"
@@ -715,7 +717,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.4.8</span>
+          <span>v1.5.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">
@@ -806,6 +808,8 @@ onBeforeUnmount(() => {
   />
 
   <ShortcutModal v-model:open="isShortcutOpen" />
+
+  <AISettingsModal v-model:open="isAISettingsOpen" />
 
   <Transition name="account-lock">
     <div

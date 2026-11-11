@@ -988,6 +988,7 @@ export const useBoardStore = defineStore('board', () => {
   async function createConnection(
     fromCardId: string,
     toCardId: string,
+    label?: string,
   ): Promise<Connection | null> {
     const boardId = activeBoardId.value
     if (!boardId) return null
@@ -1015,6 +1016,8 @@ export const useBoardStore = defineStore('board', () => {
       fromCardId,
       toCardId,
     }
+    const normalizedLabel = label?.replace(/\s+/g, ' ').trim()
+    if (normalizedLabel) connection.label = normalizedLabel
     const snapshot = plainRecord(connection)
 
     replaceLocalConnection(connection)
