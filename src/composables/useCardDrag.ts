@@ -25,8 +25,8 @@ export interface UseCardDragOptions {
   ignoreSelector?: string
   onSelect?: (event: PointerEvent) => void
   onClick?: (event: PointerEvent) => void
-  onCommit?: (position: CardDragPosition) => void
-  onCommitGroup?: (positions: CardDragCommit[]) => void
+  onCommit?: (position: CardDragPosition) => void | Promise<unknown>
+  onCommitGroup?: (positions: CardDragCommit[]) => void | Promise<unknown>
 }
 
 export interface UseCardDragReturn {
@@ -37,6 +37,10 @@ export interface UseCardDragReturn {
 }
 
 const DRAG_THRESHOLD = 3
+
+function nextAnimationFrame() {
+  return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+}
 
 interface DragGroupCard {
   id: string
@@ -230,12 +234,23 @@ export function useCardDrag(options: UseCardDragOptions): UseCardDragReturn {
     isDragging.value = false
 
     try {
+      let commit: void | Promise<unknown> = undefined
       if (positions.length > 1) {
-        options.onCommitGroup?.(positions)
+        commit = options.onCommitGroup?.(positions)
       } else if (positions[0]) {
-        options.onCommit?.({ x: positions[0].x, y: positions[0].y })
+        commit = options.onCommit?.({
+          x: positions[0].x,
+          y: positions[0].y,
+        })
       }
+
+      // The callback updates left/top synchronously. Flush that render and
+      // remove the temporary transform before the browser paints, then let
+      // persistence finish without keeping the card visually doubled.
       await nextTick()
+      clearGroupTransforms()
+      await commit
+      await nextAnimationFrame()
     } finally {
       clearGroupTransforms()
       emitGroupEnd()

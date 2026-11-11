@@ -39,7 +39,7 @@ export function localRecordToRemote(
     id: entry.recordId,
     user_id: userId,
     updated_at: entry.updatedAt,
-    is_deleted: entry.operation === 'delete',
+    is_deleted: entry.operation === 'delete' || source.isDeleted === true,
     sync_client_id: clientId,
   }
 
@@ -144,6 +144,20 @@ export function isRemoteTombstone(row: RemoteRow) {
 
 export function remoteUpdatedAt(row: RemoteRow) {
   return numberOr(row.updated_at)
+}
+
+/**
+ * Local state wins timestamp ties. This prevents an already-observed remote
+ * row from undoing a local soft delete before its outbox entry is uploaded.
+ */
+export function shouldAcceptRemoteRevision(
+  remoteTime: number,
+  localTime?: number,
+  queuedTime?: number,
+) {
+  if (queuedTime !== undefined && queuedTime >= remoteTime) return false
+  if (localTime !== undefined && localTime >= remoteTime) return false
+  return true
 }
 
 export function operationForRow(row: RemoteRow): SyncOperation {

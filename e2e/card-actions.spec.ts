@@ -69,3 +69,22 @@ test('double-click edits the card without stealing text selection', async ({
   )
   expect(selectedText?.trim().length).toBeGreaterThan(0)
 })
+
+test('a deleted card stays deleted after refresh', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  const card = page.locator('[data-world-item]').first()
+  const title = (await card.locator('h2').textContent())?.trim()
+  expect(title).toBeTruthy()
+
+  await card.hover()
+  await card.getByRole('button', { name: '删除卡片' }).click()
+  await expect(page.locator('[data-world-item]')).toHaveCount(2)
+
+  await page.reload()
+  await expect(page.locator('[data-world-item]')).toHaveCount(2)
+  await expect(
+    page.locator('[data-world-item]').filter({ hasText: title! }),
+  ).toHaveCount(0)
+})

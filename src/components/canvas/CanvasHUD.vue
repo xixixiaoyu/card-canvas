@@ -20,6 +20,15 @@ const emit = defineEmits<{
 const limitLabel = computed(() =>
   props.atLimit === 'min' ? 'MIN' : props.atLimit === 'max' ? 'MAX' : '',
 )
+
+function releasePointerFocus(event: PointerEvent) {
+  if (event.pointerType !== 'mouse') return
+  const target = event.target
+  if (target instanceof Element) {
+    const button = target.closest('button') as HTMLButtonElement | null
+    button?.blur()
+  }
+}
 </script>
 
 <template>
@@ -29,6 +38,7 @@ const limitLabel = computed(() =>
     aria-label="画布视图控制"
     data-canvas-ui
     @pointerdown.stop
+    @pointerup="releasePointerFocus"
   >
     <button
       type="button"

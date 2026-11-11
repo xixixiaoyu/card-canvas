@@ -727,6 +727,15 @@ export const useBoardStore = defineStore('board', () => {
       return false
     }
 
+    // A visibility refresh can race the delete transaction. Re-apply the
+    // durable result after commit so a stale read cannot resurrect the card.
+    removeLocalCard(cardId)
+    for (const item of relatedItems) removeLocalItem(item.id)
+    for (const connection of relatedConnections) {
+      removeLocalConnection(connection.id)
+    }
+    pruneSelectedItems()
+
     record({
       label: '删除卡片',
       undo: async () => {

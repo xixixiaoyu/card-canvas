@@ -17,6 +17,7 @@ function mountToasts() {
 
 describe('ToastStack', () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     useToastStore().clear()
     document.body.innerHTML = ''
   })
@@ -62,6 +63,35 @@ describe('ToastStack', () => {
     await nextTick()
 
     expect(toast.toasts).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('replaces a failed action with a retryable error message', async () => {
+    const wrapper = mountToasts()
+    const toast = useToastStore()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    toast.push('删除失败', {
+      tone: 'error',
+      action: {
+        label: '重试',
+        run: () => Promise.reject(new Error('disk full')),
+      },
+    })
+    await nextTick()
+
+    const retry = [...document.body.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '重试',
+    )
+    retry!.click()
+
+    await vi.waitFor(() => {
+      expect(toast.toasts).toHaveLength(1)
+      expect(toast.toasts[0]).toMatchObject({
+        message: '操作失败，请重试。',
+        tone: 'error',
+      })
+    })
+
     wrapper.unmount()
   })
 })

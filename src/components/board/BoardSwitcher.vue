@@ -57,9 +57,14 @@ function select(boardId: string) {
 }
 
 async function createBoard() {
-  await workspace.createBoard(newName.value)
-  newName.value = ''
-  close()
+  try {
+    await workspace.createBoard(newName.value)
+    newName.value = ''
+    close()
+  } catch (cause) {
+    console.error('[card-canvas] Unable to create board', cause)
+    toast.push('新建白板失败，请重试。', { tone: 'error' })
+  }
 }
 
 function startRename(board: Board) {
@@ -75,26 +80,41 @@ function startRename(board: Board) {
 async function commitRename() {
   if (!renamingId.value) return
 
-  await workspace.renameBoard(renamingId.value, renameDraft.value)
-  renamingId.value = null
+  try {
+    const renamed = await workspace.renameBoard(
+      renamingId.value,
+      renameDraft.value,
+    )
+    if (renamed) renamingId.value = null
+  } catch (cause) {
+    console.error('[card-canvas] Unable to rename board', cause)
+    toast.push('重命名白板失败，请重试。', { tone: 'error' })
+  }
 }
 
 function cancelRename() {
   renamingId.value = null
 }
 
-function requestDelete(board: Board) {
+async function requestDelete(board: Board) {
   if (workspace.boards.length <= 1) return
 
   if (pendingDeleteId.value === board.id) {
     if (deleteTimer !== null) clearTimeout(deleteTimer)
     deleteTimer = null
     pendingDeleteId.value = null
-    void workspace.deleteBoard(board.id)
-    toast.push(`已删除白板「${board.name}」。`, {
-      tone: 'info',
-      timeout: 3000,
-    })
+    try {
+      const deleted = await workspace.deleteBoard(board.id)
+      if (!deleted) return
+
+      toast.push(`已删除白板「${board.name}」。`, {
+        tone: 'info',
+        timeout: 3000,
+      })
+    } catch (cause) {
+      console.error('[card-canvas] Unable to delete board', cause)
+      toast.push('删除白板失败，数据未改动。', { tone: 'error' })
+    }
     return
   }
 

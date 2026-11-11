@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   localRecordToRemote,
   remoteRecordToLocal,
+  shouldAcceptRemoteRevision,
 } from '../src/lib/sync/mapping'
 
 describe('Supabase record mapping', () => {
@@ -34,6 +35,33 @@ describe('Supabase record mapping', () => {
       updated_at: 1234,
       is_deleted: false,
       sync_client_id: 'client-a',
+    })
+  })
+
+  it('maps a soft-deleted local card to a remote tombstone', () => {
+    const remote = localRecordToRemote(
+      {
+        table: 'cards',
+        recordId: 'card-deleted',
+        operation: 'upsert',
+        updatedAt: 2000,
+        payload: {
+          title: '已删除',
+          content: '',
+          tags: [],
+          createdAt: 1000,
+          updatedAt: 2000,
+          isDeleted: true,
+        },
+      },
+      'user-a',
+      'client-a',
+    )
+
+    expect(remote).toMatchObject({
+      id: 'card-deleted',
+      updated_at: 2000,
+      is_deleted: true,
     })
   })
 
@@ -75,5 +103,12 @@ describe('Supabase record mapping', () => {
       isDeleted: true,
       updatedAt: 2000,
     })
+  })
+
+  it('keeps local deletes when remote revisions tie', () => {
+    expect(shouldAcceptRemoteRevision(2000, 2000)).toBe(false)
+    expect(shouldAcceptRemoteRevision(2000, undefined, 2000)).toBe(false)
+    expect(shouldAcceptRemoteRevision(2001, 2000, 2000)).toBe(true)
+    expect(shouldAcceptRemoteRevision(2000, undefined, undefined)).toBe(true)
   })
 })

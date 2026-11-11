@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import { db } from '../db'
+import { softDeleteUnreferencedCards } from '../lib/board-cleanup'
 import { removeLegacyDemoData, removeRemoteDemoData } from '../lib/demo-cleanup'
 import { plainRecord } from '../lib/plain-record'
 import {
@@ -10,6 +11,7 @@ import {
   syncClientId,
 } from '../lib/supabase'
 import { broadcastWorkspaceChange } from '../lib/tab-sync'
+import { clearViewport } from '../lib/view-state'
 import {
   isRemoteTombstone,
   localRecordToRemote,
@@ -17,6 +19,7 @@ import {
   remoteRecordToLocal,
   remoteTableName,
   remoteUpdatedAt,
+  shouldAcceptRemoteRevision,
   type RemoteRow,
 } from '../lib/sync/mapping'
 import {
@@ -31,6 +34,7 @@ import {
   type SyncOutboxRecord,
   type SyncTableName,
 } from '../lib/sync/types'
+import type { Card } from '../types'
 import { useBoardStore } from './board'
 import { useWorkspaceStore } from './workspace'
 
@@ -158,17 +162,25 @@ export const useSyncStore = defineStore('sync', () => {
     const queued = await db.syncOutbox.get(key)
     const remoteTime = remoteUpdatedAt(row)
 
-    if (queued && queued.updatedAt > remoteTime) return false
+    const local = await db[table].get(recordId)
+    if (
+      !shouldAcceptRemoteRevision(
+        remoteTime,
+        local?.updatedAt,
+        queued?.updatedAt,
+      )
+    ) {
+      return false
+    }
     if (queued) await db.syncOutbox.delete(key)
 
-    const local = await db[table].get(recordId)
-    if (local?.updatedAt && local.updatedAt > remoteTime) return false
     return true
   }
 
   async function applyRemoteRows(table: SyncTableName, rows: RemoteRow[]) {
     if (!rows.length) return false
     let changed = false
+    const cardsToRetombstone: Card[] = []
 
     await withSyncTrackingSuppressed(async () => {
       await db.transaction(
@@ -185,9 +197,23 @@ export const useSyncStore = defineStore('sync', () => {
             const recordId = String(row.id)
             if (isRemoteTombstone(row)) {
               if (table === 'boards') {
+                const boardItems = await db.boardItems
+                  .where('boardId')
+                  .equals(recordId)
+                  .toArray()
+                const candidateCardIds = [
+                  ...new Set(boardItems.map((item) => item.cardId)),
+                ]
                 await db.boards.delete(recordId)
                 await db.boardItems.where('boardId').equals(recordId).delete()
                 await db.connections.where('boardId').equals(recordId).delete()
+                cardsToRetombstone.push(
+                  ...(await softDeleteUnreferencedCards(
+                    candidateCardIds,
+                    remoteUpdatedAt(row),
+                  )),
+                )
+                clearViewport(recordId)
               } else if (table === 'cards') {
                 const local = await db.cards.get(recordId)
                 if (local) {
@@ -221,6 +247,12 @@ export const useSyncStore = defineStore('sync', () => {
         },
       )
     })
+
+    if (cardsToRetombstone.length) {
+      // Board tombstones also cascade to cards that existed only on that
+      // board. Reapply outside suppression so those deletes enter the outbox.
+      await db.cards.bulkPut(cardsToRetombstone)
+    }
 
     return changed
   }

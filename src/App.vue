@@ -307,10 +307,17 @@ function getDragGroup() {
   return board.selectedItems
 }
 
+function handlePositionCommit(
+  itemId: string,
+  position: { x: number; y: number },
+) {
+  return board.commitItemPosition(itemId, position.x, position.y)
+}
+
 function handleGroupCommit(
   positions: Parameters<typeof board.commitItemPositions>[0],
 ) {
-  void board.commitItemPositions(positions)
+  return board.commitItemPositions(positions)
 }
 
 function openCapture() {
@@ -401,6 +408,7 @@ function isEditableTarget(target: EventTarget | null) {
 
 function handleGlobalKeydown(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing) return
+  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
 
   // The modal owns Escape and Tab while it is open.
   if (isShortcutOpen.value) return
@@ -520,9 +528,7 @@ onBeforeUnmount(() => {
       :get-drag-group="getDragGroup"
       @select="handleCardSelect(entry.item.id, $event)"
       @click-card="handleCardClick(entry.item.id, $event)"
-      @position-commit="
-        board.commitItemPosition(entry.item.id, $event.x, $event.y)
-      "
+      @position-commit="handlePositionCommit(entry.item.id, $event)"
       @position-commit-group="handleGroupCommit($event)"
       @nudge="board.nudgeItem(entry.item.id, $event.x, $event.y)"
       @edit="openEdit(entry.card)"
@@ -562,7 +568,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.4.3 · Local-first
+              v1.4.4 · Local-first
             </p>
           </div>
 
@@ -690,7 +696,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.4.3</span>
+          <span>v1.4.4</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

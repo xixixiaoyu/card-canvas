@@ -12,7 +12,7 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
   await expect(dialog).toContainText('Navigate')
   await expect(dialog).toContainText('Focus')
   await expect(dialog).toContainText('Compose')
-  await expect(dialog).toContainText('v1.4.3')
+  await expect(dialog).toContainText('v1.4.4')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -73,14 +73,14 @@ test('an empty board invites the first capture and fades away', async ({
   await expect(page.locator('[data-world-item]')).toContainText('第一块灵感')
 })
 
-test('v1.4.3 metadata is present in the shell and document head', async ({
+test('v1.4.4 metadata is present in the shell and document head', async ({
   page,
 }) => {
   await page.goto('/')
-  await expect(page.locator('.brand-subtitle')).toContainText('v1.4.3')
+  await expect(page.locator('.brand-subtitle')).toContainText('v1.4.4')
   await expect(
     page.locator('footer').filter({ hasText: 'Local-first' }),
-  ).toContainText('v1.4.3')
+  ).toContainText('v1.4.4')
 
   await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
     'content',
@@ -125,6 +125,8 @@ test('auth modal offers GitHub and both email sign-in methods', async ({
   await expect(
     dialog.getByRole('button', { name: '使用 GitHub 登录' }),
   ).toBeVisible()
+  await page.keyboard.press('Control+k')
+  await expect(page.getByLabel('卡片标题')).toHaveCount(0)
 
   const codeTab = dialog.getByRole('tab', { name: '验证码' })
   const linkTab = dialog.getByRole('tab', { name: '登录链接' })

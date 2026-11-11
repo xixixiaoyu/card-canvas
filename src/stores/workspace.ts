@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { db } from '../db'
+import { softDeleteUnreferencedCards } from '../lib/board-cleanup'
 import {
   broadcastWorkspaceChange,
   subscribeWorkspaceChange,
@@ -145,12 +146,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await db.transaction(
       'rw',
       db.boards,
+      db.cards,
       db.boardItems,
       db.connections,
       async () => {
+        const boardItems = await db.boardItems
+          .where('boardId')
+          .equals(boardId)
+          .toArray()
+        const candidateCardIds = [
+          ...new Set(boardItems.map((item) => item.cardId)),
+        ]
+
         await db.boards.delete(boardId)
         await db.boardItems.where('boardId').equals(boardId).delete()
         await db.connections.where('boardId').equals(boardId).delete()
+
+        await softDeleteUnreferencedCards(candidateCardIds)
       },
     )
 

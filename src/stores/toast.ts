@@ -86,6 +86,9 @@ export const useToastStore = defineStore('toast', () => {
 
     try {
       await toast.action.run()
+    } catch (cause) {
+      console.error('[card-canvas] Toast action failed', cause)
+      push('操作失败，请重试。', { tone: 'error' })
     } finally {
       dismiss(id)
     }
