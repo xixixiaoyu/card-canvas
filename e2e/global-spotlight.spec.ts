@@ -137,7 +137,9 @@ test('hierarchical tags roll up children but isolate siblings', async ({
     page.locator('[data-world-item]').filter({ hasText: '边界不是墙' }),
   ).not.toHaveClass(/is-dimmed/)
 
-  await page.locator('[data-filter-tag="心理学/防御机制"]').first().click()
+  const childTag = page.locator('[data-filter-tag="心理学/防御机制"]').first()
+  await childTag.focus()
+  await page.keyboard.press('Enter')
   await expect(page.locator('[data-world-item].is-dimmed')).toHaveCount(3)
   await expect(
     page.locator('[data-world-item]').filter({ hasText: '边界不是墙' }),
