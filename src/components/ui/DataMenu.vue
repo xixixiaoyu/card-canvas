@@ -201,7 +201,7 @@ onBeforeUnmount(() => {
         <p
           class="border-t border-stone-200/70 px-3.5 py-2 font-mono text-[8px] uppercase tracking-[0.14em] text-stone-400 dark:border-white/[0.08] dark:text-zinc-600"
         >
-          Cards · Wires · Boards · AI · v1.5.3
+          Cards · Wires · Boards · AI · v1.5.4
         </p>
       </div>
     </Transition>

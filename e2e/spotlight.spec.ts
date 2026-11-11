@@ -1,9 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 
 const searchDialog = (page: Page) =>
-  page.getByRole('dialog', { name: '卡片搜索' })
+  page.getByRole('dialog', { name: 'Card Atlas 卡片纵览' })
 const searchInput = (page: Page) =>
-  page.getByRole('textbox', { name: '搜索关键词' })
+  page.getByRole('textbox', { name: '搜索卡片' })
 
 async function zoomOut(page: Page, target = 40) {
   const zoomButton = page.locator('[aria-label^="当前缩放"]')

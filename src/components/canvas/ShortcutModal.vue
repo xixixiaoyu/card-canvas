@@ -56,8 +56,8 @@ const groups: ShortcutGroup[] = [
     caption: 'Focus',
     icon: Search,
     items: [
-      { keys: ['⌘', 'F'], label: '全局穿梭搜索' },
-      { keys: ['/'], label: '搜索当前白板' },
+      { keys: ['⌘', 'F'], label: '卡片纵览与搜索' },
+      { keys: ['/'], label: '打开卡片纵览' },
       { keys: ['↑', '↓', '↵'], label: '选择并前往结果' },
       { keys: ['Esc'], label: '关闭当前浮层' },
     ],
@@ -170,7 +170,7 @@ onBeforeUnmount(detachInteraction)
                 <p
                   class="font-mono text-[8px] uppercase tracking-[0.22em] text-stone-400 dark:text-zinc-500"
                 >
-                  Shortcut Map · v1.5.3
+                  Shortcut Map · v1.5.4
                 </p>
                 <h2
                   :id="titleId"

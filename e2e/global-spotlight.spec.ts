@@ -1,9 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 
 const searchDialog = (page: Page) =>
-  page.getByRole('dialog', { name: '卡片搜索' })
+  page.getByRole('dialog', { name: 'Card Atlas 卡片纵览' })
 const searchInput = (page: Page) =>
-  page.getByRole('textbox', { name: '搜索关键词' })
+  page.getByRole('textbox', { name: '搜索卡片' })
 
 async function createBoard(page: Page, name: string) {
   await page.getByRole('button', { name: '切换白板' }).click()
@@ -70,6 +70,39 @@ test('global spotlight crosses boards and hydrates before flight', async ({
   ).toBeLessThan(2)
 })
 
+test('Card Atlas browses the workspace and filters to the current board', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+  await createBoard(page, 'Atlas 目标板')
+
+  await page.keyboard.press('Control+k')
+  await page.getByLabel('卡片标题').fill('Atlas 纵览卡片')
+  await page.getByLabel('卡片正文').fill('这里有一条需要纵览的卡片。')
+  await page.keyboard.press('Control+Enter')
+  await expect(page.locator('[data-world-item]')).toHaveCount(1)
+  await page.waitForTimeout(700)
+
+  await switchBoard(page, '我的白板')
+  await page.keyboard.press('Control+f')
+  const dialog = searchDialog(page)
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('4 CARDS')
+  await expect(page.locator('[data-spotlight-result]')).toHaveCount(4)
+  await expect(page.locator('[data-atlas-scope="workspace"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+
+  await page.locator('[data-atlas-scope="board"]').click()
+  await expect(dialog).toContainText('3 CARDS')
+  await expect(page.locator('[data-spotlight-result]')).toHaveCount(3)
+  await expect(
+    page.locator('[data-spotlight-result] [data-board-badge]'),
+  ).toHaveText(['我的白板', '我的白板', '我的白板'])
+})
+
 test('hierarchical tags roll up children but isolate siblings', async ({
   page,
 }) => {
@@ -118,7 +151,7 @@ test('the HUD exposes search on a touch-sized viewport', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
 
-  const searchButton = page.getByRole('button', { name: '搜索卡片' })
+  const searchButton = page.getByRole('button', { name: '卡片纵览' })
   await expect(searchButton).toBeVisible()
   await searchButton.click()
 
