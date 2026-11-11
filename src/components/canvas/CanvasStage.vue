@@ -21,6 +21,7 @@ const emit = defineEmits<{
   'background-pointerdown': [payload: { shiftKey: boolean }]
   ready: [boardId: string]
   search: []
+  arrange: []
   shortcuts: []
 }>()
 
@@ -296,6 +297,7 @@ defineExpose({
         @zoom-out="zoomOut"
         @reset-zoom="resetZoom"
         @fit="fitAll(true)"
+        @arrange="emit('arrange')"
         @search="emit('search')"
         @shortcuts="emit('shortcuts')"
       />

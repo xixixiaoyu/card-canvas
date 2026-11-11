@@ -88,3 +88,26 @@ test('a deleted card stays deleted after refresh', async ({ page }) => {
     page.locator('[data-world-item]').filter({ hasText: title! }),
   ).toHaveCount(0)
 })
+
+test('card tags sit together in the bottom-right footer', async ({ page }) => {
+  await page.goto('/')
+  const card = page.locator('[data-world-item]').first()
+  await card.locator('h2').click()
+  const tags = card.locator('.card-footer [data-filter-tag]')
+  await expect(tags).toHaveCount(2)
+
+  const cardBox = await card.boundingBox()
+  const title = await card.locator('h2').boundingBox()
+  const first = await tags.nth(0).boundingBox()
+  const second = await tags.nth(1).boundingBox()
+  expect(cardBox).not.toBeNull()
+  expect(title).not.toBeNull()
+  expect(first).not.toBeNull()
+  expect(second).not.toBeNull()
+  expect(Math.abs(first!.y - second!.y)).toBeLessThan(2)
+  expect(second!.x).toBeGreaterThan(first!.x + first!.width)
+  expect(first!.y).toBeGreaterThan(title!.y + title!.height)
+  expect(cardBox!.x + cardBox!.width - second!.x - second!.width).toBeLessThan(
+    40,
+  )
+})

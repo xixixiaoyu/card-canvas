@@ -29,6 +29,7 @@ import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
 import { getItemRect } from './lib/card-metrics'
 import { cardHasTag } from './lib/galaxy'
+import { arrangeCards } from './lib/card-layout'
 import type { SpotlightTarget } from './lib/global-search'
 import { buildMarkdown, copyTextToClipboard } from './lib/markdownExport'
 import { DEMO_FOCUS_ITEM_ID } from './lib/demo-data'
@@ -254,6 +255,19 @@ function handleCardSelect(itemId: string, event?: Event) {
   if (!(event instanceof PointerEvent && event.shiftKey)) {
     board.clearFilterTag()
   }
+  const isTextSelection =
+    event instanceof PointerEvent &&
+    event.target instanceof Element &&
+    Boolean(event.target.closest('[data-card-selectable]'))
+  if (
+    isTextSelection &&
+    !event.shiftKey &&
+    board.selectedItemIds.size > 1 &&
+    board.selectedItemIds.has(itemId)
+  ) {
+    board.selectItem(itemId)
+    return
+  }
   if (board.selectedItemIds.has(itemId)) return
 
   if (event instanceof PointerEvent && event.shiftKey) {
@@ -345,6 +359,67 @@ function handleGroupCommit(
   positions: Parameters<typeof board.commitItemPositions>[0],
 ) {
   return board.commitItemPositions(positions)
+}
+
+async function handleArrangeCards() {
+  if (board.items.length < 2) {
+    toast.push('当前白板至少需要两张卡片才能整理。', {
+      tone: 'info',
+      timeout: 2400,
+    })
+    return
+  }
+
+  const layout = arrangeCards(
+    board.items.map((item) => {
+      const rect = getItemRect(item)
+      return {
+        id: item.id,
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      }
+    }),
+  )
+  const changed = layout.some((position) => {
+    const item = board.items.find((entry) => entry.id === position.itemId)
+    return item?.x !== position.x || item?.y !== position.y
+  })
+
+  if (!changed) {
+    toast.push('当前白板已经排列整齐。', {
+      tone: 'info',
+      timeout: 2400,
+    })
+    return
+  }
+
+  const saved = await board.commitItemPositions(layout, '整理当前白板')
+  if (!saved) return
+
+  board.clearSelection()
+  board.clearFilterTag()
+  window.getSelection()?.removeAllRanges()
+  await nextTick()
+
+  const compact = window.innerWidth < 640
+  stageRef.value?.fitToContent({
+    maxScale: 1,
+    animate: true,
+    duration: 480,
+    insets: {
+      top: 88,
+      bottom: compact ? 104 : 96,
+      left: compact ? 24 : 64,
+      right: compact ? 24 : 64,
+    },
+  })
+  toast.push(`已整理 ${layout.length} 张卡片。`, {
+    tone: 'success',
+    timeout: 4000,
+    action: { label: '撤销', run: () => board.undo() },
+  })
 }
 
 function openCapture() {
@@ -599,6 +674,7 @@ onBeforeUnmount(() => {
     :board-id="workspace.activeBoardId"
     @background-pointerdown="handleCanvasBackground"
     @ready="handleStageReady"
+    @arrange="handleArrangeCards"
     @search="openSpotlight"
     @shortcuts="openShortcuts"
   >
@@ -666,7 +742,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.6.1 · Local-first
+              v1.7.0 · Local-first
             </p>
           </div>
 
@@ -848,7 +924,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.6.1</span>
+          <span>v1.7.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

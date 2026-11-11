@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CircleHelp, Minus, Plus, Scan, Search } from '@lucide/vue'
+import { CircleHelp, LayoutGrid, Minus, Plus, Scan, Search } from '@lucide/vue'
 import type { ZoomLimit } from '../../composables/useCanvas'
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const emit = defineEmits<{
   zoomOut: []
   resetZoom: []
   fit: []
+  arrange: []
   search: []
   shortcuts: []
 }>()
@@ -97,6 +98,16 @@ function releasePointerFocus(event: PointerEvent) {
       @click="emit('fit')"
     >
       <Scan :size="14" :stroke-width="1.7" aria-hidden="true" />
+    </button>
+
+    <button
+      type="button"
+      class="flex h-10 w-10 items-center justify-center rounded-full transition-[background-color,color] duration-200 hover:bg-stone-100/85 hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/55 sm:h-8 sm:w-8 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
+      aria-label="一键整理当前白板"
+      title="整理当前白板"
+      @click="emit('arrange')"
+    >
+      <LayoutGrid :size="14" :stroke-width="1.7" aria-hidden="true" />
     </button>
 
     <span

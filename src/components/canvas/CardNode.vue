@@ -223,36 +223,9 @@ function tagTone(index: number) {
         />
 
         <div class="card-body relative p-8">
-          <header class="flex items-start justify-between gap-4">
-            <div class="flex flex-wrap items-center gap-1.5">
-              <button
-                v-for="(tag, index) in card.tags"
-                :key="tag"
-                type="button"
-                class="tag-pill cursor-pointer"
-                :class="[
-                  tagTone(index),
-                  {
-                    'is-active': activeFilterTag
-                      ? tagMatches(tag, activeFilterTag)
-                      : false,
-                  },
-                ]"
-                data-card-interactive
-                :data-filter-tag="tag"
-                :aria-pressed="
-                  activeFilterTag ? tagMatches(tag, activeFilterTag) : false
-                "
-                :title="`聚焦 #${tag}`"
-                @pointerdown.stop
-                @click.stop="emit('tagClick', tag)"
-              >
-                #{{ tag }}
-              </button>
-            </div>
-
-            <div class="flex shrink-0 items-center gap-1">
-              <div class="card-actions flex items-center gap-0.5">
+          <header class="flex items-center justify-end gap-1.5">
+            <div class="flex shrink-0 items-center gap-0.5">
+              <div class="card-actions flex items-center gap-0">
                 <button
                   v-if="copyable"
                   type="button"
@@ -269,13 +242,13 @@ function tagTone(index: number) {
                 >
                   <Check
                     v-if="copied"
-                    :size="11"
+                    :size="13"
                     :stroke-width="2"
                     aria-hidden="true"
                   />
                   <Copy
                     v-else
-                    :size="11"
+                    :size="13"
                     :stroke-width="1.7"
                     aria-hidden="true"
                   />
@@ -290,7 +263,7 @@ function tagTone(index: number) {
                   @pointerdown.stop
                   @click.stop="emit('share')"
                 >
-                  <Share2 :size="11" :stroke-width="1.7" aria-hidden="true" />
+                  <Share2 :size="13" :stroke-width="1.7" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -302,7 +275,7 @@ function tagTone(index: number) {
                   @pointerdown.stop
                   @click.stop="emit('findConnections')"
                 >
-                  <Sparkles :size="11" :stroke-width="1.7" aria-hidden="true" />
+                  <Sparkles :size="13" :stroke-width="1.7" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -313,7 +286,7 @@ function tagTone(index: number) {
                   @pointerdown.stop
                   @click.stop="emit('edit')"
                 >
-                  <Pencil :size="11" :stroke-width="1.7" aria-hidden="true" />
+                  <Pencil :size="13" :stroke-width="1.7" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -324,7 +297,7 @@ function tagTone(index: number) {
                   @pointerdown.stop
                   @click.stop="emit('delete')"
                 >
-                  <Trash2 :size="11" :stroke-width="1.7" aria-hidden="true" />
+                  <Trash2 :size="13" :stroke-width="1.7" aria-hidden="true" />
                 </button>
               </div>
 
@@ -333,7 +306,7 @@ function tagTone(index: number) {
                 data-card-drag-handle
                 title="拖动卡片"
               >
-                <Grip :size="13" :stroke-width="1.6" aria-hidden="true" />
+                <Grip :size="15" :stroke-width="1.6" aria-hidden="true" />
               </span>
             </div>
           </header>
@@ -390,10 +363,10 @@ function tagTone(index: number) {
           </template>
 
           <footer
-            class="card-footer mt-7 flex items-center gap-4 border-t border-stone-200/70 pt-4 dark:border-white/[0.08]"
+            class="card-footer mt-7 flex items-start justify-between gap-4 border-t border-stone-200/70 pt-4 dark:border-white/[0.08]"
           >
             <div
-              class="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400"
+              class="flex shrink-0 items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400"
             >
               <span class="relative flex h-1.5 w-1.5" aria-hidden="true">
                 <span
@@ -404,6 +377,36 @@ function tagTone(index: number) {
                 />
               </span>
               <span>{{ isDragging ? '拖动中' : '已保存' }}</span>
+            </div>
+
+            <div
+              v-if="card.tags.length"
+              class="card-tags flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1"
+            >
+              <button
+                v-for="(tag, index) in card.tags"
+                :key="tag"
+                type="button"
+                class="tag-pill cursor-pointer"
+                :class="[
+                  tagTone(index),
+                  {
+                    'is-active': activeFilterTag
+                      ? tagMatches(tag, activeFilterTag)
+                      : false,
+                  },
+                ]"
+                data-card-interactive
+                :data-filter-tag="tag"
+                :aria-pressed="
+                  activeFilterTag ? tagMatches(tag, activeFilterTag) : false
+                "
+                :title="`聚焦 #${tag}`"
+                @pointerdown.stop
+                @click.stop="emit('tagClick', tag)"
+              >
+                #{{ tag }}
+              </button>
             </div>
           </footer>
         </div>
@@ -458,6 +461,10 @@ function tagTone(index: number) {
 
 .tag-pill.is-active {
   box-shadow: 0 0 0 1px currentColor inset;
+}
+
+.card-tags .tag-pill {
+  flex: none;
 }
 
 .tag-pill:focus-visible {
@@ -602,8 +609,8 @@ function tagTone(index: number) {
 
 .card-action {
   display: flex;
-  width: 1.35rem;
-  height: 1.35rem;
+  width: 1.5rem;
+  height: 1.5rem;
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
@@ -772,8 +779,8 @@ function tagTone(index: number) {
 }
 
 .card-drag-grip {
-  width: 1.35rem;
-  height: 1.35rem;
+  width: 1.5rem;
+  height: 1.5rem;
   border-radius: 9999px;
   color: rgb(168 162 158 / 0.72);
   opacity: 0.58;

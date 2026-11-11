@@ -1160,6 +1160,7 @@ export const useBoardStore = defineStore('board', () => {
 
   async function commitItemPositions(
     positions: Array<{ itemId: string; x: number; y: number }>,
+    historyLabel?: string,
   ): Promise<boolean> {
     const unique = new Map<string, { itemId: string; x: number; y: number }>()
     for (const position of positions) {
@@ -1207,7 +1208,7 @@ export const useBoardStore = defineStore('board', () => {
     }
 
     record({
-      label: `移动 ${after.length} 张卡片`,
+      label: historyLabel ?? `移动 ${after.length} 张卡片`,
       undo: async () => {
         await db.transaction('rw', db.boardItems, async () => {
           await db.boardItems.bulkPut(before)
