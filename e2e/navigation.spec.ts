@@ -39,6 +39,8 @@ test('dragged cards land at the pointer position after refresh', async ({
 }) => {
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
+  await expect(page.locator('.canvas-stage')).toHaveClass(/is-ready/)
+  await settleAnimationFrames(page)
 
   const card = page
     .locator('[data-world-item]')

@@ -115,6 +115,10 @@ test('hierarchical tags roll up children but isolate siblings', async ({
   await page.getByLabel('添加标签').press('Enter')
   await page.keyboard.press('Control+Enter')
   await expect(page.locator('[data-world-item]')).toHaveCount(4)
+  const overviewCard = page
+    .locator('[data-world-item]')
+    .filter({ hasText: '心理学总览' })
+  await expect(overviewCard).not.toHaveClass(/is-landing/)
 
   const parentTag = page.locator('[data-filter-tag="心理学"]').first()
   await parentTag.click()
