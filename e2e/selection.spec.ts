@@ -69,6 +69,7 @@ async function cardBounds(page: Page) {
 test('marquee selects, unions, collapses and clears', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
+  await expect(page.locator('.canvas-stage')).toHaveClass(/is-ready/)
 
   const bounds = await cardBounds(page)
   const all = {
