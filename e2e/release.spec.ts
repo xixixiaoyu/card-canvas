@@ -12,7 +12,7 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
   await expect(dialog).toContainText('Navigate')
   await expect(dialog).toContainText('Focus')
   await expect(dialog).toContainText('Compose')
-  await expect(dialog).toContainText('v1.4.5')
+  await expect(dialog).toContainText('v1.4.6')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -73,14 +73,14 @@ test('an empty board invites the first capture and fades away', async ({
   await expect(page.locator('[data-world-item]')).toContainText('第一块灵感')
 })
 
-test('v1.4.5 metadata is present in the shell and document head', async ({
+test('v1.4.6 metadata is present in the shell and document head', async ({
   page,
 }) => {
   await page.goto('/')
-  await expect(page.locator('.brand-subtitle')).toContainText('v1.4.5')
+  await expect(page.locator('.brand-subtitle')).toContainText('v1.4.6')
   await expect(
     page.locator('footer').filter({ hasText: 'Local-first' }),
-  ).toContainText('v1.4.5')
+  ).toContainText('v1.4.6')
 
   await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
     'content',
@@ -111,6 +111,25 @@ test('mobile header and HUD remain inside the viewport', async ({ page }) => {
   const zoomBox = await zoomOut.boundingBox()
   expect(zoomBox!.width).toBeGreaterThanOrEqual(39.9)
   expect(zoomBox!.height).toBeGreaterThanOrEqual(39.9)
+})
+
+test('desktop history controls are labelled and stay in the viewport', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  const undo = page.locator('button[aria-label="撤销"]')
+  const redo = page.locator('button[aria-label="重做"]')
+  await expect(undo).toBeVisible()
+  await expect(redo).toBeVisible()
+  await expect(undo).toContainText('撤销')
+  await expect(redo).toContainText('重做')
+
+  const redoBox = await redo.boundingBox()
+  expect(redoBox).not.toBeNull()
+  expect(redoBox!.x + redoBox!.width).toBeLessThanOrEqual(1280)
 })
 
 test('auth modal offers GitHub and both email sign-in methods', async ({

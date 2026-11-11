@@ -568,7 +568,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.4.5 · Local-first
+              v1.4.6 · Local-first
             </p>
           </div>
 
@@ -580,11 +580,14 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="pointer-events-auto flex items-center gap-2">
-          <div class="hidden items-center gap-1 xl:flex">
+          <div
+            class="hidden h-10 items-center rounded-full border border-stone-200/80 bg-white/60 p-1 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl xl:flex dark:border-white/10 dark:bg-zinc-900/60"
+            data-canvas-ui
+          >
             <button
               type="button"
               data-canvas-ui
-              class="flex h-10 w-10 items-center justify-center rounded-full border border-stone-200/80 bg-white/60 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,opacity] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-stone-200/80 disabled:hover:bg-white/60 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:disabled:hover:border-white/10 dark:disabled:hover:bg-zinc-900/60"
+              class="flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[10px] font-medium text-stone-600 transition-[background-color,color,opacity] duration-200 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-stone-600 dark:text-zinc-400 dark:hover:bg-white/[0.08] dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:disabled:hover:bg-transparent dark:disabled:hover:text-zinc-400"
               :disabled="!board.canUndo"
               :title="
                 board.canUndo
@@ -595,11 +598,16 @@ onBeforeUnmount(() => {
               @click="board.undo()"
             >
               <Undo2 :size="14" :stroke-width="1.7" aria-hidden="true" />
+              <span>撤销</span>
             </button>
+            <span
+              class="h-4 w-px bg-stone-200/90 dark:bg-white/10"
+              aria-hidden="true"
+            />
             <button
               type="button"
               data-canvas-ui
-              class="flex h-10 w-10 items-center justify-center rounded-full border border-stone-200/80 bg-white/60 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,opacity] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-stone-200/80 disabled:hover:bg-white/60 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:disabled:hover:border-white/10 dark:disabled:hover:bg-zinc-900/60"
+              class="flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[10px] font-medium text-stone-600 transition-[background-color,color,opacity] duration-200 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-stone-600 dark:text-zinc-400 dark:hover:bg-white/[0.08] dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:disabled:hover:bg-transparent dark:disabled:hover:text-zinc-400"
               :disabled="!board.canRedo"
               :title="
                 board.canRedo
@@ -610,6 +618,7 @@ onBeforeUnmount(() => {
               @click="board.redo()"
             >
               <Redo2 :size="14" :stroke-width="1.7" aria-hidden="true" />
+              <span>重做</span>
             </button>
           </div>
 
@@ -696,7 +705,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.4.5</span>
+          <span>v1.4.6</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

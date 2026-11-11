@@ -3,16 +3,19 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   Check,
   ChevronDown,
+  Eraser,
   LayoutGrid,
   Pencil,
   Plus,
   Trash2,
 } from '@lucide/vue'
 import { useToastStore } from '../../stores/toast'
+import { useBoardStore } from '../../stores/board'
 import { useWorkspaceStore } from '../../stores/workspace'
 import type { Board } from '../../types'
 
 const workspace = useWorkspaceStore()
+const board = useBoardStore()
 const toast = useToastStore()
 
 const rootEl = ref<HTMLElement | null>(null)
@@ -21,13 +24,24 @@ const newName = ref('')
 const renamingId = ref<string | null>(null)
 const renameDraft = ref('')
 const pendingDeleteId = ref<string | null>(null)
+const pendingClear = ref(false)
 
 let deleteTimer: ReturnType<typeof setTimeout> | null = null
+let clearTimer: ReturnType<typeof setTimeout> | null = null
 
 function close() {
   open.value = false
   renamingId.value = null
   pendingDeleteId.value = null
+  pendingClear.value = false
+  if (deleteTimer !== null) {
+    clearTimeout(deleteTimer)
+    deleteTimer = null
+  }
+  if (clearTimer !== null) {
+    clearTimeout(clearTimer)
+    clearTimer = null
+  }
 }
 
 function toggle() {
@@ -126,6 +140,47 @@ async function requestDelete(board: Board) {
   }, 3000)
 }
 
+async function requestClearBoard() {
+  if (!board.entries.length && !board.connections.length) return
+
+  if (!pendingClear.value) {
+    pendingClear.value = true
+    if (clearTimer !== null) clearTimeout(clearTimer)
+    clearTimer = setTimeout(() => {
+      pendingClear.value = false
+      clearTimer = null
+    }, 4000)
+    return
+  }
+
+  if (clearTimer !== null) clearTimeout(clearTimer)
+  clearTimer = null
+  pendingClear.value = false
+
+  try {
+    const result = await board.clearBoard()
+    if (!result) return
+
+    close()
+    toast.push(
+      `已清空 ${result.itemCount} 张卡片及 ${result.connectionCount} 条连线。`,
+      {
+        tone: 'info',
+        timeout: 8000,
+        action: {
+          label: '撤销',
+          run: async () => {
+            await board.undoIfLatest(result.historyId)
+          },
+        },
+      },
+    )
+  } catch (cause) {
+    console.error('[card-canvas] Unable to clear board', cause)
+    toast.push('清空白板失败，数据未改动。', { tone: 'error' })
+  }
+}
+
 onMounted(() => {
   document.addEventListener('pointerdown', handlePointerDown)
   document.addEventListener('keydown', handleKeydown)
@@ -135,6 +190,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handlePointerDown)
   document.removeEventListener('keydown', handleKeydown)
   if (deleteTimer !== null) clearTimeout(deleteTimer)
+  if (clearTimer !== null) clearTimeout(clearTimer)
 })
 </script>
 
@@ -304,6 +360,27 @@ onBeforeUnmount(() => {
             新建
           </button>
         </form>
+
+        <div class="border-t border-stone-200/70 p-2 dark:border-white/[0.08]">
+          <button
+            type="button"
+            class="flex h-8 w-full items-center justify-center gap-1.5 rounded-xl text-[10px] transition-colors disabled:cursor-not-allowed disabled:opacity-30"
+            :class="
+              pendingClear
+                ? 'bg-rose-600 font-medium text-white'
+                : 'text-stone-500 hover:bg-rose-50 hover:text-rose-700 dark:text-zinc-400 dark:hover:bg-rose-500/[0.08] dark:hover:text-rose-300'
+            "
+            :disabled="!board.entries.length && !board.connections.length"
+            :aria-label="pendingClear ? '确认清空当前白板' : '清空当前白板'"
+            :title="
+              pendingClear ? '再次点击确认清空' : '保留白板，清空其中的卡片'
+            "
+            @click="requestClearBoard"
+          >
+            <Eraser :size="12" :stroke-width="1.7" aria-hidden="true" />
+            {{ pendingClear ? '确认清空当前白板' : '清空当前白板' }}
+          </button>
+        </div>
       </div>
     </Transition>
   </div>

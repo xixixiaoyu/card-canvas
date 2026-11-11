@@ -277,6 +277,68 @@ describe('board store', () => {
     expect((await db.cards.get(card.id))?.isDeleted).toBeUndefined()
   })
 
+  it('clears the active board as one reversible history action', async () => {
+    const board = await freshBoard()
+    const cardsBefore = [...board.cards]
+    const itemsBefore = [...board.items]
+    const connection = await board.createConnection(
+      cardsBefore[0].id,
+      cardsBefore[1].id,
+    )
+
+    const result = await board.clearBoard()
+
+    expect(result).toMatchObject({
+      cardCount: 3,
+      itemCount: 3,
+      connectionCount: 1,
+    })
+    expect(board.cards).toHaveLength(0)
+    expect(board.items).toHaveLength(0)
+    expect(board.connections).toHaveLength(0)
+    expect(board.undoLabel).toBe('清空白板')
+    expect(await db.boardItems.count()).toBe(0)
+    expect(await db.connections.count()).toBe(0)
+    expect((await db.cards.toArray()).every((card) => card.isDeleted)).toBe(
+      true,
+    )
+
+    await board.undo()
+    expect(board.cards.map((card) => card.id).sort()).toEqual(
+      cardsBefore.map((card) => card.id).sort(),
+    )
+    expect(board.items.map((item) => item.id).sort()).toEqual(
+      itemsBefore.map((item) => item.id).sort(),
+    )
+    expect(board.connections.map((item) => item.id)).toContain(connection!.id)
+    expect((await db.cards.toArray()).some((card) => card.isDeleted)).toBe(
+      false,
+    )
+
+    await board.redo()
+    expect(board.entries).toHaveLength(0)
+    expect(await db.boardItems.count()).toBe(0)
+  })
+
+  it('keeps cards that are shared with another board when clearing', async () => {
+    const board = await freshBoard()
+    const sharedCard = board.cards[0]
+    await db.boardItems.put({
+      id: 'projection-other-board',
+      cardId: sharedCard.id,
+      boardId: 'board-other',
+      x: 100,
+      y: 100,
+    })
+
+    const result = await board.clearBoard()
+
+    expect(result?.cardCount).toBe(2)
+    expect(board.cards.map((card) => card.id)).toEqual([sharedCard.id])
+    expect((await db.cards.get(sharedCard.id))?.isDeleted).toBeUndefined()
+    expect(await db.boardItems.get('projection-other-board')).toBeDefined()
+  })
+
   it('supports multi-item selection without losing connection exclusivity', async () => {
     const board = await freshBoard()
     const [first, second] = board.items

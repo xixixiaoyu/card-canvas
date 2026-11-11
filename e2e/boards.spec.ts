@@ -79,3 +79,30 @@ test('cards from a deleted board never spill into the remaining board', async ({
     page.locator('[data-world-item]').filter({ hasText: '只属于临时板' }),
   ).toHaveCount(0)
 })
+
+test('clears the current board without deleting it and can undo once', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  await page.getByRole('button', { name: '切换白板' }).click()
+  await page.getByRole('button', { name: '清空当前白板' }).click()
+  await page.getByRole('button', { name: '确认清空当前白板' }).click()
+
+  await expect(page.locator('[data-world-item]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '切换白板' })).toContainText(
+    '我的白板',
+  )
+  await expect(page.locator('[data-empty-state]')).toBeVisible()
+
+  await page
+    .getByRole('status')
+    .filter({ hasText: '已清空' })
+    .getByRole('button', { name: '撤销' })
+    .click()
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  await page.keyboard.press('Control+Shift+z')
+  await expect(page.locator('[data-world-item]')).toHaveCount(0)
+})

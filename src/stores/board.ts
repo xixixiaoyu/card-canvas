@@ -44,6 +44,13 @@ export interface HistoryEntry {
   redo: () => Promise<void>
 }
 
+export interface ClearBoardResult {
+  cardCount: number
+  itemCount: number
+  connectionCount: number
+  historyId: string
+}
+
 const DEFAULT_CARD_WIDTH = 420
 const HISTORY_LIMIT = 50
 
@@ -215,6 +222,7 @@ export const useBoardStore = defineStore('board', () => {
 
     past.value = [...past.value.slice(-(HISTORY_LIMIT - 1)), next]
     future.value = []
+    return next.id
   }
 
   function notifyFailure(
@@ -798,6 +806,183 @@ export const useBoardStore = defineStore('board', () => {
     return true
   }
 
+  async function clearBoard(): Promise<ClearBoardResult | null> {
+    const boardId = activeBoardId.value
+    if (!boardId) return null
+
+    let snapshots: {
+      items: BoardItem[]
+      connections: Connection[]
+      cards: Card[]
+      deletedCards: Card[]
+    } | null = null
+
+    try {
+      snapshots = await db.transaction(
+        'rw',
+        db.cards,
+        db.boardItems,
+        db.connections,
+        async () => {
+          const boardItems = await db.boardItems
+            .where('boardId')
+            .equals(boardId)
+            .toArray()
+          const boardConnections = await db.connections
+            .where('boardId')
+            .equals(boardId)
+            .toArray()
+          const allItems = await db.boardItems.toArray()
+          const currentCardIds = new Set(boardItems.map((item) => item.cardId))
+          const referencedElsewhere = new Set(
+            allItems
+              .filter((item) => item.boardId !== boardId)
+              .map((item) => item.cardId),
+          )
+          const uniqueCardIds = [...currentCardIds].filter(
+            (cardId) => !referencedElsewhere.has(cardId),
+          )
+          const storedCards = (await db.cards.bulkGet(uniqueCardIds)).filter(
+            (card): card is Card => card !== undefined && !card.isDeleted,
+          )
+
+          if (
+            !boardItems.length &&
+            !boardConnections.length &&
+            !storedCards.length
+          ) {
+            return null
+          }
+
+          const deletedAt = Date.now()
+          const deletedCards = storedCards.map((card) => ({
+            ...card,
+            isDeleted: true as const,
+            updatedAt: deletedAt,
+          }))
+
+          if (deletedCards.length) {
+            await db.cards.bulkPut(deletedCards)
+          }
+          if (boardItems.length) {
+            await db.boardItems.bulkDelete(boardItems.map((item) => item.id))
+          }
+          if (boardConnections.length) {
+            await db.connections.bulkDelete(
+              boardConnections.map((connection) => connection.id),
+            )
+          }
+
+          return {
+            items: boardItems.map((item) => plainRecord(item)),
+            connections: boardConnections.map((connection) =>
+              plainRecord(connection),
+            ),
+            cards: storedCards.map((card) => plainRecord(card)),
+            deletedCards,
+          }
+        },
+      )
+    } catch (cause) {
+      console.error('[card-canvas] Unable to clear board', cause)
+      notifyFailure('清空白板失败，数据未改动。')
+      return null
+    }
+
+    if (!snapshots) return null
+
+    const removedItemIds = new Set(snapshots.items.map((item) => item.id))
+    const removedConnectionIds = new Set(
+      snapshots.connections.map((connection) => connection.id),
+    )
+    const removedCardIds = new Set(
+      snapshots.deletedCards.map((card) => card.id),
+    )
+
+    function removeClearedRecords() {
+      cards.value = cards.value.filter((card) => !removedCardIds.has(card.id))
+      items.value = items.value.filter((item) => !removedItemIds.has(item.id))
+      connections.value = connections.value.filter(
+        (connection) => !removedConnectionIds.has(connection.id),
+      )
+      clearSelection()
+      clearFilterTag()
+      pulseItemId.value = null
+    }
+
+    removeClearedRecords()
+    broadcastWorkspaceChange('all')
+
+    const historyId = record({
+      label: '清空白板',
+      undo: async () => {
+        await db.transaction(
+          'rw',
+          db.cards,
+          db.boardItems,
+          db.connections,
+          async () => {
+            if (snapshots.cards.length) {
+              await db.cards.bulkPut(snapshots.cards)
+            }
+            if (snapshots.items.length) {
+              await db.boardItems.bulkPut(snapshots.items)
+            }
+            if (snapshots.connections.length) {
+              await db.connections.bulkPut(snapshots.connections)
+            }
+          },
+        )
+
+        for (const card of snapshots.cards) replaceLocalCard(card)
+        if (activeBoardId.value === boardId) {
+          for (const item of snapshots.items) replaceLocalItem(item)
+          for (const connection of snapshots.connections) {
+            replaceLocalConnection(connection)
+          }
+        }
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.transaction(
+          'rw',
+          db.cards,
+          db.boardItems,
+          db.connections,
+          async () => {
+            if (snapshots.deletedCards.length) {
+              await db.cards.bulkPut(snapshots.deletedCards)
+            }
+            if (snapshots.items.length) {
+              await db.boardItems.bulkDelete(
+                snapshots.items.map((item) => item.id),
+              )
+            }
+            if (snapshots.connections.length) {
+              await db.connections.bulkDelete(
+                snapshots.connections.map((connection) => connection.id),
+              )
+            }
+          },
+        )
+
+        if (activeBoardId.value === boardId) removeClearedRecords()
+        broadcastWorkspaceChange('all')
+      },
+    })
+
+    if (!historyId) {
+      throw new Error('无法创建清空白板的历史记录。')
+    }
+
+    return {
+      cardCount: snapshots.deletedCards.length,
+      itemCount: snapshots.items.length,
+      connectionCount: snapshots.connections.length,
+      historyId,
+    }
+  }
+
   // --- connections ---------------------------------------------------------
 
   async function createConnection(
@@ -1124,6 +1309,12 @@ export const useBoardStore = defineStore('board', () => {
     }
   }
 
+  async function undoIfLatest(historyId: string) {
+    if (past.value.at(-1)?.id !== historyId) return false
+    await undo()
+    return true
+  }
+
   function clearHistory() {
     past.value = []
     future.value = []
@@ -1300,11 +1491,13 @@ export const useBoardStore = defineStore('board', () => {
     placeCard,
     captureAndPlace,
     deleteCard,
+    clearBoard,
     createConnection,
     deleteConnection,
     updateConnectionLabel,
     undo,
     redo,
+    undoIfLatest,
     clearHistory,
   }
 })
