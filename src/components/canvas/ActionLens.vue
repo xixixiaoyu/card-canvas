@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Check, ListTodo } from '@lucide/vue'
 import { collectPendingTasks } from '../../lib/atomic-markdown'
 import { useBoardStore } from '../../stores/board'
@@ -16,6 +16,9 @@ const emit = defineEmits<{
 
 const board = useBoardStore()
 const rootEl = ref<HTMLElement | null>(null)
+const previewOpen = ref(false)
+let hoverTimer: ReturnType<typeof setTimeout> | null = null
+let supportsHover = false
 
 const tasks = computed(() =>
   collectPendingTasks(
@@ -29,12 +32,36 @@ const tasks = computed(() =>
     })),
   ),
 )
+const previewTasks = computed(() => tasks.value.slice(0, 3))
+
+function clearHoverTimer() {
+  if (hoverTimer !== null) {
+    clearTimeout(hoverTimer)
+    hoverTimer = null
+  }
+}
+
+function hidePreview() {
+  clearHoverTimer()
+  previewOpen.value = false
+}
+
+function schedulePreview() {
+  if (!supportsHover || props.open || !tasks.value.length) return
+
+  clearHoverTimer()
+  hoverTimer = setTimeout(() => {
+    hoverTimer = null
+    if (!props.open && tasks.value.length) previewOpen.value = true
+  }, 400)
+}
 
 function close() {
   if (props.open) emit('update:open', false)
 }
 
 function toggleOpen() {
+  hidePreview()
   emit('update:open', !props.open)
 }
 
@@ -62,14 +89,32 @@ function toggleTask(task: { cardId: string; lineIndex: number }) {
 }
 
 onMounted(() => {
+  supportsHover = window.matchMedia(
+    '(hover: hover) and (pointer: fine)',
+  ).matches
   document.addEventListener('pointerdown', handlePointerDown)
   document.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
+  clearHoverTimer()
   document.removeEventListener('pointerdown', handlePointerDown)
   document.removeEventListener('keydown', handleKeydown)
 })
+
+watch(
+  () => tasks.value.length,
+  (count) => {
+    if (!count) hidePreview()
+  },
+)
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) hidePreview()
+  },
+)
 </script>
 
 <template>
@@ -83,7 +128,9 @@ onBeforeUnmount(() => {
       "
       aria-haspopup="dialog"
       :aria-expanded="open"
-      title="行动透镜"
+      @pointerenter="schedulePreview"
+      @pointerleave="hidePreview"
+      @focus="hidePreview"
       @click="toggleOpen"
     >
       <span
@@ -101,6 +148,65 @@ onBeforeUnmount(() => {
         {{ tasks.length ? `待办 ${tasks.length}` : '行动' }}
       </span>
     </button>
+
+    <Transition name="action-preview">
+      <aside
+        v-if="previewOpen && !open && previewTasks.length"
+        class="action-preview absolute right-0 top-12 z-50 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-stone-200/80 bg-[#fdfbf7]/[0.97] shadow-[0_18px_46px_-22px_rgba(41,37,36,0.38)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-900/[0.97] dark:shadow-[0_24px_60px_-22px_rgba(0,0,0,0.88)]"
+        aria-hidden="true"
+        data-action-preview
+      >
+        <header
+          class="flex items-center justify-between border-b border-stone-200/70 px-3 py-2.5 dark:border-white/[0.08]"
+        >
+          <span
+            class="font-mono text-[8px] uppercase tracking-[0.16em] text-stone-400 dark:text-zinc-500"
+          >
+            Action Lens · 快速预览
+          </span>
+          <span
+            class="font-mono text-[8px] uppercase tracking-[0.1em] text-amber-800/70 dark:text-sky-200/70"
+          >
+            {{ tasks.length }} pending
+          </span>
+        </header>
+
+        <div class="space-y-0.5 p-1.5">
+          <div
+            v-for="task in previewTasks"
+            :key="task.id"
+            class="rounded-lg px-2 py-1.5"
+            data-action-preview-task
+          >
+            <p
+              class="line-clamp-1 text-[10px] leading-5 text-stone-700 dark:text-zinc-300"
+            >
+              {{ task.text }}
+            </p>
+            <p
+              class="mt-0.5 truncate font-mono text-[7px] uppercase tracking-[0.1em] text-stone-400 dark:text-zinc-600"
+            >
+              ↳ {{ task.title }}
+            </p>
+          </div>
+        </div>
+
+        <footer
+          class="flex items-center justify-between border-t border-stone-200/70 px-3 py-2 dark:border-white/[0.08]"
+        >
+          <span class="text-[9px] text-stone-400 dark:text-zinc-500">
+            {{
+              tasks.length > previewTasks.length
+                ? `还有 ${tasks.length - previewTasks.length} 条待办`
+                : '点击打开完整行动透镜'
+            }}
+          </span>
+          <span class="text-[9px] text-stone-500 dark:text-zinc-400">
+            查看全部
+          </span>
+        </footer>
+      </aside>
+    </Transition>
 
     <Transition name="action-lens">
       <section
@@ -194,6 +300,23 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.action-preview {
+  pointer-events: none;
+}
+
+.action-preview-enter-active,
+.action-preview-leave-active {
+  transition:
+    opacity 140ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.action-preview-enter-from,
+.action-preview-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.985);
+}
+
 .action-lens-enter-active,
 .action-lens-leave-active {
   transition:
@@ -208,6 +331,8 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .action-preview-enter-active,
+  .action-preview-leave-active,
   .action-lens-enter-active,
   .action-lens-leave-active {
     transition: none;
