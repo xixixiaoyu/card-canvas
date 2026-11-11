@@ -8,7 +8,8 @@ on:
 jobs:
   quality:
     name: Typecheck, unit tests and build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +31,8 @@ jobs:
 
   e2e:
     name: Playwright E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     needs: quality
     steps:
       - uses: actions/checkout@v4
