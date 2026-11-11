@@ -146,6 +146,23 @@ export function remoteUpdatedAt(row: RemoteRow) {
   return numberOr(row.updated_at)
 }
 
+export function latestRemoteServerCursor(rows: RemoteRow[]) {
+  let latestValue: string | null = null
+  let latestTime = Number.NEGATIVE_INFINITY
+
+  for (const row of rows) {
+    const value = row.server_updated_at
+    if (typeof value !== 'string') continue
+
+    const time = Date.parse(value)
+    if (!Number.isFinite(time) || time < latestTime) continue
+    latestTime = time
+    latestValue = value
+  }
+
+  return latestValue
+}
+
 /**
  * Local state wins timestamp ties. This prevents an already-observed remote
  * row from undoing a local soft delete before its outbox entry is uploaded.

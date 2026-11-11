@@ -38,3 +38,28 @@ test('captures and board changes sync across tabs', async ({ context }) => {
       .getByRole('button', { name: '同步板' }),
   ).toHaveCount(1)
 })
+
+test('cross-tab changes invalidate stale undo history', async ({ context }) => {
+  const pageA = await context.newPage()
+  const pageB = await context.newPage()
+
+  await pageA.goto('/')
+  await pageB.goto('/')
+  await expect(pageA.locator('[data-world-item]')).toHaveCount(3)
+  await expect(pageB.locator('[data-world-item]')).toHaveCount(3)
+
+  await pageB.keyboard.press('Control+k')
+  await pageB.getByLabel('卡片标题').fill('B 页本地历史')
+  await pageB.keyboard.press('Control+Enter')
+  await expect(pageB.locator('[data-world-item]')).toHaveCount(4)
+  await expect(pageB.locator('button[aria-label="撤销"]')).toBeEnabled()
+
+  await pageA.keyboard.press('Control+k')
+  await pageA.getByLabel('卡片标题').fill('A 页远端变化')
+  await pageA.keyboard.press('Control+Enter')
+  await expect(pageA.locator('[data-world-item]')).toHaveCount(5)
+  await expect(
+    pageB.locator('[data-world-item]').filter({ hasText: 'A 页远端变化' }),
+  ).toHaveCount(1)
+  await expect(pageB.locator('button[aria-label="撤销"]')).toBeDisabled()
+})

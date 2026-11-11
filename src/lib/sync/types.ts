@@ -26,3 +26,7 @@ export const SYNC_META_KEYS = {
   ownerId: 'owner-id',
   pullCursor: 'pull-cursor',
 } as const
+
+export function tablePullCursorKey(table: SyncTableName) {
+  return `${SYNC_META_KEYS.pullCursor}:${table}`
+}

@@ -76,6 +76,7 @@ async function handleImportFile(event: Event) {
     if (workspace.activeBoardId === previousBoardId) {
       await board.refresh()
     }
+    board.clearHistory()
     broadcastWorkspaceChange('all')
     toast.push(`已导入 ${counts.cards} 张卡片、${counts.boardItems} 个投影。`, {
       tone: 'success',
@@ -177,7 +178,7 @@ onBeforeUnmount(() => {
         <p
           class="border-t border-stone-200/70 px-3.5 py-2 font-mono text-[8px] uppercase tracking-[0.14em] text-stone-400 dark:border-white/[0.08] dark:text-zinc-600"
         >
-          Cards · Wires · Boards · v1.4.6
+          Cards · Wires · Boards · v1.4.7
         </p>
       </div>
     </Transition>

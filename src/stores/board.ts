@@ -1385,6 +1385,7 @@ export const useBoardStore = defineStore('board', () => {
       if (change.type === 'boards') return
       if (!activeBoardId.value) return
       if (change.boardId && change.boardId !== activeBoardId.value) return
+      clearHistory()
       scheduleRefresh()
     })
 

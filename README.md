@@ -2,7 +2,7 @@
 
 > 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
 >
-> **v1.4.6 · Local-First · 可选 Supabase 同步**
+> **v1.4.7 · Local-First · 可选 Supabase 同步**
 
 Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
 
@@ -123,10 +123,11 @@ VITE_EMAIL_CODE_ENABLED
 
 - 本地写入先提交 Dexie，再进入持久化 outbox；网络请求不阻塞拖拽、速记或历史操作。
 - outbox 在断网、刷新和关闭页面后仍保留，恢复在线时自动补传。
-- 下行使用 `server_updated_at` 游标增量拉取，避免依赖设备时钟。
+- 下行按表维护独立的 `server_updated_at` 游标并分页拉取，完全不依赖设备时钟，也不会因跨表时间竞争漏数据。
 - 同一条记录按 `updatedAt` 做最后写入胜出；本地仍有未上传的新版本时会保留本地版本。
 - 软删除墓碑会同步到其他设备，列表和画布只显示未删除数据。
 - 一台设备第一次登录时，会把现有本地工作区认领给该账号。为避免账号间数据混用，本机已绑定其他用户时会暂停同步。
+- Supabase 四张表均启用 RLS 与 `REPLICA IDENTITY FULL`；复合主键包含 `user_id`，实时订阅和所有读写查询都同时按当前用户过滤。
 
 本地与 CI 的 E2E 默认使用 Playwright 自带 Chromium，并开启 fullyParallel：本地 4 workers，CI 2 workers。实测系统 Chrome 在多 worker 下会异常放大等待时间（全量从约 1 分钟退化到 5–6 分钟），因此仅保留 `test:e2e:chrome` 作为单 worker 真浏览器抽查。`.github/workflows/ci.yml` 会依次跑格式检查、lint、typecheck、单测、构建与 E2E。
 
@@ -258,7 +259,7 @@ VITE_EMAIL_CODE_ENABLED
 - **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
 - **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
 - **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
-- **版本锚点**：浮层页脚展示 `v1.4.6`，与顶栏、页脚和数据菜单保持一致
+- **版本锚点**：浮层页脚展示 `v1.4.7`，与顶栏、页脚和数据菜单保持一致
 - **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
@@ -289,7 +290,7 @@ VITE_EMAIL_CODE_ENABLED
 
 ## 版本与 PWA 元信息
 
-- 版本：`v1.4.6`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- 版本：`v1.4.7`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
 - `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
 - `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 SVG 图标；当前不注册 Service Worker，不伪造离线缓存
 - 首次启动请求 `navigator.storage.persist()`，尽力降低浏览器回收 IndexedDB 的概率
@@ -387,14 +388,15 @@ e2e/                             # Playwright 端到端测试
 - **云端出站队列**：Dexie `v3` 新增 `syncOutbox` 与 `syncMeta`，只追加同步元数据，不改已有四张领域表的索引；本地写事务提交后再合并入队，失败不影响本地编辑。
 - **云端入站隔离**：远端拉取写入通过 suppression guard，禁止触发 outbox，避免同步回声；随后通过现有 refresh 管线刷新 Pinia。
 - **云端权限边界**：四张远端表启用 RLS，策略只允许 `auth.uid() = user_id`；公开前端只使用 publishable key 或旧版 anon key。
+- **云端同步完整性**：每张表独立分页推进服务端时间游标，实时发布启用完整旧行标识，账号不匹配时本地同步直接锁定。
 - **原子 Markdown 边界**：正文由白名单 AST 直接渲染为 Vue 文本与内联元素，全程不使用 `v-html`；任务勾选只替换对应行，不改变 Dexie schema。
 - **主题持久化**：首次访问跟随系统；手动切换后明确写入 `light` / `dark`；首屏内联脚本恢复，避免闪烁。
 - **可访问性**：焦点陷阱、`inert` 背景、键盘移动、连线 `Tab` 聚焦、搜索 `role=listbox` + `aria-selected`、`aria-live` 选中播报与可见焦点环。
 
 ## 质量防线
 
-- **Vitest**：124 项，覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子 Markdown、有序列表、任务行替换、原子撤销、白板清空、Markdown 排序、搜索、捕获、认证会话与回调错误、云端冲突、离线 outbox、白板级联删除与旧 demo 清理。
-- **Playwright**：42 项，覆盖捕获、拖拽落点、缩放后平移、双击编辑、`/` 格式命令、移动端布局、多种登录入口、白板与清空、连线、Spotlight、层级星系、多选、刚体拖拽、任务勾选、行动透镜、Markdown 导出、快捷键浮层与空板引导。
+- **Vitest**：126 项，覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子 Markdown、有序列表、任务行替换、原子撤销、白板清空、Markdown 排序、搜索、捕获、认证会话与回调错误、账号锁定、云端增量游标、冲突、离线 outbox、白板级联删除与旧 demo 清理。
+- **Playwright**：43 项，覆盖捕获、拖拽落点、缩放后平移、双击编辑、`/` 格式命令、移动端布局、多种登录入口、白板与清空、跨标签历史失效、连线、Spotlight、层级星系、多选、刚体拖拽、任务勾选、行动透镜、Markdown 导出、快捷键浮层与空板引导。
 - **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 30 秒；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
 - **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。
 - 每次提交前运行 `format:check` / `lint` / `typecheck` / `test` / `build` / `test:e2e`。
@@ -426,3 +428,5 @@ v1.4.4 修复卡片拖拽提交竞态、缩放后 Space 平移误触缩放、白
 v1.4.5 修正缩放交互回归测试的首屏相机就绪判定，确保 CI 冷启动下仍能稳定验证 Space 平移。
 
 v1.4.6 将撤销与重做从独立圆形图标收敛为带文字标签的历史控制组，并新增保留白板与共享卡片的可撤销“清空当前白板”操作。
+
+v1.4.7 将云端增量拉取改为每张表独立分页的服务端时间游标，为实时表启用完整旧行标识，在远端变化时清理失效撤销历史并锁定不匹配账号的本地编辑，完成匿名、本账号和伪造跨账号写入的 RLS 实测。

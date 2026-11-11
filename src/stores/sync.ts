@@ -14,6 +14,7 @@ import { broadcastWorkspaceChange } from '../lib/tab-sync'
 import { clearViewport } from '../lib/view-state'
 import {
   isRemoteTombstone,
+  latestRemoteServerCursor,
   localRecordToRemote,
   outboxKey,
   remoteRecordToLocal,
@@ -30,6 +31,7 @@ import {
 import {
   SYNC_META_KEYS,
   SYNC_TABLES,
+  tablePullCursorKey,
   type SyncMetaRecord,
   type SyncOutboxRecord,
   type SyncTableName,
@@ -44,6 +46,7 @@ export type SyncPhase =
 const PUSH_DEBOUNCE_MS = 500
 const SYNC_RETRY_MS = 30_000
 const HEARTBEAT_MS = 60_000
+const PULL_PAGE_SIZE = 500
 
 function errorMessage(cause: unknown) {
   return cause instanceof Error ? cause.message : String(cause)
@@ -260,37 +263,52 @@ export const useSyncStore = defineStore('sync', () => {
   async function pullRemote(userId: string) {
     const supabase = await getSupabaseClient()
     if (!supabase) return false
-    const storedCursor = await readMeta(SYNC_META_KEYS.pullCursor)
-    const cursor = typeof storedCursor === 'string' ? storedCursor : null
-    const pullStartedAt = new Date().toISOString()
     let changed = false
 
-    for (const table of SYNC_TABLES) {
-      let query = supabase
-        .from(remoteTableName(table))
-        .select('*')
-        .eq('user_id', userId)
+    try {
+      for (const table of SYNC_TABLES) {
+        const cursorKey = tablePullCursorKey(table)
+        const storedCursor = await readMeta(cursorKey)
+        const cursor = typeof storedCursor === 'string' ? storedCursor : null
+        let offset = 0
+        let nextCursor: string | null = null
 
-      if (cursor) query = query.gt('server_updated_at', cursor)
+        while (true) {
+          let query = supabase
+            .from(remoteTableName(table))
+            .select('*')
+            .eq('user_id', userId)
 
-      const { data, error: pullError } = await query.order(
-        'server_updated_at',
-        {
-          ascending: true,
-        },
-      )
-      if (pullError) throw new Error(pullError.message)
+          if (cursor) query = query.gt('server_updated_at', cursor)
 
-      changed =
-        (await applyRemoteRows(table, (data ?? []) as RemoteRow[])) || changed
+          const { data, error: pullError } = await query
+            .order('server_updated_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(offset, offset + PULL_PAGE_SIZE - 1)
+          if (pullError) throw new Error(pullError.message)
+
+          const rows = (data ?? []) as RemoteRow[]
+          changed = (await applyRemoteRows(table, rows)) || changed
+          nextCursor = latestRemoteServerCursor(rows) ?? nextCursor
+          if (rows.length < PULL_PAGE_SIZE) break
+          offset += rows.length
+        }
+
+        if (nextCursor) await writeMeta(cursorKey, nextCursor)
+      }
+    } finally {
+      if (changed) {
+        broadcastWorkspaceChange('all')
+        await useWorkspaceStore().loadBoards()
+        const boardStore = useBoardStore()
+        try {
+          await boardStore.refresh()
+        } finally {
+          boardStore.clearHistory()
+        }
+      }
     }
 
-    await writeMeta(SYNC_META_KEYS.pullCursor, pullStartedAt)
-    if (changed) {
-      broadcastWorkspaceChange('all')
-      await useWorkspaceStore().loadBoards()
-      await useBoardStore().refresh()
-    }
     return changed
   }
 

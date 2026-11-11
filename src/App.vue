@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Layers2, Moon, PenLine, Redo2, Sun, Undo2 } from '@lucide/vue'
+import {
+  Layers2,
+  LockKeyhole,
+  Moon,
+  PenLine,
+  Redo2,
+  Sun,
+  Undo2,
+} from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
 import ActionLens from './components/canvas/ActionLens.vue'
@@ -408,6 +416,7 @@ function isEditableTarget(target: EventTarget | null) {
 
 function handleGlobalKeydown(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing) return
+  if (sync.phase === 'locked') return
   if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
 
   // The modal owns Escape and Tab while it is open.
@@ -499,6 +508,7 @@ onBeforeUnmount(() => {
   <CanvasStage
     v-if="board.isHydrated"
     :key="workspace.activeBoardId"
+    :inert="sync.phase === 'locked'"
     ref="stageRef"
     :board-id="workspace.activeBoardId"
     @background-pointerdown="handleCanvasBackground"
@@ -568,7 +578,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.4.6 · Local-first
+              v1.4.7 · Local-first
             </p>
           </div>
 
@@ -705,7 +715,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.4.6</span>
+          <span>v1.4.7</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">
@@ -797,6 +807,43 @@ onBeforeUnmount(() => {
 
   <ShortcutModal v-model:open="isShortcutOpen" />
 
+  <Transition name="account-lock">
+    <div
+      v-if="sync.phase === 'locked'"
+      class="fixed inset-0 z-[95] flex items-center justify-center bg-stone-950/45 px-4 backdrop-blur-md dark:bg-black/65"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="account-lock-title"
+    >
+      <section
+        class="w-full max-w-md rounded-[26px] border border-stone-200/80 bg-[#fdfbf7]/[0.98] p-6 shadow-[0_40px_120px_-32px_rgba(41,37,36,0.55)] dark:border-white/10 dark:bg-zinc-900/[0.98] dark:shadow-[0_50px_140px_-36px_rgba(0,0,0,0.95)]"
+      >
+        <span
+          class="flex h-10 w-10 items-center justify-center rounded-[13px] border border-amber-700/15 bg-amber-500/[0.08] text-amber-700 dark:border-amber-200/15 dark:bg-amber-200/[0.06] dark:text-amber-200"
+        >
+          <LockKeyhole :size="17" :stroke-width="1.6" aria-hidden="true" />
+        </span>
+        <h2
+          id="account-lock-title"
+          class="mt-4 font-serif text-[21px] tracking-[-0.025em] text-stone-800 dark:text-zinc-100"
+        >
+          本机数据属于另一个云端账号
+        </h2>
+        <p class="mt-2 text-[12px] leading-6 text-stone-500 dark:text-zinc-400">
+          为避免不同账号的数据混用，当前账号已暂停对本机白板的编辑和同步。请退出当前账号，再使用原账号登录。
+        </p>
+        <button
+          type="button"
+          class="mt-5 flex h-11 w-full items-center justify-center rounded-full bg-stone-900 text-[11px] font-medium text-white transition-colors hover:bg-stone-800 disabled:cursor-wait disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+          :disabled="auth.loading"
+          @click="auth.signOut()"
+        >
+          {{ auth.loading ? '正在退出…' : '退出当前账号' }}
+        </button>
+      </section>
+    </div>
+  </Transition>
+
   <ToastStack />
 </template>
 
@@ -835,5 +882,26 @@ onBeforeUnmount(() => {
 .empty-state-leave-to {
   opacity: 0;
   transform: translateY(8px) scale(0.985);
+}
+
+.account-lock-enter-active,
+.account-lock-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.account-lock-enter-active section,
+.account-lock-leave-active section {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.account-lock-enter-from,
+.account-lock-leave-to,
+.account-lock-enter-from section,
+.account-lock-leave-to section {
+  opacity: 0;
+}
+
+.account-lock-enter-from section {
+  transform: translateY(8px) scale(0.98);
 }
 </style>

@@ -82,6 +82,11 @@ create index if not exists board_items_user_server_updated_idx
 create index if not exists connections_user_server_updated_idx
   on public.connections (user_id, server_updated_at);
 
+alter table public.boards replica identity full;
+alter table public.cards replica identity full;
+alter table public.board_items replica identity full;
+alter table public.connections replica identity full;
+
 create or replace function public.set_server_updated_at()
 returns trigger
 language plpgsql

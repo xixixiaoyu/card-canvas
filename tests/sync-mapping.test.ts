@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  latestRemoteServerCursor,
   localRecordToRemote,
   remoteRecordToLocal,
   shouldAcceptRemoteRevision,
@@ -110,5 +111,16 @@ describe('Supabase record mapping', () => {
     expect(shouldAcceptRemoteRevision(2000, undefined, 2000)).toBe(false)
     expect(shouldAcceptRemoteRevision(2001, 2000, 2000)).toBe(true)
     expect(shouldAcceptRemoteRevision(2000, undefined, undefined)).toBe(true)
+  })
+
+  it('advances pull cursors with server timestamps instead of client time', () => {
+    expect(
+      latestRemoteServerCursor([
+        { server_updated_at: '2026-11-11T10:00:00.100Z' },
+        { server_updated_at: '2026-11-11T10:00:00.300Z' },
+        { server_updated_at: 'invalid' },
+      ]),
+    ).toBe('2026-11-11T10:00:00.300Z')
+    expect(latestRemoteServerCursor([])).toBeNull()
   })
 })
