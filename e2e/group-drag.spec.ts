@@ -37,28 +37,37 @@ async function settleAnimationFrames(page: Page) {
   )
 }
 
-async function rigidDragError(
-  page: Page,
-  before: Awaited<ReturnType<typeof box>>[],
-  source: number,
-  includeY = false,
-) {
-  const cards = page.locator('[data-world-item]')
-  const during = await Promise.all(
-    before.map((_, index) => box(cards.nth(index))),
-  )
-  const dx = during[source].x - before[source].x
-  const dy = during[source].y - before[source].y
-
-  return Math.max(
-    ...during.flatMap((entry, index) => {
-      const errors = [Math.abs(entry.x - before[index].x - dx)]
-      if (includeY) {
-        errors.push(Math.abs(entry.y - before[index].y - dy))
+async function rigidTransformError(page: Page, includeY = false) {
+  return page
+    .locator('[data-world-item].is-selected')
+    .evaluateAll((elements, withY) => {
+      const translations = elements.map((element) => {
+        const match = (element as HTMLElement).style.transform.match(
+          /translate3d\(\s*([-\d.]+)px,\s*([-\d.]+)px,/,
+        )
+        return match
+          ? { x: Number.parseFloat(match[1]), y: Number.parseFloat(match[2]) }
+          : null
+      })
+      if (
+        translations.length < 2 ||
+        translations.some((translation) => !translation)
+      ) {
+        return Number.POSITIVE_INFINITY
       }
-      return errors
-    }),
-  )
+
+      const first = translations[0]!
+      return Math.max(
+        ...translations.map((translation) =>
+          withY
+            ? Math.max(
+                Math.abs(translation!.x - first.x),
+                Math.abs(translation!.y - first.y),
+              )
+            : Math.abs(translation!.x - first.x),
+        ),
+      )
+    }, includeY)
 }
 
 async function largestVisibleSelectedIndex(page: Page) {
@@ -67,15 +76,18 @@ async function largestVisibleSelectedIndex(page: Page) {
     .evaluateAll((elements) =>
       elements.map((element, index) => {
         const rect = element.getBoundingClientRect()
+        const title = element.querySelector('h2')?.getBoundingClientRect()
+        const clickX = title ? title.x + Math.min(30, title.width - 1) : -1
+        const clickY = title ? title.y + title.height * 0.8 : -1
         return {
           index,
           selected: element.classList.contains('is-selected'),
           area: rect.width * rect.height,
           visible:
-            rect.right > 40 &&
-            rect.left < window.innerWidth - 40 &&
-            rect.bottom > 80 &&
-            rect.top < window.innerHeight - 60 &&
+            clickX > 10 &&
+            clickX < window.innerWidth - 10 &&
+            clickY > 70 &&
+            clickY < window.innerHeight - 60 &&
             rect.width > 120 &&
             rect.height > 120,
         }
@@ -287,8 +299,10 @@ test('selected cluster drags as a rigid body, follows wires and undoes once', as
 })
 
 test('rigid offsets survive at 40% and 200% zoom', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
+  await expect(page.locator('.canvas-stage')).toHaveClass(/is-ready/)
   await page.waitForTimeout(500)
   const cards = page.locator('[data-world-item]')
   await connect(page, cards.nth(0), cards.nth(1))
@@ -304,38 +318,28 @@ test('rigid offsets survive at 40% and 200% zoom', async ({ page }) => {
 
   await zoomTo(page, 40, 'out')
   await page.waitForTimeout(600)
-  const before40 = await Promise.all([
-    box(cards.nth(0)),
-    box(cards.nth(1)),
-    box(cards.nth(2)),
-  ])
   await page.waitForTimeout(800)
   const source40 = await largestVisibleSelectedIndex(page)
   const line40 = await page.locator('[data-line]').getAttribute('d')
   await dragBox(page, cards.nth(source40), 30, 18)
   expect(await page.locator('[data-line]').getAttribute('d')).not.toBe(line40)
   await expect
-    .poll(() => rigidDragError(page, before40, source40), { timeout: 3_000 })
-    .toBeLessThan(2)
+    .poll(() => rigidTransformError(page), { timeout: 3_000 })
+    .toBeLessThan(0.01)
   await page.mouse.up()
   await page.waitForTimeout(400)
 
   await zoomTo(page, 200, 'in')
   await page.waitForTimeout(600)
-  const before200 = await Promise.all([
-    box(cards.nth(0)),
-    box(cards.nth(1)),
-    box(cards.nth(2)),
-  ])
   const source200 = await largestVisibleSelectedIndex(page)
   const line200 = await page.locator('[data-line]').getAttribute('d')
   await dragBox(page, cards.nth(source200), 24, 12, 'edge')
   expect(await page.locator('[data-line]').getAttribute('d')).not.toBe(line200)
   await expect
-    .poll(() => rigidDragError(page, before200, source200, true), {
+    .poll(() => rigidTransformError(page, true), {
       timeout: 3_000,
     })
-    .toBeLessThan(2)
+    .toBeLessThan(0.01)
   await page.mouse.up()
   await expect(page.locator('[data-world-item].is-selected')).toHaveCount(3)
 })
