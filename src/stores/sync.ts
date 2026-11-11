@@ -17,6 +17,8 @@ import {
   latestRemoteServerCursor,
   localRecordToRemote,
   outboxKey,
+  parsePullCursor,
+  pullCursorFilter,
   remoteRecordToLocal,
   remoteTableName,
   remoteUpdatedAt,
@@ -32,13 +34,19 @@ import {
   SYNC_META_KEYS,
   SYNC_TABLES,
   tablePullCursorKey,
+  type PullCursor,
   type SyncMetaRecord,
   type SyncOutboxRecord,
   type SyncTableName,
 } from '../lib/sync/types'
+import { isPristineLocalWorkspace } from '../lib/sync/workspace-claim'
 import type { Card } from '../types'
 import { useBoardStore } from './board'
-import { useWorkspaceStore } from './workspace'
+import {
+  DEFAULT_BOARD_ID,
+  DEFAULT_BOARD_NAME,
+  useWorkspaceStore,
+} from './workspace'
 
 export type SyncPhase =
   'disabled' | 'idle' | 'syncing' | 'synced' | 'offline' | 'error' | 'locked'
@@ -61,6 +69,7 @@ export const useSyncStore = defineStore('sync', () => {
   let activeUserId: string | null = null
   let running: Promise<void> | null = null
   let generation = 0
+  let rerunRequested = false
   let pushTimer: ReturnType<typeof setTimeout> | null = null
   let retryTimer: ReturnType<typeof setTimeout> | null = null
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -94,6 +103,53 @@ export const useSyncStore = defineStore('sync', () => {
 
   async function refreshPendingCount() {
     pendingCount.value = await db.syncOutbox.count()
+  }
+
+  async function clearPristineLocalWorkspace() {
+    await withSyncTrackingSuppressed(async () => {
+      await db.transaction(
+        'rw',
+        [
+          db.boards,
+          db.cards,
+          db.boardItems,
+          db.connections,
+          db.syncOutbox,
+          db.syncMeta,
+        ],
+        async () => {
+          await Promise.all([
+            db.boards.clear(),
+            db.cards.clear(),
+            db.boardItems.clear(),
+            db.connections.clear(),
+            db.syncOutbox.clear(),
+            db.syncMeta.clear(),
+          ])
+        },
+      )
+    })
+    broadcastWorkspaceChange('all')
+  }
+
+  async function clearPullCursors() {
+    await db.syncMeta.bulkDelete(
+      SYNC_TABLES.map((table) => tablePullCursorKey(table)),
+    )
+  }
+
+  async function hasPristineLocalWorkspace() {
+    const [boards, cards, boardItems, connections] = await Promise.all([
+      db.boards.toArray(),
+      db.cards.toArray(),
+      db.boardItems.toArray(),
+      db.connections.toArray(),
+    ])
+
+    return isPristineLocalWorkspace(
+      { boards, cards, boardItems, connections },
+      { id: DEFAULT_BOARD_ID, name: DEFAULT_BOARD_NAME },
+    )
   }
 
   function clearPushTimer() {
@@ -260,7 +316,10 @@ export const useSyncStore = defineStore('sync', () => {
     return changed
   }
 
-  async function pullRemote(userId: string) {
+  async function pullRemote(
+    userId: string,
+    isCurrent: () => boolean = () => true,
+  ) {
     const supabase = await getSupabaseClient()
     if (!supabase) return false
     let changed = false
@@ -269,9 +328,11 @@ export const useSyncStore = defineStore('sync', () => {
       for (const table of SYNC_TABLES) {
         const cursorKey = tablePullCursorKey(table)
         const storedCursor = await readMeta(cursorKey)
-        const cursor = typeof storedCursor === 'string' ? storedCursor : null
+        const cursor = parsePullCursor(
+          typeof storedCursor === 'string' ? storedCursor : null,
+        )
         let offset = 0
-        let nextCursor: string | null = null
+        let nextCursor: PullCursor | null = null
 
         while (true) {
           let query = supabase
@@ -279,7 +340,7 @@ export const useSyncStore = defineStore('sync', () => {
             .select('*')
             .eq('user_id', userId)
 
-          if (cursor) query = query.gt('server_updated_at', cursor)
+          if (cursor) query = query.or(pullCursorFilter(cursor))
 
           const { data, error: pullError } = await query
             .order('server_updated_at', { ascending: true })
@@ -288,16 +349,19 @@ export const useSyncStore = defineStore('sync', () => {
           if (pullError) throw new Error(pullError.message)
 
           const rows = (data ?? []) as RemoteRow[]
+          if (!isCurrent()) return changed
           changed = (await applyRemoteRows(table, rows)) || changed
           nextCursor = latestRemoteServerCursor(rows) ?? nextCursor
           if (rows.length < PULL_PAGE_SIZE) break
           offset += rows.length
         }
 
-        if (nextCursor) await writeMeta(cursorKey, nextCursor)
+        if (nextCursor) {
+          await writeMeta(cursorKey, JSON.stringify(nextCursor))
+        }
       }
     } finally {
-      if (changed) {
+      if (changed && isCurrent()) {
         broadcastWorkspaceChange('all')
         await useWorkspaceStore().loadBoards()
         const boardStore = useBoardStore()
@@ -314,7 +378,10 @@ export const useSyncStore = defineStore('sync', () => {
 
   async function synchronize() {
     if (!activeUserId || !isSupabaseConfigured) return
-    if (running) return running
+    if (running) {
+      rerunRequested = true
+      return running
+    }
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       phase.value = 'offline'
       return
@@ -325,23 +392,30 @@ export const useSyncStore = defineStore('sync', () => {
     error.value = null
     const userId = activeUserId
     const runGeneration = generation
+    const isCurrentRun = () =>
+      generation === runGeneration && activeUserId === userId
 
     running = (async () => {
+      let succeeded = false
       try {
         const supabase = await getSupabaseClient()
         if (!supabase) return
+        if (!isCurrentRun()) return
         if (pendingRemoteDemoCleanupUserId === userId) {
           await removeRemoteDemoData(supabase, userId)
+          if (!isCurrentRun()) return
           pendingRemoteDemoCleanupUserId = null
         }
-        await pullRemote(userId)
+        await pullRemote(userId, isCurrentRun)
+        if (!isCurrentRun()) return
         await pushOutbox(userId)
-        if (generation !== runGeneration || activeUserId !== userId) return
+        if (!isCurrentRun()) return
         await refreshPendingCount()
         lastSyncedAt.value = Date.now()
         phase.value = 'synced'
+        succeeded = true
       } catch (cause) {
-        if (generation !== runGeneration || activeUserId !== userId) return
+        if (!isCurrentRun()) return
         error.value = errorMessage(cause)
         phase.value =
           typeof navigator !== 'undefined' && !navigator.onLine
@@ -353,7 +427,19 @@ export const useSyncStore = defineStore('sync', () => {
           void synchronize()
         }, SYNC_RETRY_MS)
       } finally {
-        if (generation === runGeneration) running = null
+        if (generation === runGeneration) {
+          running = null
+          const shouldRerun =
+            rerunRequested && succeeded && activeUserId === userId
+          rerunRequested = false
+          if (shouldRerun) {
+            queueMicrotask(() => {
+              if (activeUserId === userId && generation === runGeneration) {
+                void synchronize()
+              }
+            })
+          }
+        }
         if (activeUserId === userId) {
           await refreshPendingCount().catch(() => {})
         }
@@ -369,9 +455,12 @@ export const useSyncStore = defineStore('sync', () => {
     if (!supabase) return
 
     realtimeClient = supabase
-    channel = supabase.channel(`card-canvas:${userId}:${syncClientId}`)
+    const nextChannel = supabase.channel(
+      `card-canvas:${userId}:${syncClientId}`,
+    )
+    channel = nextChannel
     for (const table of SYNC_TABLES) {
-      channel.on(
+      nextChannel.on(
         'postgres_changes',
         {
           event: '*',
@@ -388,7 +477,18 @@ export const useSyncStore = defineStore('sync', () => {
         },
       )
     }
-    channel.subscribe()
+    await new Promise<void>((resolve) => {
+      nextChannel.subscribe((status) => {
+        if (
+          status === 'SUBSCRIBED' ||
+          status === 'CHANNEL_ERROR' ||
+          status === 'TIMED_OUT' ||
+          status === 'CLOSED'
+        ) {
+          resolve()
+        }
+      })
+    })
   }
 
   function handleVisibilityChange() {
@@ -411,6 +511,9 @@ export const useSyncStore = defineStore('sync', () => {
 
     stop()
     activeUserId = userId
+    const startGeneration = generation
+    const isCurrentStart = () =>
+      generation === startGeneration && activeUserId === userId
 
     if (!isSupabaseConfigured) {
       phase.value = 'disabled'
@@ -419,8 +522,17 @@ export const useSyncStore = defineStore('sync', () => {
 
     return (async () => {
       await db.open()
+      if (!isCurrentStart()) return
       const ownerId = await readMeta(SYNC_META_KEYS.ownerId)
+      if (!isCurrentStart()) return
+      let pristineClaim = false
       if (!ownerId) {
+        pristineClaim = await hasPristineLocalWorkspace()
+        if (!isCurrentStart()) return
+        if (pristineClaim) await clearPristineLocalWorkspace()
+        if (!isCurrentStart()) return
+        await clearPullCursors()
+        if (!isCurrentStart()) return
         await writeMeta(SYNC_META_KEYS.ownerId, userId)
       } else if (ownerId !== userId) {
         phase.value = 'locked'
@@ -429,11 +541,14 @@ export const useSyncStore = defineStore('sync', () => {
       }
 
       const removedLocalDemo = await removeLegacyDemoData()
+      if (!isCurrentStart()) return
       if (removedLocalDemo) {
         broadcastWorkspaceChange('all')
         await useBoardStore().refresh()
+        if (!isCurrentStart()) return
       }
-      if (!ownerId) await queueFullWorkspaceSnapshot()
+      if (!ownerId && !pristineClaim) await queueFullWorkspaceSnapshot()
+      if (!isCurrentStart()) return
 
       pendingRemoteDemoCleanupUserId = userId
       unsubscribeOutbox = subscribeSyncOutbox(scheduleSync)
@@ -445,14 +560,26 @@ export const useSyncStore = defineStore('sync', () => {
       heartbeatTimer = setInterval(() => void synchronize(), HEARTBEAT_MS)
 
       await refreshPendingCount()
-      await synchronize()
+      if (!isCurrentStart()) return
       await subscribeRealtime(userId)
+      if (!isCurrentStart()) return
+      await synchronize()
+      if (!isCurrentStart()) return
+
+      if (pristineClaim && (await db.boards.count()) === 0) {
+        await useWorkspaceStore().loadBoards()
+        if (!isCurrentStart()) return
+        await useBoardStore().refresh()
+        if (!isCurrentStart()) return
+        await synchronize()
+      }
     })()
   }
 
   function stop() {
     generation += 1
     running = null
+    rerunRequested = false
     clearPushTimer()
     clearRetryTimer()
     if (heartbeatTimer !== null) {

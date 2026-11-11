@@ -10,8 +10,8 @@ import { clearViewport } from '../lib/view-state'
 import type { Board } from '../types'
 
 const ACTIVE_BOARD_KEY = 'card-canvas:active-board'
-const DEFAULT_BOARD_ID = 'board-main'
-const DEFAULT_BOARD_NAME = '我的白板'
+export const DEFAULT_BOARD_ID = 'board-main'
+export const DEFAULT_BOARD_NAME = '我的白板'
 
 /**
  * Workspace UI state plus the durable board list. Cards are global; a board is

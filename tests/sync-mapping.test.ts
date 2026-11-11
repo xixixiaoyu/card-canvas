@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   latestRemoteServerCursor,
   localRecordToRemote,
+  parsePullCursor,
+  pullCursorFilter,
   remoteRecordToLocal,
   shouldAcceptRemoteRevision,
 } from '../src/lib/sync/mapping'
@@ -116,11 +118,41 @@ describe('Supabase record mapping', () => {
   it('advances pull cursors with server timestamps instead of client time', () => {
     expect(
       latestRemoteServerCursor([
-        { server_updated_at: '2026-11-11T10:00:00.100Z' },
-        { server_updated_at: '2026-11-11T10:00:00.300Z' },
-        { server_updated_at: 'invalid' },
+        {
+          id: 'card-a',
+          server_updated_at: '2026-11-11T10:00:00.100Z',
+        },
+        {
+          id: 'card-b',
+          server_updated_at: '2026-11-11T10:00:00.300Z',
+        },
+        {
+          id: 'card-a',
+          server_updated_at: '2026-11-11T10:00:00.300Z',
+        },
+        { id: 'card-invalid', server_updated_at: 'invalid' },
       ]),
-    ).toBe('2026-11-11T10:00:00.300Z')
+    ).toEqual({
+      updatedAt: '2026-11-11T10:00:00.300Z',
+      id: 'card-b',
+    })
     expect(latestRemoteServerCursor([])).toBeNull()
+  })
+
+  it('uses a composite cursor so equal server timestamps cannot be skipped', () => {
+    const cursor = {
+      updatedAt: '2026-11-11T10:00:00.300Z',
+      id: 'card-b',
+    }
+
+    expect(pullCursorFilter(cursor)).toBe(
+      'server_updated_at.gt.2026-11-11T10:00:00.300Z,and(server_updated_at.eq.2026-11-11T10:00:00.300Z,id.gt.card-b)',
+    )
+    expect(parsePullCursor(JSON.stringify(cursor))).toEqual(cursor)
+    expect(parsePullCursor('2026-11-11T10:00:00.300Z')).toEqual({
+      updatedAt: '2026-11-11T10:00:00.300Z',
+      id: '',
+    })
+    expect(parsePullCursor(null)).toBeNull()
   })
 })

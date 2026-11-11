@@ -22,6 +22,11 @@ export interface SyncMetaRecord {
   value: string | number | boolean | null
 }
 
+export interface PullCursor {
+  updatedAt: string
+  id: string
+}
+
 export const SYNC_META_KEYS = {
   ownerId: 'owner-id',
   pullCursor: 'pull-cursor',

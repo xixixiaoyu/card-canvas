@@ -82,6 +82,15 @@ create index if not exists board_items_user_server_updated_idx
 create index if not exists connections_user_server_updated_idx
   on public.connections (user_id, server_updated_at);
 
+create index if not exists boards_user_server_cursor_idx
+  on public.boards (user_id, server_updated_at, id);
+create index if not exists cards_user_server_cursor_idx
+  on public.cards (user_id, server_updated_at, id);
+create index if not exists board_items_user_server_cursor_idx
+  on public.board_items (user_id, server_updated_at, id);
+create index if not exists connections_user_server_cursor_idx
+  on public.connections (user_id, server_updated_at, id);
+
 alter table public.boards replica identity full;
 alter table public.cards replica identity full;
 alter table public.board_items replica identity full;

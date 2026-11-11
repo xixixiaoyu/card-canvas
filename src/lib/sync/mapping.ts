@@ -1,5 +1,10 @@
 import type { Board, BoardItem, Card, Connection } from '../../types'
-import type { SyncOperation, SyncOutboxRecord, SyncTableName } from './types'
+import type {
+  PullCursor,
+  SyncOperation,
+  SyncOutboxRecord,
+  SyncTableName,
+} from './types'
 
 export type RemoteRow = Record<string, unknown>
 
@@ -146,21 +151,47 @@ export function remoteUpdatedAt(row: RemoteRow) {
   return numberOr(row.updated_at)
 }
 
-export function latestRemoteServerCursor(rows: RemoteRow[]) {
-  let latestValue: string | null = null
+export function latestRemoteServerCursor(rows: RemoteRow[]): PullCursor | null {
+  let latestValue: PullCursor | null = null
   let latestTime = Number.NEGATIVE_INFINITY
 
   for (const row of rows) {
     const value = row.server_updated_at
-    if (typeof value !== 'string') continue
+    const id = row.id
+    if (typeof value !== 'string' || typeof id !== 'string') continue
 
     const time = Date.parse(value)
-    if (!Number.isFinite(time) || time < latestTime) continue
+    if (
+      !Number.isFinite(time) ||
+      time < latestTime ||
+      (time === latestTime && latestValue && id <= latestValue.id)
+    ) {
+      continue
+    }
     latestTime = time
-    latestValue = value
+    latestValue = { updatedAt: value, id }
   }
 
   return latestValue
+}
+
+export function pullCursorFilter(cursor: PullCursor) {
+  return `server_updated_at.gt.${cursor.updatedAt},and(server_updated_at.eq.${cursor.updatedAt},id.gt.${cursor.id})`
+}
+
+export function parsePullCursor(value: string | null): PullCursor | null {
+  if (!value) return null
+
+  try {
+    const parsed = JSON.parse(value) as Partial<PullCursor>
+    if (typeof parsed.updatedAt === 'string' && typeof parsed.id === 'string') {
+      return { updatedAt: parsed.updatedAt, id: parsed.id }
+    }
+  } catch {
+    // Migrate the timestamp-only cursor written by versions before v1.4.8.
+  }
+
+  return { updatedAt: value, id: '' }
 }
 
 /**
