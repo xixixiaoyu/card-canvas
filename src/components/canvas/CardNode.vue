@@ -7,7 +7,16 @@ import {
   ref,
   shallowRef,
 } from 'vue'
-import { Check, Copy, Grip, Link2, Pencil, Trash2 } from '@lucide/vue'
+import {
+  Check,
+  Copy,
+  Grip,
+  Link2,
+  Pencil,
+  Share2,
+  Sparkles,
+  Trash2,
+} from '@lucide/vue'
 import { removeCardHeight, setCardHeight } from '../../lib/card-metrics'
 import { tagMatches } from '../../lib/galaxy'
 import { useCardDrag, type CardDragCommit } from '../../composables/useCardDrag'
@@ -50,6 +59,8 @@ const emit = defineEmits<{
   edit: []
   delete: []
   copyMarkdown: []
+  share: []
+  findConnections: []
   toggleTask: [lineIndex: number]
   tagClick: [tag: string]
 }>()
@@ -268,6 +279,30 @@ function tagTone(index: number) {
                     :stroke-width="1.7"
                     aria-hidden="true"
                   />
+                </button>
+                <button
+                  type="button"
+                  class="card-action card-action--share"
+                  data-card-interactive
+                  data-card-share
+                  aria-label="分享卡片图片"
+                  title="分享图片"
+                  @pointerdown.stop
+                  @click.stop="emit('share')"
+                >
+                  <Share2 :size="11" :stroke-width="1.7" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="card-action card-action--radar"
+                  data-card-interactive
+                  data-card-radar
+                  aria-label="寻找关联卡片"
+                  title="找关联"
+                  @pointerdown.stop
+                  @click.stop="emit('findConnections')"
+                >
+                  <Sparkles :size="11" :stroke-width="1.7" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -593,6 +628,16 @@ function tagTone(index: number) {
   color: rgb(190 18 60);
 }
 
+.card-action--share:hover {
+  background: rgba(224, 231, 255, 0.78);
+  color: rgb(67 56, 202);
+}
+
+.card-action--radar:hover {
+  background: rgba(254, 243, 199, 0.78);
+  color: rgb(146 64, 14);
+}
+
 .dark .card-action {
   color: rgb(113 113 122);
 }
@@ -610,6 +655,16 @@ function tagTone(index: number) {
 .dark .card-action--copy:hover {
   background: rgba(56, 189, 248, 0.1);
   color: rgb(186, 230, 253);
+}
+
+.dark .card-action--share:hover {
+  background: rgba(199, 210, 254, 0.1);
+  color: rgb(199, 210, 254);
+}
+
+.dark .card-action--radar:hover {
+  background: rgba(253, 230, 138, 0.09);
+  color: rgb(253, 230, 138);
 }
 
 .card-action--copy.is-copied,

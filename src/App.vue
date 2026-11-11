@@ -1,20 +1,24 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
+  CalendarPlus,
   Layers2,
   LockKeyhole,
   Moon,
   PenLine,
   Redo2,
+  Sparkles,
   Sun,
   Undo2,
 } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
 import ActionLens from './components/canvas/ActionLens.vue'
+import ConnectionRadar from './components/ai/ConnectionRadar.vue'
 import EmptyBoardState from './components/canvas/EmptyBoardState.vue'
 import ShortcutModal from './components/canvas/ShortcutModal.vue'
 import SpotlightSearch from './components/canvas/SpotlightSearch.vue'
+import ShareStudio from './components/share/ShareStudio.vue'
 import CloudAccount from './components/auth/CloudAccount.vue'
 import BoardSwitcher from './components/board/BoardSwitcher.vue'
 import QuickCapture from './components/capture/QuickCapture.vue'
@@ -28,7 +32,9 @@ import { cardHasTag } from './lib/galaxy'
 import type { SpotlightTarget } from './lib/global-search'
 import { buildMarkdown, copyTextToClipboard } from './lib/markdownExport'
 import { DEMO_FOCUS_ITEM_ID } from './lib/demo-data'
+import { formatDailyTodoTitle, isDailyTodoCard } from './lib/daily-todo'
 import { useAuthStore } from './stores/auth'
+import { useAIStore } from './stores/ai'
 import { useBoardStore } from './stores/board'
 import { useSyncStore } from './stores/sync'
 import { useToastStore } from './stores/toast'
@@ -41,6 +47,7 @@ const board = useBoardStore()
 const toast = useToastStore()
 const auth = useAuthStore()
 const sync = useSyncStore()
+const ai = useAIStore()
 
 const stageRef = ref<InstanceType<typeof CanvasStage> | null>(null)
 const isCaptureOpen = ref(false)
@@ -48,6 +55,11 @@ const isSpotlightOpen = ref(false)
 const isShortcutOpen = ref(false)
 const isActionTrayOpen = ref(false)
 const isAISettingsOpen = ref(false)
+const isConnectionRadarOpen = ref(false)
+const isShareStudioOpen = ref(false)
+const radarCard = ref<Card | null>(null)
+const shareCard = ref<Card | null>(null)
+const captureTemplate = ref<'daily-todo' | null>(null)
 const editingCard = ref<Card | null>(null)
 const stageReady = ref(false)
 const pendingTeleport = ref<SpotlightTarget | null>(null)
@@ -107,6 +119,8 @@ watch(
   () => workspace.activeBoardId,
   (boardId, previous) => {
     stageReady.value = false
+    isConnectionRadarOpen.value = false
+    isShareStudioOpen.value = false
     if (pendingTeleport.value && pendingTeleport.value.boardId !== boardId) {
       cancelPendingTeleport()
     }
@@ -335,8 +349,36 @@ function handleGroupCommit(
 
 function openCapture() {
   isActionTrayOpen.value = false
+  isConnectionRadarOpen.value = false
+  isShareStudioOpen.value = false
+  captureTemplate.value = null
   editingCard.value = null
   isCaptureOpen.value = true
+}
+
+function openTodayTodo() {
+  if (!board.isHydrated) return
+
+  const title = formatDailyTodoTitle()
+  const existing = board.entries.find((entry) =>
+    isDailyTodoCard(entry.card, title),
+  )
+  if (existing) {
+    isActionTrayOpen.value = false
+    board.clearFilterTag()
+    void handleActionTaskFocus({
+      cardId: existing.card.id,
+      itemId: existing.item.id,
+    })
+    toast.push('今天的待办卡已经在白板上，已带你回到这张卡。', {
+      tone: 'info',
+      timeout: 2600,
+    })
+    return
+  }
+
+  openCapture()
+  captureTemplate.value = 'daily-todo'
 }
 
 function openSpotlight() {
@@ -344,7 +386,9 @@ function openSpotlight() {
     !board.isHydrated ||
     isCaptureOpen.value ||
     isShortcutOpen.value ||
-    isActionTrayOpen.value
+    isActionTrayOpen.value ||
+    isConnectionRadarOpen.value ||
+    isShareStudioOpen.value
   ) {
     return
   }
@@ -356,7 +400,9 @@ function openShortcuts() {
     !board.isHydrated ||
     isCaptureOpen.value ||
     isSpotlightOpen.value ||
-    isActionTrayOpen.value
+    isActionTrayOpen.value ||
+    isConnectionRadarOpen.value ||
+    isShareStudioOpen.value
   ) {
     return
   }
@@ -387,8 +433,37 @@ function hasTextSelection() {
 }
 
 function openEdit(card: Card) {
+  isConnectionRadarOpen.value = false
+  isShareStudioOpen.value = false
+  captureTemplate.value = null
   editingCard.value = card
   isCaptureOpen.value = true
+}
+
+function openShareStudio(card: Card) {
+  shareCard.value = card
+  radarCard.value = null
+  isConnectionRadarOpen.value = false
+  isActionTrayOpen.value = false
+  isCaptureOpen.value = false
+  editingCard.value = null
+  isShareStudioOpen.value = true
+}
+
+function openConnectionRadar(card: Card) {
+  radarCard.value = card
+  shareCard.value = null
+  isShareStudioOpen.value = false
+  isActionTrayOpen.value = false
+  isCaptureOpen.value = false
+  editingCard.value = null
+  isConnectionRadarOpen.value = true
+}
+
+async function openAISettingsFromRadar() {
+  isConnectionRadarOpen.value = false
+  await nextTick()
+  isAISettingsOpen.value = true
 }
 
 async function handleDelete(card: Card) {
@@ -426,7 +501,13 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
   // The modal owns Escape and Tab while it is open.
   if (isShortcutOpen.value) return
-  if (isSpotlightOpen.value || isCaptureOpen.value || isActionTrayOpen.value) {
+  if (
+    isSpotlightOpen.value ||
+    isCaptureOpen.value ||
+    isActionTrayOpen.value ||
+    isConnectionRadarOpen.value ||
+    isShareStudioOpen.value
+  ) {
     return
   }
   // Never steal shortcuts from inputs, textareas or future inline editors.
@@ -549,6 +630,8 @@ onBeforeUnmount(() => {
       @edit="openEdit(entry.card)"
       @delete="handleDelete(entry.card)"
       @copy-markdown="handleCopyCardMarkdown(entry.item.id)"
+      @share="openShareStudio(entry.card)"
+      @find-connections="openConnectionRadar(entry.card)"
       @toggle-task="board.toggleCardTask(entry.card.id, $event)"
       @tag-click="board.toggleFilterTag($event)"
     />
@@ -562,7 +645,7 @@ onBeforeUnmount(() => {
       </Transition>
 
       <header
-        class="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 px-5 py-5 sm:px-8 sm:py-7"
+        class="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 px-3 py-5 sm:px-8 sm:py-7"
       >
         <div class="flex items-center gap-3">
           <div
@@ -583,7 +666,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.5.4 · Local-first
+              v1.6.0 · Local-first
             </p>
           </div>
 
@@ -594,7 +677,7 @@ onBeforeUnmount(() => {
           <BoardSwitcher />
         </div>
 
-        <div class="pointer-events-auto flex items-center gap-2">
+        <div class="pointer-events-auto flex items-center gap-0.5 sm:gap-2">
           <div
             class="hidden h-10 items-center rounded-full border border-stone-200/80 bg-white/60 p-1 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl xl:flex dark:border-white/10 dark:bg-zinc-900/60"
             data-canvas-ui
@@ -637,66 +720,111 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <button
-            type="button"
-            data-canvas-ui
-            class="group inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 pl-3 pr-2.5 text-[10px] font-medium uppercase tracking-[0.16em] text-stone-600 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
-            aria-label="打开速记"
-            title="速记 · ⌘K"
-            @click="openCapture()"
+          <div
+            class="topbar-action-cluster flex items-center rounded-full border border-stone-200/80 bg-white/60 p-1 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/60"
+            data-topbar-actions
           >
-            <PenLine :size="14" :stroke-width="1.7" aria-hidden="true" />
-            <span class="hidden lg:inline">速记</span>
-            <kbd
-              class="ml-0.5 hidden rounded-md border border-stone-200/80 bg-white/70 px-1.5 py-0.5 font-mono text-[9px] font-normal tracking-normal text-stone-500 lg:inline dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400"
+            <button
+              type="button"
+              data-canvas-ui
+              class="topbar-cluster-action group"
+              aria-label="打开速记"
+              title="速记 · ⌘K"
+              @click="openCapture()"
             >
-              ⌘K
-            </kbd>
-          </button>
+              <PenLine :size="14" :stroke-width="1.7" aria-hidden="true" />
+              <span class="hidden lg:inline">速记</span>
+              <kbd
+                class="ml-0.5 hidden rounded-md border border-stone-200/80 bg-white/70 px-1.5 py-0.5 font-mono text-[9px] font-normal tracking-normal text-stone-500 lg:inline dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400"
+              >
+                ⌘K
+              </kbd>
+            </button>
 
-          <ActionLens
-            v-model:open="isActionTrayOpen"
-            @focus="handleActionTaskFocus"
-            @toggle="board.toggleCardTask($event.cardId, $event.lineIndex)"
-          />
-          <CloudAccount />
-          <DataMenu @open-ai-settings="isAISettingsOpen = true" />
-
-          <button
-            type="button"
-            data-canvas-ui
-            class="group inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 py-1 pl-1 pr-2.5 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-500 ease-soft hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-paper dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30 dark:focus-visible:ring-offset-zinc-950"
-            :aria-label="isDark ? '切换到浅色主题' : '切换到深色主题'"
-            :aria-pressed="isDark"
-            :title="isDark ? '切换到浅色主题' : '切换到深色主题'"
-            @click="toggleTheme()"
-          >
-            <span
-              class="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-stone-100/80 text-stone-600 transition-colors duration-500 dark:bg-white/[0.06] dark:text-zinc-300"
+            <button
+              type="button"
+              data-canvas-ui
+              data-daily-todo
+              class="topbar-cluster-action group"
+              aria-label="创建今日待办卡片"
+              title="今日待办"
+              @click="openTodayTodo"
             >
-              <Transition name="theme-icon" mode="out-in">
-                <Sun
-                  v-if="!isDark"
-                  key="sun"
-                  :size="15"
-                  :stroke-width="1.7"
+              <CalendarPlus :size="14" :stroke-width="1.7" aria-hidden="true" />
+              <span class="hidden lg:inline">今日</span>
+            </button>
+
+            <span class="topbar-cluster-divider" aria-hidden="true" />
+
+            <ActionLens
+              v-model:open="isActionTrayOpen"
+              @focus="handleActionTaskFocus"
+              @toggle="board.toggleCardTask($event.cardId, $event.lineIndex)"
+            />
+            <button
+              type="button"
+              data-canvas-ui
+              data-ai-entry
+              class="topbar-cluster-action relative"
+              :aria-label="
+                ai.hasKey ? 'AI 认知辅助，已配置' : 'AI 认知辅助，尚未配置'
+              "
+              aria-haspopup="dialog"
+              :title="
+                ai.hasKey
+                  ? 'AI 认知辅助 · 已配置'
+                  : 'AI 认知辅助 · 配置 DeepSeek Key'
+              "
+              @click="isAISettingsOpen = true"
+            >
+              <span
+                class="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-amber-700 dark:text-amber-200"
+              >
+                <Sparkles :size="14" :stroke-width="1.7" aria-hidden="true" />
+                <span
+                  v-if="ai.hasKey"
+                  class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full border border-white bg-emerald-500 dark:border-zinc-900"
                   aria-hidden="true"
                 />
-                <Moon
-                  v-else
-                  key="moon"
-                  :size="14"
-                  :stroke-width="1.7"
-                  aria-hidden="true"
-                />
-              </Transition>
-            </span>
-            <span
-              class="hidden text-[10px] font-medium uppercase tracking-[0.18em] lg:inline"
+              </span>
+            </button>
+
+            <span class="topbar-cluster-divider" aria-hidden="true" />
+
+            <CloudAccount />
+            <DataMenu />
+
+            <button
+              type="button"
+              data-canvas-ui
+              class="topbar-cluster-action group"
+              :aria-label="isDark ? '切换到浅色主题' : '切换到深色主题'"
+              :aria-pressed="isDark"
+              :title="isDark ? '切换到浅色主题' : '切换到深色主题'"
+              @click="toggleTheme()"
             >
-              {{ isDark ? 'Dark' : 'Light' }}
-            </span>
-          </button>
+              <span
+                class="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full text-stone-600 dark:text-zinc-300"
+              >
+                <Transition name="theme-icon" mode="out-in">
+                  <Sun
+                    v-if="!isDark"
+                    key="sun"
+                    :size="15"
+                    :stroke-width="1.7"
+                    aria-hidden="true"
+                  />
+                  <Moon
+                    v-else
+                    key="moon"
+                    :size="14"
+                    :stroke-width="1.7"
+                    aria-hidden="true"
+                  />
+                </Transition>
+              </span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -720,7 +848,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.5.4</span>
+          <span>v1.6.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">
@@ -803,6 +931,7 @@ onBeforeUnmount(() => {
     :card="editingCard"
     :camera="camera"
     :board-id="workspace.activeBoardId"
+    :template="captureTemplate"
   />
 
   <SpotlightSearch
@@ -813,6 +942,12 @@ onBeforeUnmount(() => {
   <ShortcutModal v-model:open="isShortcutOpen" />
 
   <AISettingsModal v-model:open="isAISettingsOpen" />
+  <ConnectionRadar
+    v-model:open="isConnectionRadarOpen"
+    :card="radarCard"
+    @open-settings="openAISettingsFromRadar"
+  />
+  <ShareStudio v-model:open="isShareStudioOpen" :card="shareCard" />
 
   <Transition name="account-lock">
     <div
@@ -855,6 +990,84 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.topbar-action-cluster {
+  isolation: isolate;
+}
+
+.topbar-cluster-action {
+  display: inline-flex;
+  height: 2rem;
+  flex: none;
+  align-items: center;
+  gap: 0.45rem;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  padding: 0 0.5rem;
+  color: rgb(87 83 78);
+  font-size: 10px;
+  font-weight: 560;
+  letter-spacing: 0.02em;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.topbar-cluster-action:hover {
+  background: rgba(231, 229, 224, 0.72);
+  color: rgb(28 25 23);
+}
+
+.topbar-cluster-action:focus-visible {
+  outline: 2px solid rgba(217, 119, 6, 0.38);
+  outline-offset: 1px;
+}
+
+.dark .topbar-cluster-action {
+  color: rgb(161 161 170);
+}
+
+.dark .topbar-cluster-action:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: rgb(244 244 245);
+}
+
+.dark .topbar-cluster-action:focus-visible {
+  outline-color: rgba(253, 230, 138, 0.28);
+}
+
+.topbar-cluster-divider {
+  width: 1px;
+  height: 1rem;
+  flex: none;
+  margin: 0 0.2rem;
+  background: rgba(120, 113, 108, 0.17);
+}
+
+.dark .topbar-cluster-divider {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.topbar-action-cluster :deep([data-canvas-ui] > button) {
+  width: auto !important;
+  min-width: 2rem !important;
+  height: 2rem !important;
+  gap: 0.35rem !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 0.35rem !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+.topbar-action-cluster :deep([data-canvas-ui] > button:hover) {
+  background: rgba(231, 229, 224, 0.72) !important;
+}
+
+.dark .topbar-action-cluster :deep([data-canvas-ui] > button:hover) {
+  background: rgba(255, 255, 255, 0.07) !important;
+}
+
 @media (max-width: 380px) {
   .brand-subtitle {
     display: none;

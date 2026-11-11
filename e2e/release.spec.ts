@@ -12,7 +12,7 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
   await expect(dialog).toContainText('Navigate')
   await expect(dialog).toContainText('Focus')
   await expect(dialog).toContainText('Compose')
-  await expect(dialog).toContainText('v1.5.4')
+  await expect(dialog).toContainText('v1.6.0')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -73,14 +73,14 @@ test('an empty board invites the first capture and fades away', async ({
   await expect(page.locator('[data-world-item]')).toContainText('第一块灵感')
 })
 
-test('v1.5.4 metadata is present in the shell and document head', async ({
+test('v1.6.0 metadata is present in the shell and document head', async ({
   page,
 }) => {
   await page.goto('/')
-  await expect(page.locator('.brand-subtitle')).toContainText('v1.5.4')
+  await expect(page.locator('.brand-subtitle')).toContainText('v1.6.0')
   await expect(
     page.locator('footer').filter({ hasText: 'Local-first' }),
-  ).toContainText('v1.5.4')
+  ).toContainText('v1.6.0')
 
   await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
     'content',
@@ -98,10 +98,12 @@ test('mobile header and HUD remain inside the viewport', async ({ page }) => {
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
 
   const theme = page.getByRole('button', { name: /切换到.*主题/ })
+  const today = page.getByRole('button', { name: '创建今日待办卡片' })
+  const ai = page.getByRole('button', { name: /AI 认知辅助/ })
   const zoomOut = page.getByRole('button', { name: '缩小画布' })
   const help = page.getByRole('button', { name: '查看快捷键' })
 
-  for (const control of [theme, zoomOut, help]) {
+  for (const control of [today, ai, theme, zoomOut, help]) {
     const box = await control.boundingBox()
     expect(box).not.toBeNull()
     expect(box!.x).toBeGreaterThanOrEqual(0)

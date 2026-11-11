@@ -30,6 +30,12 @@ import {
 } from '../../lib/tags'
 import { chooseCapturePlacement } from '../../lib/capture-placement'
 import { getItemRect } from '../../lib/card-metrics'
+import {
+  DAILY_TODO_CONTENT,
+  DAILY_TODO_TAG,
+  formatDailyTodoTitle,
+  trimTrailingEmptyDailyTask,
+} from '../../lib/daily-todo'
 import type { CanvasCamera } from '../../composables/useCanvas'
 import { useAIStore } from '../../stores/ai'
 import { useBoardStore } from '../../stores/board'
@@ -41,6 +47,7 @@ const props = defineProps<{
   card?: Card | null
   camera?: CanvasCamera | null
   boardId?: string
+  template?: 'daily-todo' | null
 }>()
 
 const emit = defineEmits<{
@@ -109,6 +116,7 @@ const filteredSlashCommands = computed(() => {
 })
 
 let restoreFocus: HTMLElement | null = null
+let restoreFocusAfterClose = false
 let saveAttempt = 0
 let lastMode: 'capture' | 'edit' = 'capture'
 let suppressModeSync = false
@@ -172,6 +180,42 @@ async function applySlashCommand(command: SlashCommand) {
 }
 
 function handleContentKeydown(event: KeyboardEvent) {
+  if (event.isComposing) return
+
+  if (
+    props.template === 'daily-todo' &&
+    !isSlashMenuOpen.value &&
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey
+  ) {
+    const element = contentEl.value
+    if (element) {
+      const cursor = element.selectionStart
+      const lineStart = content.value.lastIndexOf('\n', cursor - 1) + 1
+      const nextBreak = content.value.indexOf('\n', cursor)
+      const lineEnd = nextBreak === -1 ? content.value.length : nextBreak
+      const line = content.value.slice(lineStart, lineEnd)
+
+      if (/^\s*-\s+\[[ xX]\]\s*/u.test(line)) {
+        event.preventDefault()
+        const insertion = '\n- [ ] '
+        content.value =
+          content.value.slice(0, cursor) +
+          insertion +
+          content.value.slice(cursor)
+        void nextTick().then(() => {
+          const nextCursor = cursor + insertion.length
+          element.focus()
+          element.setSelectionRange(nextCursor, nextCursor)
+        })
+        return
+      }
+    }
+  }
+
   if (!isSlashMenuOpen.value || event.isComposing) return
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') return
 
@@ -338,7 +382,8 @@ function reset() {
   closeSlashMenu()
 }
 
-function close() {
+function close(returnFocus = false) {
+  restoreFocusAfterClose = returnFocus
   emit('update:open', false)
 }
 
@@ -413,7 +458,10 @@ function save() {
   addTagsFromDraft()
 
   const rawTitle = title.value.trim()
-  const rawContent = content.value.trim()
+  const rawContent =
+    props.template === 'daily-todo'
+      ? trimTrailingEmptyDailyTask(content.value)
+      : content.value.trim()
   const firstLine =
     rawContent
       .split('\n')
@@ -532,7 +580,7 @@ function handleWindowKeydown(event: KeyboardEvent) {
     // the same keystroke.
     event.stopImmediatePropagation()
     tagSuggestionController?.abort()
-    close()
+    close(true)
     return
   }
 
@@ -546,6 +594,7 @@ watch(
   () => props.open,
   async (open) => {
     if (open) {
+      restoreFocusAfterClose = false
       restoreFocus =
         document.activeElement instanceof HTMLElement
           ? document.activeElement
@@ -554,6 +603,13 @@ watch(
 
       if (suppressModeSync) {
         suppressModeSync = false
+      } else if (props.template === 'daily-todo') {
+        lastMode = 'capture'
+        title.value = formatDailyTodoTitle()
+        content.value = DAILY_TODO_CONTENT
+        tags.value = [DAILY_TODO_TAG]
+        tagDraft.value = ''
+        closeSlashMenu()
       } else if (props.card) {
         lastMode = 'edit'
         title.value = props.card.title
@@ -566,7 +622,13 @@ watch(
       }
 
       await nextTick()
-      titleEl.value?.focus()
+      if (props.template === 'daily-todo') {
+        contentEl.value?.focus()
+        const end = content.value.length
+        contentEl.value?.setSelectionRange(end, end)
+      } else {
+        titleEl.value?.focus()
+      }
       return
     }
 
@@ -574,8 +636,9 @@ watch(
     tagSuggestionController = null
     suggestingTags.value = false
     setBackgroundInert(false)
-    restoreFocus?.focus()
+    if (restoreFocusAfterClose) restoreFocus?.focus()
     restoreFocus = null
+    restoreFocusAfterClose = false
   },
 )
 
@@ -596,7 +659,7 @@ onBeforeUnmount(() => {
         class="capture-backdrop fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-stone-950/20 px-4 pb-10 pt-[9vh] backdrop-blur-[3px] dark:bg-black/60"
         data-canvas-ui
         data-quick-capture
-        @click.self="close"
+        @click.self="close()"
       >
         <section
           ref="panelEl"
@@ -643,7 +706,7 @@ onBeforeUnmount(() => {
               type="button"
               class="flex h-8 w-8 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
               aria-label="关闭速记"
-              @click="close"
+              @click="close()"
             >
               <X :size="15" :stroke-width="1.6" aria-hidden="true" />
             </button>

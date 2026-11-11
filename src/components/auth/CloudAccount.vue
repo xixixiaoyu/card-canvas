@@ -100,7 +100,7 @@ onBeforeUnmount(() => {
   >
     <button
       type="button"
-      class="flex h-10 items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 py-1 pl-1 pr-2.5 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30"
+      class="flex h-10 items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 py-1 pl-1 pr-1 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 sm:pr-2.5 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30"
       :aria-label="auth.isAuthenticated ? '云端账号' : '登录云端同步'"
       aria-haspopup="menu"
       :aria-expanded="menuOpen"
@@ -129,11 +129,6 @@ onBeforeUnmount(() => {
           }"
           aria-hidden="true"
         />
-      </span>
-      <span
-        class="hidden text-[10px] font-medium uppercase tracking-[0.15em] lg:inline"
-      >
-        {{ auth.isAuthenticated ? 'Cloud' : 'Login' }}
       </span>
     </button>
 

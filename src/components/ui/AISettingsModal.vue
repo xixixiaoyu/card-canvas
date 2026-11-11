@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  ShieldCheck,
   Sparkles,
   X,
 } from '@lucide/vue'
@@ -170,7 +171,7 @@ onBeforeUnmount(() => {
           role="dialog"
           aria-modal="true"
           aria-labelledby="ai-settings-title"
-          class="relative w-full max-w-[580px] overflow-hidden rounded-[26px] border border-stone-200/80 bg-[#fdfbf7]/[0.98] shadow-[0_40px_120px_-40px_rgba(41,37,36,0.5)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-900/[0.97] dark:shadow-[0_50px_140px_-40px_rgba(0,0,0,0.95)]"
+          class="relative w-full max-w-[660px] overflow-hidden rounded-[28px] border border-stone-200/80 bg-[#fdfbf7]/[0.98] shadow-[0_40px_120px_-40px_rgba(41,37,36,0.5)] backdrop-blur-2xl dark:border-white/10 dark:bg-zinc-900/[0.97] dark:shadow-[0_50px_140px_-40px_rgba(0,0,0,0.95)]"
         >
           <div
             class="pointer-events-none absolute inset-x-14 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/60 to-transparent dark:via-amber-200/25"
@@ -182,19 +183,19 @@ onBeforeUnmount(() => {
           >
             <div class="flex items-center gap-3">
               <span
-                class="flex h-9 w-9 items-center justify-center rounded-[12px] border border-amber-700/15 bg-amber-500/[0.08] text-amber-700 dark:border-amber-200/15 dark:bg-amber-200/[0.06] dark:text-amber-200"
+                class="flex h-10 w-10 items-center justify-center rounded-[13px] border border-amber-700/15 bg-amber-500/[0.08] text-amber-700 dark:border-amber-200/15 dark:bg-amber-200/[0.06] dark:text-amber-200"
               >
-                <Sparkles :size="15" :stroke-width="1.6" aria-hidden="true" />
+                <Sparkles :size="17" :stroke-width="1.6" aria-hidden="true" />
               </span>
               <div>
                 <h2
                   id="ai-settings-title"
-                  class="font-serif text-[17px] font-medium tracking-[-0.015em] text-stone-800 dark:text-zinc-100"
+                  class="font-serif text-[20px] font-medium tracking-[-0.02em] text-stone-800 dark:text-zinc-100"
                 >
                   AI 认知辅助
                 </h2>
                 <p
-                  class="mt-0.5 font-mono text-[8px] uppercase tracking-[0.18em] text-stone-400 dark:text-zinc-500"
+                  class="mt-1 font-mono text-[10px] uppercase tracking-[0.16em] text-stone-400 dark:text-zinc-500"
                 >
                   DeepSeek · Bring your own key
                 </p>
@@ -203,24 +204,40 @@ onBeforeUnmount(() => {
 
             <button
               type="button"
-              class="flex h-8 w-8 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
+              class="flex h-9 w-9 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
               aria-label="关闭 AI 设置"
               @click="close"
             >
-              <X :size="15" :stroke-width="1.6" aria-hidden="true" />
+              <X :size="17" :stroke-width="1.6" aria-hidden="true" />
             </button>
           </header>
 
           <div class="space-y-5 px-6 py-5">
             <label class="block">
-              <span
-                class="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-stone-600 dark:text-zinc-300"
-              >
-                <KeyRound :size="12" :stroke-width="1.7" aria-hidden="true" />
-                DeepSeek API Key
+              <span class="mb-2 flex items-center justify-between gap-3">
+                <span
+                  class="flex items-center gap-2 text-[13px] font-medium text-stone-600 dark:text-zinc-300"
+                >
+                  <KeyRound :size="14" :stroke-width="1.7" aria-hidden="true" />
+                  DeepSeek API Key
+                </span>
+                <a
+                  :href="DEEPSEEK_API_KEYS_URL"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="获取并充值 API Key"
+                  class="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-800 transition-colors hover:text-amber-950 dark:text-amber-200 dark:hover:text-amber-100"
+                >
+                  获取 Key
+                  <ExternalLink
+                    :size="12"
+                    :stroke-width="1.8"
+                    aria-hidden="true"
+                  />
+                </a>
               </span>
               <span
-                class="flex h-11 items-center rounded-xl border border-stone-200/90 bg-white/65 px-3 transition-colors focus-within:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:focus-within:border-white/25"
+                class="flex h-11 items-center rounded-xl border border-stone-200/90 bg-white/65 px-3.5 transition-colors focus-within:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:focus-within:border-white/25"
               >
                 <input
                   ref="keyEl"
@@ -235,60 +252,36 @@ onBeforeUnmount(() => {
                   data-bwignore
                   placeholder="sk-..."
                   aria-label="DeepSeek API Key"
-                  class="api-key-input min-w-0 flex-1 border-0 bg-transparent font-mono text-[12px] text-stone-800 outline-none placeholder:text-stone-300 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+                  class="api-key-input min-w-0 flex-1 border-0 bg-transparent font-mono text-[14px] text-stone-800 outline-none placeholder:text-stone-300 dark:text-zinc-100 dark:placeholder:text-zinc-600"
                   :class="{ 'is-masked': !showKey }"
                 />
                 <button
                   type="button"
-                  class="ml-2 flex h-7 w-7 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-500 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                  class="ml-2 flex h-8 w-8 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-500 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
                   :aria-label="showKey ? '隐藏 API Key' : '显示 API Key'"
                   @click="showKey = !showKey"
                 >
                   <EyeOff
                     v-if="showKey"
-                    :size="13"
+                    :size="15"
                     :stroke-width="1.7"
                     aria-hidden="true"
                   />
                   <Eye
                     v-else
-                    :size="13"
+                    :size="15"
                     :stroke-width="1.7"
                     aria-hidden="true"
                   />
                 </button>
               </span>
-            </label>
-
-            <div
-              class="flex items-center justify-between gap-4 rounded-xl border border-amber-700/10 bg-amber-500/[0.045] px-3 py-2.5 dark:border-amber-200/10 dark:bg-amber-200/[0.035]"
-            >
-              <div>
-                <p
-                  class="text-[10px] font-medium text-stone-700 dark:text-zinc-200"
-                >
-                  还没有 DeepSeek API Key？
-                </p>
-                <p
-                  class="mt-0.5 text-[9px] leading-4 text-stone-400 dark:text-zinc-500"
-                >
-                  自行注册、充值，按实际用量由 DeepSeek 直接计费。
-                </p>
-              </div>
-              <a
-                :href="DEEPSEEK_API_KEYS_URL"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-700/15 bg-white/55 px-2.5 py-1.5 text-[9px] font-medium text-amber-800 transition-colors hover:bg-white dark:border-amber-200/15 dark:bg-white/[0.035] dark:text-amber-200 dark:hover:bg-white/[0.07]"
+              <span
+                class="mt-2 block text-[11px] leading-5 text-stone-400 dark:text-zinc-500"
               >
-                申请并充值
-                <ExternalLink
-                  :size="10"
-                  :stroke-width="1.8"
-                  aria-hidden="true"
-                />
-              </a>
-            </div>
+                费用由 DeepSeek 账户按实际用量结算；未配置 Key 时不会发送任何 AI
+                请求。
+              </span>
+            </label>
 
             <details class="ai-advanced">
               <summary>
@@ -299,10 +292,10 @@ onBeforeUnmount(() => {
                   aria-hidden="true"
                 />
               </summary>
-              <div class="space-y-4 px-3 pb-3 pt-2">
+              <div class="space-y-4 px-3.5 pb-3.5 pt-2">
                 <label class="block">
                   <span
-                    class="mb-2 block text-[10px] font-medium text-stone-500 dark:text-zinc-400"
+                    class="mb-2 block text-[12px] font-medium text-stone-500 dark:text-zinc-400"
                   >
                     模型
                   </span>
@@ -316,10 +309,10 @@ onBeforeUnmount(() => {
                     data-lpignore="true"
                     data-bwignore
                     aria-label="AI 模型"
-                    class="h-10 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[11px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
+                    class="h-11 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[13px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
                   />
                   <span
-                    class="mt-1.5 block text-[9px] leading-4 text-stone-400 dark:text-zinc-500"
+                    class="mt-1.5 block text-[11px] leading-5 text-stone-400 dark:text-zinc-500"
                   >
                     默认 deepseek-flash。需要更强推理时可改用 deepseek-v4-pro。
                   </span>
@@ -327,7 +320,7 @@ onBeforeUnmount(() => {
 
                 <label class="block">
                   <span
-                    class="mb-2 block text-[10px] font-medium text-stone-500 dark:text-zinc-400"
+                    class="mb-2 block text-[12px] font-medium text-stone-500 dark:text-zinc-400"
                   >
                     API 端点
                   </span>
@@ -341,10 +334,10 @@ onBeforeUnmount(() => {
                     data-lpignore="true"
                     data-bwignore
                     aria-label="API 端点"
-                    class="h-10 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[11px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
+                    class="h-11 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[13px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
                   />
                   <span
-                    class="mt-1.5 block text-[9px] leading-4 text-stone-400 dark:text-zinc-500"
+                    class="mt-1.5 block text-[11px] leading-5 text-stone-400 dark:text-zinc-500"
                   >
                     默认端点经同源代理转发。自定义第三方兼容地址时必须包含完整的
                     Chat Completions 路径。
@@ -354,28 +347,28 @@ onBeforeUnmount(() => {
             </details>
 
             <div
-              class="space-y-2 rounded-2xl border border-stone-200/75 bg-white/35 p-3 dark:border-white/[0.08] dark:bg-white/[0.02]"
+              class="space-y-2 rounded-2xl border border-stone-200/75 bg-white/35 p-3.5 dark:border-white/[0.08] dark:bg-white/[0.02]"
             >
               <label
                 class="flex cursor-pointer items-center justify-between gap-4 rounded-xl px-2 py-1.5"
               >
                 <span>
                   <span
-                    class="block text-[11px] text-stone-700 dark:text-zinc-200"
+                    class="block text-[13px] text-stone-700 dark:text-zinc-200"
                   >
-                    启用虫洞探针
+                    启用关联雷达
                   </span>
                   <span
-                    class="mt-0.5 block text-[10px] text-stone-400 dark:text-zinc-500"
+                    class="mt-1 block text-[11px] leading-5 text-stone-400 dark:text-zinc-500"
                   >
-                    选中两张卡片时寻找底层关联
+                    在单张卡片上寻找值得确认的关系
                   </span>
                 </span>
                 <input
                   v-model="draft.enableWormhole"
                   type="checkbox"
                   role="switch"
-                  aria-label="启用虫洞探针"
+                  aria-label="启用关联雷达"
                   class="ai-switch"
                 />
               </label>
@@ -385,12 +378,12 @@ onBeforeUnmount(() => {
               >
                 <span>
                   <span
-                    class="block text-[11px] text-stone-700 dark:text-zinc-200"
+                    class="block text-[13px] text-stone-700 dark:text-zinc-200"
                   >
                     无标签时自动推断
                   </span>
                   <span
-                    class="mt-0.5 block text-[10px] text-stone-400 dark:text-zinc-500"
+                    class="mt-1 block text-[11px] leading-5 text-stone-400 dark:text-zinc-500"
                   >
                     保存卡片不等待网络，标签后台补齐
                   </span>
@@ -406,15 +399,30 @@ onBeforeUnmount(() => {
             </div>
 
             <div
-              class="rounded-xl border border-amber-700/10 bg-amber-500/[0.045] px-3 py-2.5 text-[10px] leading-5 text-stone-500 dark:border-amber-200/10 dark:bg-amber-200/[0.035] dark:text-zinc-400"
+              class="flex gap-2.5 rounded-xl border border-stone-200/75 bg-stone-100/45 px-3 py-2.5 dark:border-white/[0.08] dark:bg-white/[0.025]"
             >
-              Key 仅保存在当前浏览器的 localStorage，不写入 Dexie
-              或仓库；它能被同源脚本读取，因此不是硬件级密钥保险箱。启用功能后，相关卡片的标题与正文会发送到你配置的端点。
+              <ShieldCheck
+                :size="15"
+                :stroke-width="1.7"
+                class="mt-0.5 shrink-0 text-stone-400 dark:text-zinc-500"
+                aria-hidden="true"
+              />
+              <p
+                class="text-[11px] leading-5 text-stone-500 dark:text-zinc-400"
+              >
+                <span class="font-medium text-stone-600 dark:text-zinc-300"
+                  >数据与密钥</span
+                >
+                API Key
+                只保存在当前浏览器，不写入白板数据或代码仓库，也不会随白板一起同步。浏览器存储不等同于密码保险箱，请避免在公共设备使用。启用
+                AI 后，相关卡片的标题和正文会发送到 DeepSeek
+                或你配置的自定义端点。
+              </p>
             </div>
 
             <div class="flex min-h-6 items-center justify-between gap-3">
               <p
-                class="text-[10px] leading-5"
+                class="text-[11px] leading-5"
                 :class="{
                   'text-emerald-600 dark:text-emerald-400':
                     testTone === 'success',
@@ -427,7 +435,7 @@ onBeforeUnmount(() => {
               </p>
               <button
                 type="button"
-                class="shrink-0 rounded-full border border-stone-200/90 bg-white/60 px-3 py-1.5 text-[10px] text-stone-600 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.07]"
+                class="shrink-0 rounded-full border border-stone-200/90 bg-white/60 px-3.5 py-2 text-[11px] text-stone-600 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.07]"
                 :disabled="!canTest"
                 @click="testConnection"
               >
@@ -441,7 +449,7 @@ onBeforeUnmount(() => {
           >
             <button
               type="button"
-              class="text-[10px] text-stone-400 transition-colors hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-35 dark:text-zinc-500 dark:hover:text-rose-400"
+              class="text-[12px] text-stone-400 transition-colors hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-35 dark:text-zinc-500 dark:hover:text-rose-400"
               :disabled="!ai.hasKey && !draft.apiKey"
               @click="clearKey"
             >
@@ -449,7 +457,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="inline-flex h-9 items-center rounded-full bg-stone-900 px-4 text-[11px] font-medium text-white transition-colors hover:bg-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+              class="inline-flex h-10 items-center rounded-full bg-stone-900 px-5 text-[12px] font-medium text-white transition-colors hover:bg-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
               @click="save"
             >
               保存设置
@@ -525,8 +533,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.65rem 0.75rem;
-  font-size: 10px;
+  padding: 0.8rem 0.9rem;
+  font-size: 12px;
   color: rgb(120 113 108);
   transition:
     background-color 160ms ease,

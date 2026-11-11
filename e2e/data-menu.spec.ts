@@ -6,6 +6,10 @@ test('exports a backup and imports a card file', async ({ page }) => {
 
   const dataButton = page.getByRole('button', { name: '数据与备份' })
   await dataButton.click()
+  await expect(page.getByRole('menuitem', { name: /AI 认知辅助/ })).toHaveCount(
+    0,
+  )
+  await expect(page.getByRole('button', { name: /AI 认知辅助/ })).toBeVisible()
 
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('menuitem', { name: /导出工作区备份/ }).click()

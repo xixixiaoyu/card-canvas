@@ -34,13 +34,12 @@ test('AI settings validate connectivity and persist the local configuration', as
   })
 
   await page.goto('/')
-  await page.getByRole('button', { name: '数据与备份' }).click()
-  await page.getByRole('menuitem', { name: /AI 认知辅助/ }).click()
+  await page.getByRole('button', { name: 'AI 认知辅助，尚未配置' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'AI 认知辅助' })
   await expect(dialog).toBeVisible()
   await expect(
-    dialog.getByRole('link', { name: '申请并充值' }),
+    dialog.getByRole('link', { name: '获取并充值 API Key' }),
   ).toHaveAttribute('href', 'https://platform.deepseek.com/api_keys')
   await expect(dialog.getByLabel('AI 模型')).toBeHidden()
   await dialog.locator('summary').click()
@@ -65,11 +64,22 @@ test('AI settings validate connectivity and persist the local configuration', as
   expect(stored).toContain('test-ui-key')
 })
 
-test('wormhole probe creates a labelled connection that can be undone', async ({
+test('single-card radar creates a labelled connection that can be undone', async ({
   page,
 }) => {
   await seedAIConfig(page)
   await page.route('**/api/deepseek', async (route) => {
+    const request = route.request().postDataJSON() as {
+      messages?: Array<{ content?: string }>
+    }
+    const userPrompt = request.messages?.at(-1)?.content ?? ''
+    const candidateJson = userPrompt
+      .split('【候选卡片】\n')[1]
+      ?.split('\n\n严格规则')[0]
+    const candidates = JSON.parse(candidateJson ?? '[]') as Array<{
+      id: string
+    }>
+
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -77,7 +87,16 @@ test('wormhole probe creates a labelled connection that can be undone', async ({
         choices: [
           {
             message: {
-              content: '两者都通过节律调节恢复自主神经平衡',
+              content: JSON.stringify({
+                suggestions: [
+                  {
+                    targetId: candidates[0]!.id,
+                    label: '两者都通过节律调节恢复自主神经平衡',
+                    reason: '气息与神经节律共享同一套稳定机制。',
+                    strength: 88,
+                  },
+                ],
+              }),
             },
           },
         ],
@@ -89,35 +108,58 @@ test('wormhole probe creates a labelled connection that can be undone', async ({
   const cards = page.locator('[data-world-item]')
   await expect(cards).toHaveCount(3)
 
-  await cards.nth(0).locator('h2').click()
-  await cards
-    .nth(1)
-    .locator('h2')
-    .click({ modifiers: ['Shift'] })
-  await expect(page.locator('.selection-toolbar')).toContainText('2 SELECTED')
-
-  await page.getByRole('button', { name: '寻找底层关联' }).click()
-  const tray = page.locator('[data-wormhole]')
-  await expect(tray).toBeVisible()
-  await expect(tray.locator('[data-wormhole-result]')).toHaveText(
+  const sourceCard = cards.nth(0)
+  await sourceCard.locator('h2').click()
+  await sourceCard.getByRole('button', { name: '寻找关联卡片' }).click()
+  const radar = page.locator('[data-connection-radar]')
+  await expect(radar).toBeVisible()
+  await expect(radar.locator('[data-radar-suggestion]')).toHaveCount(1)
+  await expect(radar.locator('[data-radar-label]')).toHaveText(
     '两者都通过节律调节恢复自主神经平衡',
   )
 
-  await page.keyboard.press('Escape')
-  await expect(tray).toBeHidden()
-  await page.getByRole('button', { name: '寻找底层关联' }).click()
-  await expect(tray.locator('[data-wormhole-result]')).toHaveText(
-    '两者都通过节律调节恢复自主神经平衡',
-  )
-  await page.keyboard.press('Enter')
+  await radar.locator('[data-radar-adopt]').click()
   await expect(page.locator('[data-line]')).toHaveCount(1)
   await expect(page.locator('.connection-label-pill')).toHaveText(
     '两者都通过节律调节恢复自主神经平衡',
   )
 
+  await page.keyboard.press('Escape')
+  await expect(radar).toBeHidden()
   const undo = page.getByRole('button', { name: '撤销' })
   await expect(undo).toHaveAttribute('title', /建立连线/)
   await undo.click()
+  await expect(page.locator('[data-line]')).toHaveCount(0)
+})
+
+test('radar allows an empty AI verdict without creating connections', async ({
+  page,
+}) => {
+  await seedAIConfig(page)
+  await page.route('**/api/deepseek', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '{"suggestions":[]}',
+            },
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.goto('/')
+  const card = page.locator('[data-world-item]').first()
+  await card.locator('h2').click()
+  await card.getByRole('button', { name: '寻找关联卡片' }).click()
+
+  const radar = page.locator('[data-connection-radar]')
+  await expect(radar).toContainText('这次没有足够可靠的联系')
+  await expect(radar.locator('[data-radar-suggestion]')).toHaveCount(0)
   await expect(page.locator('[data-line]')).toHaveCount(0)
 })
 
