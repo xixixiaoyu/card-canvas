@@ -7,8 +7,9 @@ import type {
 import { parseTagSuggestions } from './prompts'
 
 interface DeepSeekChoice {
-  message?: { content?: unknown }
-  delta?: { content?: unknown }
+  message?: { content?: unknown; reasoning_content?: unknown }
+  delta?: { content?: unknown; reasoning_content?: unknown }
+  finish_reason?: unknown
 }
 
 interface DeepSeekResponse {
@@ -62,17 +63,36 @@ function httpError(status: number, payload: DeepSeekResponse | null) {
 }
 
 function contentFromResponse(payload: DeepSeekResponse | null) {
-  const content = payload?.choices?.[0]?.message?.content
+  const choice = payload?.choices?.[0]
+  const content = choice?.message?.content
   if (typeof content !== 'string' || !content.trim()) {
+    if (choice?.finish_reason === 'length') {
+      throw new AIClientError(
+        'truncated',
+        'AI 在生成有效内容前达到了长度上限，请重试。',
+      )
+    }
+    if (choice?.message?.reasoning_content) {
+      throw new AIClientError(
+        'invalid_response',
+        'AI 只生成了思考过程，没有形成最终回答，请重试。',
+      )
+    }
     throw new AIClientError('invalid_response', 'AI 没有返回有效内容。')
   }
   return content.trim()
+}
+
+interface StreamState {
+  finishReason: string | null
+  sawReasoning: boolean
 }
 
 function consumeEvent(
   event: string,
   chunks: string[],
   onToken?: (token: string) => void,
+  state?: StreamState,
 ) {
   const data = event
     .split(/\r?\n/)
@@ -85,7 +105,14 @@ function consumeEvent(
 
   try {
     const payload = JSON.parse(data) as DeepSeekResponse
-    const token = payload.choices?.[0]?.delta?.content
+    const choice = payload.choices?.[0]
+    const token = choice?.delta?.content
+    if (state && choice?.delta?.reasoning_content) {
+      state.sawReasoning = true
+    }
+    if (state && typeof choice?.finish_reason === 'string') {
+      state.finishReason = choice.finish_reason
+    }
     if (typeof token === 'string' && token) {
       chunks.push(token)
       onToken?.(token)
@@ -106,6 +133,7 @@ async function readEventStream(
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   const chunks: string[] = []
+  const state: StreamState = { finishReason: null, sawReasoning: false }
   let buffer = ''
 
   while (true) {
@@ -119,16 +147,28 @@ async function readEventStream(
       const length = match?.[0].length ?? 2
       const event = buffer.slice(0, boundary)
       buffer = buffer.slice(boundary + length)
-      consumeEvent(event, chunks, onToken)
+      consumeEvent(event, chunks, onToken, state)
       boundary = buffer.search(/\r?\n\r?\n/)
     }
   }
 
   buffer += decoder.decode()
-  if (buffer.trim()) consumeEvent(buffer, chunks, onToken)
+  if (buffer.trim()) consumeEvent(buffer, chunks, onToken, state)
 
   const content = chunks.join('').trim()
   if (!content) {
+    if (state.finishReason === 'length') {
+      throw new AIClientError(
+        'truncated',
+        'AI 在生成有效内容前达到了长度上限，请重试。',
+      )
+    }
+    if (state.sawReasoning) {
+      throw new AIClientError(
+        'invalid_response',
+        'AI 只生成了思考过程，没有形成最终回答，请重试。',
+      )
+    }
     throw new AIClientError('invalid_response', 'AI 流式响应没有有效内容。')
   }
   return content
@@ -136,6 +176,20 @@ async function readEventStream(
 
 function endpointFor(config: AIConfig) {
   return config.baseUrl.trim().replace(/\/+$/, '')
+}
+
+function isOfficialDeepSeekEndpoint(config: AIConfig) {
+  try {
+    const url = new URL(
+      endpointFor(config),
+      globalThis.location?.origin ?? 'https://card-canvas.local',
+    )
+    return (
+      url.hostname === 'api.deepseek.com' || url.pathname === '/api/deepseek'
+    )
+  } catch {
+    return false
+  }
 }
 
 export async function chatCompletion(
@@ -173,6 +227,9 @@ export async function chatCompletion(
         stream: Boolean(options.stream),
         max_tokens: options.maxTokens ?? (options.stream ? 120 : 80),
         temperature: options.temperature ?? 0.2,
+        ...(isOfficialDeepSeekEndpoint(config)
+          ? { thinking: { type: 'disabled' } }
+          : {}),
       }),
       signal: controller.signal,
     })
@@ -217,7 +274,7 @@ export async function testAIConnection(config: AIConfig) {
       { role: 'system', content: '只回复 OK。' },
       { role: 'user', content: '连接测试' },
     ],
-    { maxTokens: 4, temperature: 0, timeoutMs: 15_000 },
+    { maxTokens: 8, temperature: 0, timeoutMs: 15_000 },
   )
   return Math.max(1, Math.round(performance.now() - startedAt))
 }

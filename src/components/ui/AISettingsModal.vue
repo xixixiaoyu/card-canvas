@@ -225,12 +225,18 @@ onBeforeUnmount(() => {
                 <input
                   ref="keyEl"
                   v-model="draft.apiKey"
-                  :type="showKey ? 'text' : 'password'"
+                  type="text"
                   autocomplete="off"
                   spellcheck="false"
+                  name="card-canvas-deepseek-api-key"
+                  data-form-type="other"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
                   placeholder="sk-..."
                   aria-label="DeepSeek API Key"
-                  class="min-w-0 flex-1 border-0 bg-transparent font-mono text-[12px] text-stone-800 outline-none placeholder:text-stone-300 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+                  class="api-key-input min-w-0 flex-1 border-0 bg-transparent font-mono text-[12px] text-stone-800 outline-none placeholder:text-stone-300 dark:text-zinc-100 dark:placeholder:text-zinc-600"
+                  :class="{ 'is-masked': !showKey }"
                 />
                 <button
                   type="button"
@@ -304,6 +310,11 @@ onBeforeUnmount(() => {
                     v-model="draft.model"
                     type="text"
                     spellcheck="false"
+                    autocomplete="off"
+                    data-form-type="other"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-bwignore
                     aria-label="AI 模型"
                     class="h-10 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[11px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
                   />
@@ -324,6 +335,11 @@ onBeforeUnmount(() => {
                     v-model="draft.baseUrl"
                     type="url"
                     spellcheck="false"
+                    autocomplete="off"
+                    data-form-type="other"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-bwignore
                     aria-label="API 端点"
                     class="h-10 w-full rounded-xl border border-stone-200/90 bg-white/65 px-3 font-mono text-[11px] text-stone-700 outline-none transition-colors focus:border-stone-400 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-300 dark:focus:border-white/25"
                   />
@@ -458,6 +474,10 @@ onBeforeUnmount(() => {
   transition:
     background-color 180ms ease,
     border-color 180ms ease;
+}
+
+.api-key-input.is-masked {
+  -webkit-text-security: disc;
 }
 
 .ai-switch::after {

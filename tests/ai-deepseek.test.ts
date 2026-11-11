@@ -34,6 +34,33 @@ describe('DeepSeek client', () => {
     expect(init.headers).toMatchObject({
       Authorization: 'Bearer test-key',
     })
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      model: 'deepseek-flash',
+      thinking: { type: 'disabled' },
+    })
+  })
+
+  it('does not send DeepSeek-only thinking options to custom endpoints', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        choices: [{ message: { content: 'OK' } }],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await chatCompletion(
+      {
+        ...config,
+        baseUrl: 'https://example.com/v1/chat/completions',
+        model: 'custom-model',
+      },
+      [{ role: 'user', content: 'test' }],
+    )
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit
+    const body = JSON.parse(String(init.body))
+    expect(body.model).toBe('custom-model')
+    expect(body).not.toHaveProperty('thinking')
   })
 
   it('parses split SSE chunks and reports tokens as they arrive', async () => {
@@ -123,6 +150,29 @@ describe('DeepSeek client', () => {
       chatCompletion(config, [{ role: 'user', content: 'test' }]),
     ).rejects.toMatchObject({
       code: 'insufficient_balance',
+    })
+  })
+
+  it('explains a response truncated before final content', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        Response.json({
+          choices: [
+            {
+              message: { content: '' },
+              finish_reason: 'length',
+            },
+          ],
+        }),
+      ),
+    )
+
+    await expect(
+      chatCompletion(config, [{ role: 'user', content: 'test' }]),
+    ).rejects.toMatchObject({
+      code: 'truncated',
+      message: 'AI 在生成有效内容前达到了长度上限，请重试。',
     })
   })
 

@@ -637,8 +637,14 @@ function tagTone(index: number) {
 
 .card-node.is-dragging {
   z-index: 1000;
+  opacity: 1;
   cursor: grabbing;
   will-change: transform;
+}
+
+.card-node.is-group-dragging {
+  z-index: 999;
+  opacity: 1;
 }
 
 .card-node.is-dragging,

@@ -171,6 +171,35 @@ test('clicking a tag dims the galaxy and blank canvas clears it', async ({
   ).toHaveCount(0)
 })
 
+test('starting a card drag clears tag focus and removes ghost opacity', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const cards = page.locator('[data-world-item]')
+  await expect(cards).toHaveCount(3)
+
+  await page.locator('[data-filter-tag="心理学/防御机制"]').first().click()
+  await expect(cards.nth(1)).toHaveClass(/is-dimmed/)
+  await expect(cards.nth(2)).toHaveClass(/is-dimmed/)
+
+  const target = cards.nth(1)
+  const title = await target.locator('h2').boundingBox()
+  expect(title).not.toBeNull()
+  await page.mouse.move(title!.x + 24, title!.y + 12)
+  await page.mouse.down()
+  await page.mouse.move(title!.x + 34, title!.y + 22, { steps: 4 })
+
+  await expect(page.locator('[data-world-item].is-dimmed')).toHaveCount(0)
+  await expect(
+    page.locator('[data-filter-tag][aria-pressed="true"]'),
+  ).toHaveCount(0)
+  await expect(target).toHaveClass(/is-dragging/)
+  await expect(target).toHaveCSS('opacity', '1')
+
+  await page.mouse.up()
+  await expect(target).not.toHaveClass(/is-dragging/)
+})
+
 test('a wheel gesture interrupts the camera flight', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)

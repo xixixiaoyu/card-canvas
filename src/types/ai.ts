@@ -19,6 +19,7 @@ export type AIErrorCode =
   | 'network'
   | 'timeout'
   | 'aborted'
+  | 'truncated'
   | 'invalid_response'
   | 'server'
 

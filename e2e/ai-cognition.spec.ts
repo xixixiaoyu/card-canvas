@@ -46,6 +46,12 @@ test('AI settings validate connectivity and persist the local configuration', as
   await dialog.locator('summary').click()
   await expect(dialog.getByLabel('AI 模型')).toHaveValue('deepseek-flash')
   await dialog.getByLabel('DeepSeek API Key').fill('test-ui-key')
+  await expect(dialog.getByLabel('DeepSeek API Key')).toHaveAttribute(
+    'type',
+    'text',
+  )
+  await expect(dialog.getByLabel('DeepSeek API Key')).toHaveClass(/is-masked/)
+  await expect(page.locator('input[type="password"]')).toHaveCount(0)
   await dialog.getByRole('button', { name: '测试连接' }).click()
   await expect(dialog).toContainText('连接正常')
 

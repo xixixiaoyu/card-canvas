@@ -655,6 +655,12 @@ onBeforeUnmount(() => {
               v-model="title"
               type="text"
               maxlength="160"
+              autocomplete="off"
+              name="card-canvas-card-title"
+              data-form-type="other"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore
               placeholder="一句话标题，或直接写正文…"
               aria-label="卡片标题"
               class="w-full border-0 bg-transparent p-0 font-serif text-[1.45rem] font-medium leading-snug tracking-[-0.02em] text-stone-900 caret-amber-600 outline-none placeholder:text-stone-400/90 dark:text-zinc-100 dark:caret-amber-400 dark:placeholder:text-zinc-600"
@@ -666,6 +672,12 @@ onBeforeUnmount(() => {
                 ref="contentEl"
                 v-model="content"
                 rows="5"
+                autocomplete="off"
+                name="card-canvas-card-content"
+                data-form-type="other"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore
                 placeholder="捕捉一个念头、一段引用或一条未成形的知识…"
                 aria-label="卡片正文"
                 aria-autocomplete="list"
@@ -766,6 +778,12 @@ onBeforeUnmount(() => {
                 <input
                   v-model="tagDraft"
                   type="text"
+                  autocomplete="off"
+                  name="card-canvas-card-tag"
+                  data-form-type="other"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
                   placeholder="标签，回车确认"
                   aria-label="添加标签"
                   class="w-full border-0 bg-transparent p-0 text-[11px] text-stone-700 outline-none placeholder:text-stone-400/90 dark:text-zinc-300 dark:placeholder:text-zinc-600"
