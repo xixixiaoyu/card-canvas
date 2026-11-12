@@ -117,6 +117,35 @@ test('slash commands insert list and task syntax', async ({ page }) => {
   await expect(content).toHaveValue('1. ')
 })
 
+test('Enter continues Markdown lists and Shift+Enter stays a plain newline', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await page.keyboard.press('Control+k')
+  const content = page.getByLabel('卡片正文')
+  await expect(content).toBeFocused()
+
+  await content.fill('- 第一项')
+  await content.press('Enter')
+  await expect(content).toHaveValue('- 第一项\n- ')
+
+  await content.fill('3. 第三项')
+  await content.press('Enter')
+  await expect(content).toHaveValue('3. 第三项\n4. ')
+
+  await content.fill('- [x] 已完成')
+  await content.press('Enter')
+  await expect(content).toHaveValue('- [x] 已完成\n- [ ] ')
+
+  await content.fill('前文\n- [ ] ')
+  await content.press('Enter')
+  await expect(content).toHaveValue('前文\n')
+
+  await content.fill('- 不续写')
+  await content.press('Shift+Enter')
+  await expect(content).toHaveValue('- 不续写\n')
+})
+
 test('clicking the capture backdrop never discards a non-empty draft', async ({
   page,
 }) => {

@@ -42,6 +42,7 @@ import {
   formatDailyTodoTitle,
   trimTrailingEmptyDailyTask,
 } from '../../lib/daily-todo'
+import { continueMarkdownList } from '../../lib/list-continuation'
 import type { CanvasCamera } from '../../composables/useCanvas'
 import { useAIStore } from '../../stores/ai'
 import { useBoardStore } from '../../stores/board'
@@ -79,6 +80,7 @@ const slashQuery = ref<string | null>(null)
 const slashStart = ref(0)
 const slashSelected = ref(0)
 const suggestingTags = ref(false)
+const regeneratingTitle = ref(false)
 
 interface CaptureDraft {
   title: string
@@ -136,6 +138,7 @@ let restoreFocusAfterClose = false
 let saveAttempt = 0
 let suppressModeSync = false
 let tagSuggestionController: AbortController | null = null
+let titleRegenerationController: AbortController | null = null
 const autoTagControllers = new Set<AbortController>()
 const draftsByBoard = new Map<string, CaptureDraft>()
 
@@ -199,7 +202,6 @@ function handleContentKeydown(event: KeyboardEvent) {
   if (event.isComposing) return
 
   if (
-    props.template === 'daily-todo' &&
     !isSlashMenuOpen.value &&
     event.key === 'Enter' &&
     !event.shiftKey &&
@@ -210,24 +212,17 @@ function handleContentKeydown(event: KeyboardEvent) {
     const element = contentEl.value
     if (element) {
       const cursor = element.selectionStart
-      const lineStart = content.value.lastIndexOf('\n', cursor - 1) + 1
-      const nextBreak = content.value.indexOf('\n', cursor)
-      const lineEnd = nextBreak === -1 ? content.value.length : nextBreak
-      const line = content.value.slice(lineStart, lineEnd)
-
-      if (/^\s*-\s+\[[ xX]\]\s*/u.test(line)) {
-        event.preventDefault()
-        const insertion = '\n- [ ] '
-        content.value =
-          content.value.slice(0, cursor) +
-          insertion +
-          content.value.slice(cursor)
-        void nextTick().then(() => {
-          const nextCursor = cursor + insertion.length
-          element.focus()
-          element.setSelectionRange(nextCursor, nextCursor)
-        })
-        return
+      if (cursor === element.selectionEnd) {
+        const continued = continueMarkdownList(content.value, cursor)
+        if (continued) {
+          event.preventDefault()
+          content.value = continued.content
+          void nextTick().then(() => {
+            element.focus()
+            element.setSelectionRange(continued.cursor, continued.cursor)
+          })
+          return
+        }
       }
     }
   }
@@ -326,6 +321,54 @@ async function generateTagSuggestions() {
     if (tagSuggestionController === controller) {
       tagSuggestionController = null
       suggestingTags.value = false
+    }
+  }
+}
+
+async function regenerateTitle() {
+  if (regeneratingTitle.value || !ai.hasKey || !canSave.value) return
+
+  const sourceTitle = title.value
+  const sourceContent = content.value
+  const source = sourceContent.trim() || sourceTitle.trim()
+  if (!source) return
+
+  titleRegenerationController?.abort()
+  const controller = new AbortController()
+  titleRegenerationController = controller
+  regeneratingTitle.value = true
+
+  try {
+    const generated = await inferTitle(
+      ai.config,
+      buildTitlePrompt(source),
+      TITLE_SYSTEM_PROMPT,
+      controller.signal,
+    )
+    if (
+      !generated ||
+      controller.signal.aborted ||
+      title.value !== sourceTitle ||
+      content.value !== sourceContent
+    ) {
+      return
+    }
+
+    title.value = generated
+    toast.push('AI 已重新生成标题，可继续修改后再保存。', {
+      tone: 'success',
+      timeout: 2800,
+    })
+  } catch (cause) {
+    if (controller.signal.aborted) return
+    toast.push(
+      cause instanceof Error ? cause.message : '标题生成暂时不可用。',
+      { tone: 'error', timeout: 4200 },
+    )
+  } finally {
+    if (titleRegenerationController === controller) {
+      titleRegenerationController = null
+      regeneratingTitle.value = false
     }
   }
 }
@@ -493,6 +536,8 @@ function restoreDraft(boardId: string) {
 }
 
 function close(returnFocus = false) {
+  tagSuggestionController?.abort()
+  titleRegenerationController?.abort()
   if (!props.card && props.template !== 'daily-todo' && !suppressModeSync) {
     rememberDraft()
   }
@@ -633,11 +678,8 @@ function save() {
   }
 
   if (editingCard) {
-    void board.updateCard(editingCard.id, draft).then((updated) => {
+    void board.updateCard(editingCard.id, draft).then(() => {
       toast.push('卡片已更新。', { tone: 'success', timeout: 2200 })
-      if (updated && !draft.tags.length) {
-        void autoTagCapturedCard(updated, tagContext)
-      }
     }, restoreAfterFailure)
     return
   }
@@ -767,6 +809,7 @@ onMounted(() => window.addEventListener('keydown', handleWindowKeydown))
 onBeforeUnmount(() => {
   tagSuggestionController?.abort()
   autoTagControllers.forEach((controller) => controller.abort())
+  titleRegenerationController?.abort()
   window.removeEventListener('keydown', handleWindowKeydown)
   setBackgroundInert(false)
 })
@@ -846,22 +889,51 @@ onBeforeUnmount(() => {
           </header>
 
           <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-5 sm:px-7">
-            <input
-              ref="titleEl"
-              v-model="title"
-              type="text"
-              maxlength="160"
-              autocomplete="off"
-              name="card-canvas-card-title"
-              data-form-type="other"
-              data-1p-ignore
-              data-lpignore="true"
-              data-bwignore
-              placeholder="一句话标题，或直接写正文…"
-              aria-label="卡片标题"
-              class="w-full border-0 bg-transparent p-0 font-serif text-[1.45rem] font-medium leading-snug tracking-[-0.02em] text-stone-900 caret-amber-600 outline-none placeholder:text-stone-400/90 dark:text-zinc-100 dark:caret-amber-400 dark:placeholder:text-zinc-600"
-              @keydown.enter="handleTitleEnter"
-            />
+            <div class="relative">
+              <input
+                ref="titleEl"
+                v-model="title"
+                type="text"
+                maxlength="160"
+                autocomplete="off"
+                name="card-canvas-card-title"
+                data-form-type="other"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore
+                placeholder="一句话标题，或直接写正文…"
+                aria-label="卡片标题"
+                class="w-full border-0 bg-transparent p-0 font-serif text-[1.45rem] font-medium leading-snug tracking-[-0.02em] text-stone-900 caret-amber-600 outline-none placeholder:text-stone-400/90 dark:text-zinc-100 dark:caret-amber-400 dark:placeholder:text-zinc-600"
+                :class="{ 'pr-28': isEditing && ai.hasKey }"
+                @keydown.enter="handleTitleEnter"
+              />
+              <button
+                v-if="isEditing && ai.hasKey"
+                type="button"
+                class="absolute right-0 top-1/2 inline-flex h-8 -translate-y-1/2 items-center gap-1.5 rounded-full border border-amber-700/15 bg-amber-500/[0.065] px-2.5 text-[9px] text-amber-800 transition-[background-color,border-color,opacity] hover:border-amber-700/25 hover:bg-amber-500/[0.11] disabled:cursor-not-allowed disabled:opacity-40 dark:border-amber-200/15 dark:bg-amber-200/[0.045] dark:text-amber-200/90 dark:hover:border-amber-200/25 dark:hover:bg-amber-200/[0.075]"
+                :disabled="regeneratingTitle || !canSave"
+                :aria-busy="regeneratingTitle"
+                aria-label="AI 重新生成标题"
+                title="根据当前正文重新生成标题"
+                data-ai-title-regenerate
+                @click="regenerateTitle"
+              >
+                <LoaderCircle
+                  v-if="regeneratingTitle"
+                  :size="12"
+                  :stroke-width="1.8"
+                  class="animate-spin"
+                  aria-hidden="true"
+                />
+                <Sparkles
+                  v-else
+                  :size="12"
+                  :stroke-width="1.7"
+                  aria-hidden="true"
+                />
+                <span class="hidden sm:inline">重新命名</span>
+              </button>
+            </div>
 
             <div class="mt-4">
               <textarea

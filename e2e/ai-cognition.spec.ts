@@ -225,6 +225,81 @@ test('capture can request tag suggestions before saving', async ({ page }) => {
   ).toBeVisible()
 })
 
+test('editing an existing card never auto-tags after tags are cleared', async ({
+  page,
+}) => {
+  await seedAIConfig(page)
+  let requests = 0
+  await page.route('**/api/deepseek', async (route) => {
+    requests += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [{ message: { content: '不应该/自动补充' } }],
+      }),
+    })
+  })
+
+  await page.goto('/')
+  const card = page.locator('[data-world-item]').first()
+  await card.locator('h2').click()
+  await card.getByRole('button', { name: '编辑卡片' }).click()
+  const dialog = page.locator('[data-quick-capture]')
+  const removeTags = dialog.getByRole('button', { name: /移除标签/ })
+  const initialTagCount = await removeTags.count()
+  expect(initialTagCount).toBeGreaterThan(0)
+  for (let index = 0; index < initialTagCount; index += 1) {
+    await removeTags.first().click()
+  }
+  await expect(removeTags).toHaveCount(0)
+  await dialog.getByLabel('卡片正文').fill('编辑正文后也不会自动补标签。')
+  await page.keyboard.press('Control+Enter')
+  await expect(dialog).toBeHidden()
+  await page.waitForTimeout(900)
+
+  expect(requests).toBe(0)
+})
+
+test('existing card title can be regenerated only through the explicit action', async ({
+  page,
+}) => {
+  await seedAIConfig(page)
+  await page.route('**/api/deepseek', async (route) => {
+    const request = route.request().postDataJSON() as {
+      messages?: Array<{ content?: string }>
+    }
+    const system = request.messages?.[0]?.content ?? ''
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: system.includes('标题编辑')
+                ? '重新命名后的标题'
+                : '心理学/手动标签',
+            },
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.goto('/')
+  const card = page.locator('[data-world-item]').first()
+  await card.locator('h2').click()
+  await card.getByRole('button', { name: '编辑卡片' }).click()
+  const dialog = page.locator('[data-quick-capture]')
+  await dialog.getByRole('button', { name: 'AI 重新生成标题' }).click()
+  await expect(dialog.getByLabel('卡片标题')).toHaveValue('重新命名后的标题')
+  await page.keyboard.press('Control+Enter')
+  await expect(dialog).toBeHidden()
+
+  await expect(card.locator('h2')).toHaveText('重新命名后的标题')
+})
+
 test('background AI replaces the neutral title without delaying capture', async ({
   page,
 }) => {
