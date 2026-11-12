@@ -37,6 +37,7 @@ import { DEMO_FOCUS_ITEM_ID } from './lib/demo-data'
 import { formatDailyTodoTitle, isDailyTodoCard } from './lib/daily-todo'
 import { useAuthStore } from './stores/auth'
 import { useAIStore } from './stores/ai'
+import { useAttachmentStore } from './stores/attachments'
 import { useBoardStore } from './stores/board'
 import { useSyncStore } from './stores/sync'
 import { useToastStore } from './stores/toast'
@@ -80,6 +81,7 @@ const AISettingsModal = defineAsyncComponent(
 const { isDark, toggleTheme } = useTheme()
 const workspace = useWorkspaceStore()
 const board = useBoardStore()
+const attachments = useAttachmentStore()
 const toast = useToastStore()
 const auth = useAuthStore()
 const sync = useSyncStore()
@@ -136,8 +138,10 @@ const databaseLabel = computed(() => {
 async function initializeBoard() {
   try {
     await workspace.loadBoards()
+    await attachments.initialize()
     await board.initialize(workspace.activeBoardId)
     board.startSync()
+    attachments.startSync()
     workspace.startSync()
   } catch (error) {
     console.error('[card-canvas] Unable to initialize the board', error)
@@ -817,6 +821,7 @@ onBeforeUnmount(() => {
   sync.stop()
   auth.dispose()
   board.stopSync()
+  attachments.stopSync()
   workspace.stopSync()
   window.removeEventListener('keydown', handleGlobalKeydown)
   if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
@@ -844,6 +849,7 @@ onBeforeUnmount(() => {
       :key="entry.item.id"
       :item="entry.item"
       :card="entry.card"
+      :attachments="attachments.forCard(entry.card.id)"
       :selected="board.selectedItemIds.has(entry.item.id)"
       :landing="board.landingItemId === entry.item.id"
       :is-highlighted="board.pulseItemId === entry.item.id"
@@ -901,7 +907,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.9.1 · Local-first
+              v1.10.0 · Local-first
             </p>
           </div>
 
@@ -1083,7 +1089,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.9.1</span>
+          <span>v1.10.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

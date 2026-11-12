@@ -1,18 +1,26 @@
 import { db } from '../db'
-import type { Board, BoardItem, Card, CardVersion, Connection } from '../types'
+import type {
+  Board,
+  BoardItem,
+  Card,
+  CardAttachment,
+  CardVersion,
+  Connection,
+} from '../types'
 import { normalizeTags } from './tags'
 
 const DEFAULT_CARD_WIDTH = 420
 
 export interface BackupPayload {
   app: 'card-canvas'
-  version: 2
+  version: 3
   exportedAt: string
   cards: Card[]
   boardItems: BoardItem[]
   connections: Connection[]
   boards: Board[]
   cardVersions: CardVersion[]
+  attachments: CardAttachment[]
 }
 
 export interface BackupCounts {
@@ -21,6 +29,7 @@ export interface BackupCounts {
   connections: number
   boards: number
   cardVersions: number
+  attachments: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -140,26 +149,71 @@ function parseCardVersion(value: unknown): CardVersion {
   }
 }
 
+function parseAttachment(value: unknown): CardAttachment {
+  if (!isRecord(value)) throw new Error('备份中的图片附件格式无效')
+  if (!isString(value.id) || !isString(value.cardId)) {
+    throw new Error('备份中的图片附件缺少 id')
+  }
+  if (
+    typeof value.fileName !== 'string' ||
+    typeof value.mimeType !== 'string' ||
+    typeof value.dataUrl !== 'string'
+  ) {
+    throw new Error('备份中的图片附件内容无效')
+  }
+  if (
+    !value.mimeType.startsWith('image/') ||
+    !value.dataUrl.startsWith('data:image/')
+  ) {
+    throw new Error('备份中的图片附件类型无效')
+  }
+  if (
+    !isFiniteNumber(value.size) ||
+    !isFiniteNumber(value.width) ||
+    !isFiniteNumber(value.height) ||
+    !isFiniteNumber(value.createdAt) ||
+    !isFiniteNumber(value.updatedAt)
+  ) {
+    throw new Error('备份中的图片附件元数据无效')
+  }
+
+  return {
+    id: value.id,
+    cardId: value.cardId,
+    fileName: value.fileName,
+    mimeType: value.mimeType,
+    size: value.size,
+    width: value.width,
+    height: value.height,
+    dataUrl: value.dataUrl,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    isDeleted: value.isDeleted === true ? true : undefined,
+  }
+}
+
 /** Build a portable snapshot of every durable table. */
 export async function createBackup(): Promise<BackupPayload> {
-  const [cards, boardItems, connections, boards, cardVersions] =
+  const [cards, boardItems, connections, boards, cardVersions, attachments] =
     await Promise.all([
       db.cards.toArray(),
       db.boardItems.toArray(),
       db.connections.toArray(),
       db.boards.toArray(),
       db.cardVersions.toArray(),
+      db.attachments.toArray(),
     ])
 
   return {
     app: 'card-canvas',
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     cards,
     boardItems,
     connections,
     boards,
     cardVersions,
+    attachments,
   }
 }
 
@@ -199,21 +253,28 @@ export async function importBackupText(
   if (raw.cardVersions !== undefined && !Array.isArray(raw.cardVersions)) {
     throw new Error('备份中的 cardVersions 格式无效')
   }
+  if (raw.attachments !== undefined && !Array.isArray(raw.attachments)) {
+    throw new Error('备份中的 attachments 格式无效')
+  }
 
   const cards = raw.cards.map(parseCard)
   const boardItems = raw.boardItems.map(parseBoardItem)
   const connections = (raw.connections ?? []).map(parseConnection)
   const boards = (raw.boards ?? []).map(parseBoard)
   const cardVersions = (raw.cardVersions ?? []).map(parseCardVersion)
+  const attachments = (raw.attachments ?? []).map(parseAttachment)
   let importedBoardItems = boardItems
 
   await db.transaction(
     'rw',
-    db.cards,
-    db.boardItems,
-    db.connections,
-    db.boards,
-    db.cardVersions,
+    [
+      db.cards,
+      db.boardItems,
+      db.connections,
+      db.boards,
+      db.cardVersions,
+      db.attachments,
+    ],
     async () => {
       if (cards.length) await db.cards.bulkPut(cards)
       const allItems = await db.boardItems.toArray()
@@ -261,6 +322,7 @@ export async function importBackupText(
       if (cardVersions.length) {
         await db.cardVersions.bulkPut(cardVersions)
       }
+      if (attachments.length) await db.attachments.bulkPut(attachments)
     },
   )
 
@@ -270,6 +332,7 @@ export async function importBackupText(
     connections: connections.length,
     boards: boards.length,
     cardVersions: cardVersions.length,
+    attachments: attachments.length,
   }
 }
 
@@ -301,5 +364,6 @@ export async function downloadBackup() {
     connections: payload.connections.length,
     boards: payload.boards.length,
     cardVersions: payload.cardVersions.length,
+    attachments: payload.attachments.length,
   }
 }

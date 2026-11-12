@@ -1,8 +1,15 @@
-import type { Board, BoardItem, Card, Connection } from '../../types'
+import type {
+  Board,
+  BoardItem,
+  Card,
+  CardAttachment,
+  Connection,
+} from '../../types'
 
 interface LocalWorkspaceSnapshot {
   boards: Pick<Board, 'id' | 'name'>[]
   cards: Pick<Card, 'id'>[]
+  attachments: Pick<CardAttachment, 'id'>[]
   boardItems: Pick<BoardItem, 'id'>[]
   connections: Pick<Connection, 'id'>[]
 }
@@ -25,6 +32,7 @@ export function isPristineLocalWorkspace(
   return (
     hasOnlyDefaultBoard &&
     snapshot.cards.length === 0 &&
+    snapshot.attachments.length === 0 &&
     snapshot.boardItems.length === 0 &&
     snapshot.connections.length === 0
   )

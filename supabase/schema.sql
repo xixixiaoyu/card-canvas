@@ -28,6 +28,27 @@ create table if not exists public.cards (
   primary key (user_id, id)
 );
 
+create table if not exists public.attachments (
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  id text not null,
+  card_id text not null,
+  file_name text not null default 'image.webp',
+  mime_type text not null default 'image/webp',
+  size bigint not null default 0,
+  width integer not null default 0,
+  height integer not null default 0,
+  data_url text not null default '',
+  created_at bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  updated_at bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  server_updated_at timestamptz not null default now(),
+  is_deleted boolean not null default false,
+  sync_client_id text not null default '',
+  primary key (user_id, id),
+  foreign key (user_id, card_id)
+    references public.cards (user_id, id)
+    on delete cascade
+);
+
 create table if not exists public.board_items (
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   id text not null,
@@ -64,6 +85,10 @@ create index if not exists boards_user_updated_idx
   on public.boards (user_id, updated_at);
 create index if not exists cards_user_updated_idx
   on public.cards (user_id, updated_at);
+create index if not exists attachments_user_card_idx
+  on public.attachments (user_id, card_id);
+create index if not exists attachments_user_updated_idx
+  on public.attachments (user_id, updated_at);
 create index if not exists board_items_user_board_idx
   on public.board_items (user_id, board_id);
 create index if not exists board_items_user_updated_idx
@@ -77,6 +102,8 @@ create index if not exists boards_user_server_updated_idx
   on public.boards (user_id, server_updated_at);
 create index if not exists cards_user_server_updated_idx
   on public.cards (user_id, server_updated_at);
+create index if not exists attachments_user_server_updated_idx
+  on public.attachments (user_id, server_updated_at);
 create index if not exists board_items_user_server_updated_idx
   on public.board_items (user_id, server_updated_at);
 create index if not exists connections_user_server_updated_idx
@@ -86,6 +113,8 @@ create index if not exists boards_user_server_cursor_idx
   on public.boards (user_id, server_updated_at, id);
 create index if not exists cards_user_server_cursor_idx
   on public.cards (user_id, server_updated_at, id);
+create index if not exists attachments_user_server_cursor_idx
+  on public.attachments (user_id, server_updated_at, id);
 create index if not exists board_items_user_server_cursor_idx
   on public.board_items (user_id, server_updated_at, id);
 create index if not exists connections_user_server_cursor_idx
@@ -93,6 +122,7 @@ create index if not exists connections_user_server_cursor_idx
 
 alter table public.boards replica identity full;
 alter table public.cards replica identity full;
+alter table public.attachments replica identity full;
 alter table public.board_items replica identity full;
 alter table public.connections replica identity full;
 
@@ -116,6 +146,11 @@ create trigger cards_set_server_updated_at
 before insert or update on public.cards
 for each row execute function public.set_server_updated_at();
 
+drop trigger if exists attachments_set_server_updated_at on public.attachments;
+create trigger attachments_set_server_updated_at
+before insert or update on public.attachments
+for each row execute function public.set_server_updated_at();
+
 drop trigger if exists board_items_set_server_updated_at on public.board_items;
 create trigger board_items_set_server_updated_at
 before insert or update on public.board_items
@@ -128,6 +163,7 @@ for each row execute function public.set_server_updated_at();
 
 alter table public.boards enable row level security;
 alter table public.cards enable row level security;
+alter table public.attachments enable row level security;
 alter table public.board_items enable row level security;
 alter table public.connections enable row level security;
 
@@ -181,6 +217,31 @@ on public.cards for delete
 to authenticated
 using ((select auth.uid()) = user_id);
 
+drop policy if exists "attachments_select_own" on public.attachments;
+create policy "attachments_select_own"
+on public.attachments for select
+to authenticated
+using ((select auth.uid()) = user_id);
+
+drop policy if exists "attachments_insert_own" on public.attachments;
+create policy "attachments_insert_own"
+on public.attachments for insert
+to authenticated
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "attachments_update_own" on public.attachments;
+create policy "attachments_update_own"
+on public.attachments for update
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "attachments_delete_own" on public.attachments;
+create policy "attachments_delete_own"
+on public.attachments for delete
+to authenticated
+using ((select auth.uid()) = user_id);
+
 drop policy if exists "board_items_select_own" on public.board_items;
 create policy "board_items_select_own"
 on public.board_items for select
@@ -231,11 +292,11 @@ to authenticated
 using ((select auth.uid()) = user_id);
 
 grant select, insert, update, delete
-on public.boards, public.cards, public.board_items, public.connections
+on public.boards, public.cards, public.attachments, public.board_items, public.connections
 to authenticated;
 
 revoke all
-on public.boards, public.cards, public.board_items, public.connections
+on public.boards, public.cards, public.attachments, public.board_items, public.connections
 from anon;
 
 do $$
@@ -245,6 +306,7 @@ begin
   foreach table_name in array array[
     'boards',
     'cards',
+    'attachments',
     'board_items',
     'connections'
   ]

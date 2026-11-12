@@ -1,4 +1,5 @@
 import type { Card } from '../types'
+import { stripAttachmentReferences } from './atomic-markdown'
 
 export interface SpotlightMatch {
   card: Card
@@ -46,7 +47,7 @@ function excerptFor(content: string, tokens: string[]) {
 
 function scoreCard(card: Card, tokens: string[]) {
   const title = normalized(card.title)
-  const content = normalized(card.content)
+  const content = normalized(stripAttachmentReferences(card.content))
   const tags = card.tags.map(normalized)
   let score = 0
 
@@ -82,13 +83,17 @@ export function searchSpotlightCards(
       if (!tokens.length) return true
 
       const haystack = normalized(
-        [card.title, card.content, card.tags.join(' ')].join(' '),
+        [
+          card.title,
+          stripAttachmentReferences(card.content),
+          card.tags.join(' '),
+        ].join(' '),
       )
       return tokens.every((token) => haystack.includes(token))
     })
     .map((card) => ({
       card,
-      excerpt: excerptFor(card.content, tokens),
+      excerpt: excerptFor(stripAttachmentReferences(card.content), tokens),
       matchedTags: matchedTags(card, tokens),
       score: tokens.length ? scoreCard(card, tokens) : 0,
     }))

@@ -1,4 +1,10 @@
-import type { Board, BoardItem, Card, Connection } from '../../types'
+import type {
+  Board,
+  BoardItem,
+  Card,
+  CardAttachment,
+  Connection,
+} from '../../types'
 import type {
   PullCursor,
   SyncOperation,
@@ -11,6 +17,7 @@ export type RemoteRow = Record<string, unknown>
 const REMOTE_TABLE_NAMES: Record<SyncTableName, string> = {
   boards: 'boards',
   cards: 'cards',
+  attachments: 'attachments',
   boardItems: 'board_items',
   connections: 'connections',
 }
@@ -66,6 +73,18 @@ export function localRecordToRemote(
         highlights: Array.isArray(source.highlights) ? source.highlights : null,
         created_at: numberOr(source.createdAt, entry.updatedAt),
       }
+    case 'attachments':
+      return {
+        ...common,
+        card_id: stringOr(source.cardId),
+        file_name: stringOr(source.fileName, 'image.webp'),
+        mime_type: stringOr(source.mimeType, 'image/webp'),
+        size: numberOr(source.size),
+        width: numberOr(source.width),
+        height: numberOr(source.height),
+        data_url: entry.operation === 'delete' ? '' : stringOr(source.dataUrl),
+        created_at: numberOr(source.createdAt, entry.updatedAt),
+      }
     case 'boardItems':
       return {
         ...common,
@@ -90,7 +109,7 @@ export function localRecordToRemote(
 export function remoteRecordToLocal(
   table: SyncTableName,
   row: RemoteRow,
-): Board | Card | BoardItem | Connection {
+): Board | Card | CardAttachment | BoardItem | Connection {
   const updatedAt = numberOr(row.updated_at, Date.now())
 
   switch (table) {
@@ -115,6 +134,20 @@ export function remoteRecordToLocal(
         highlights: Array.isArray(row.highlights)
           ? (row.highlights as Card['highlights'])
           : undefined,
+      }
+    case 'attachments':
+      return {
+        id: stringOr(row.id),
+        cardId: stringOr(row.card_id),
+        fileName: stringOr(row.file_name, 'image.webp'),
+        mimeType: stringOr(row.mime_type, 'image/webp'),
+        size: numberOr(row.size),
+        width: numberOr(row.width),
+        height: numberOr(row.height),
+        dataUrl: stringOr(row.data_url),
+        createdAt: numberOr(row.created_at, updatedAt),
+        updatedAt,
+        isDeleted: row.is_deleted === true ? true : undefined,
       }
     case 'boardItems':
       return {

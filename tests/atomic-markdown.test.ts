@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  attachmentMarkdown,
   collectPendingTasks,
   inlineNodesToText,
   parseAtomicMarkdown,
   parseInlineMarkdown,
+  referencedAttachmentIds,
+  removeAttachmentReference,
   toggleTaskLine,
 } from '../src/lib/atomic-markdown'
 
@@ -65,6 +68,28 @@ describe('atomic Markdown', () => {
       type: 'list',
       style: 'unordered',
     })
+  })
+
+  it('parses attachment images without accepting arbitrary image URLs', () => {
+    const attachmentId = 'attachment-image'
+    const token = attachmentMarkdown(attachmentId, '参考图')
+    const blocks = parseAtomicMarkdown(
+      `${token}\n![remote](https://example.com/a.png)`,
+    )
+
+    expect(blocks[0]).toEqual({
+      type: 'image',
+      lineIndex: 0,
+      attachmentId,
+      alt: '参考图',
+    })
+    expect(blocks[1]?.type).toBe('paragraph')
+    expect(referencedAttachmentIds(`${token}\n正文`)).toEqual(
+      new Set([attachmentId]),
+    )
+    expect(
+      removeAttachmentReference(`前文\n${token}\n后文`, attachmentId),
+    ).toBe('前文\n后文')
   })
 
   it('toggles only the selected task line and preserves CRLF', () => {

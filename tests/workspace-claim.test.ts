@@ -10,6 +10,7 @@ describe('workspace claiming', () => {
         {
           boards: [defaultBoard],
           cards: [],
+          attachments: [],
           boardItems: [],
           connections: [],
         },
@@ -24,7 +25,20 @@ describe('workspace claiming', () => {
         {
           boards: [defaultBoard],
           cards: [{ id: 'card-local' }],
+          attachments: [],
           boardItems: [{ id: 'item-local' }],
+          connections: [],
+        },
+        defaultBoard,
+      ),
+    ).toBe(false)
+    expect(
+      isPristineLocalWorkspace(
+        {
+          boards: [defaultBoard],
+          cards: [],
+          attachments: [{ id: 'attachment-local' }],
+          boardItems: [],
           connections: [],
         },
         defaultBoard,
@@ -35,6 +49,7 @@ describe('workspace claiming', () => {
         {
           boards: [{ id: 'board-custom', name: '我的白板' }],
           cards: [],
+          attachments: [],
           boardItems: [],
           connections: [],
         },

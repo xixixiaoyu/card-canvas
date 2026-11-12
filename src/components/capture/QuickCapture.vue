@@ -26,6 +26,13 @@ import {
   TAGS_SYSTEM_PROMPT,
   TITLE_SYSTEM_PROMPT,
 } from '../../lib/ai/prompts'
+import {
+  attachmentMarkdown,
+  referencedAttachmentIds,
+  removeAttachmentReference,
+  stripAttachmentReferences,
+} from '../../lib/atomic-markdown'
+import { prepareImageAttachment } from '../../lib/attachments'
 import { inferTags, inferTitle } from '../../lib/ai/deepseek'
 import {
   mergeTags,
@@ -45,11 +52,13 @@ import {
 import { continueMarkdownList } from '../../lib/list-continuation'
 import type { CanvasCamera } from '../../composables/useCanvas'
 import { useAIStore } from '../../stores/ai'
+import { useAttachmentStore } from '../../stores/attachments'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
-import type { Card } from '../../types'
+import type { Card, CardAttachment } from '../../types'
 
 const UNTITLED_CARD_TITLE = '未命名卡片'
+const MAX_ATTACHMENTS_PER_CARD = 8
 
 const props = defineProps<{
   open: boolean
@@ -65,6 +74,7 @@ const emit = defineEmits<{
 }>()
 
 const board = useBoardStore()
+const attachmentStore = useAttachmentStore()
 const toast = useToastStore()
 const ai = useAIStore()
 
@@ -81,12 +91,15 @@ const slashStart = ref(0)
 const slashSelected = ref(0)
 const suggestingTags = ref(false)
 const regeneratingTitle = ref(false)
+const pendingAttachments = ref<CardAttachment[]>([])
+const processingImages = ref(false)
 
 interface CaptureDraft {
   title: string
   content: string
   tags: string[]
   tagDraft: string
+  attachments: CardAttachment[]
 }
 
 interface SlashCommand {
@@ -139,6 +152,7 @@ let saveAttempt = 0
 let suppressModeSync = false
 let tagSuggestionController: AbortController | null = null
 let titleRegenerationController: AbortController | null = null
+let initialAttachments: CardAttachment[] = []
 const autoTagControllers = new Set<AbortController>()
 const draftsByBoard = new Map<string, CaptureDraft>()
 
@@ -253,6 +267,93 @@ function handleContentKeydown(event: KeyboardEvent) {
     event.stopPropagation()
     void applySlashCommand(commands[slashSelected.value] ?? commands[0])
   }
+}
+
+function insertAttachmentTokens(tokens: string[], cursor: number) {
+  if (!tokens.length) return
+  const before = content.value.slice(0, cursor)
+  const after = content.value.slice(cursor)
+  const leading = before && !before.endsWith('\n') ? '\n' : ''
+  const inserted = tokens.join('\n')
+  const trailing = after && !after.startsWith('\n') ? '\n' : ''
+  content.value = `${before}${leading}${inserted}${trailing}${after}`
+
+  const nextCursor = before.length + leading.length + inserted.length
+  void nextTick().then(() => {
+    const element = contentEl.value
+    if (!element) return
+    element.focus()
+    element.setSelectionRange(nextCursor, nextCursor)
+  })
+}
+
+async function handleContentPaste(event: ClipboardEvent) {
+  const files = [...(event.clipboardData?.items ?? [])]
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+  if (!files.length) return
+
+  event.preventDefault()
+  processingImages.value = true
+  const cursor = contentEl.value?.selectionStart ?? content.value.length
+  const available = Math.max(
+    0,
+    MAX_ATTACHMENTS_PER_CARD - pendingAttachments.value.length,
+  )
+  const acceptedFiles = files.slice(0, available)
+  const tokens: string[] = []
+  let lastError: unknown = null
+
+  try {
+    if (acceptedFiles.length < files.length) {
+      lastError = new Error(
+        `每张卡片最多保留 ${MAX_ATTACHMENTS_PER_CARD} 张图片`,
+      )
+    }
+    for (const file of acceptedFiles) {
+      try {
+        const prepared = await prepareImageAttachment(file)
+        const now = Date.now()
+        const attachment: CardAttachment = {
+          id: `attachment-${crypto.randomUUID()}`,
+          cardId: props.card?.id ?? '',
+          ...prepared,
+          createdAt: now,
+          updatedAt: now,
+        }
+        pendingAttachments.value = [...pendingAttachments.value, attachment]
+        tokens.push(attachmentMarkdown(attachment.id, attachment.fileName))
+      } catch (cause) {
+        lastError = cause
+      }
+    }
+
+    insertAttachmentTokens(tokens, cursor)
+    if (tokens.length) {
+      toast.push(
+        tokens.length === 1
+          ? '图片已压缩并插入卡片。'
+          : `已插入 ${tokens.length} 张图片。`,
+        { tone: 'success', timeout: 2200 },
+      )
+    }
+    if (lastError) {
+      toast.push(
+        lastError instanceof Error ? lastError.message : '图片处理失败。',
+        { tone: 'error', timeout: 4200 },
+      )
+    }
+  } finally {
+    processingImages.value = false
+  }
+}
+
+function removeAttachment(attachmentId: string) {
+  pendingAttachments.value = pendingAttachments.value.filter(
+    (attachment) => attachment.id !== attachmentId,
+  )
+  content.value = removeAttachmentReference(content.value, attachmentId)
 }
 
 function addTag(raw: string) {
@@ -497,12 +598,28 @@ function reset() {
   content.value = ''
   tags.value = []
   tagDraft.value = ''
+  pendingAttachments.value = []
   closeSlashMenu()
+}
+
+async function focusContentAtEnd() {
+  await nextTick()
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
+  const element = contentEl.value
+  if (!element) return
+  element.focus({ preventScroll: true })
+  const end = content.value.length
+  element.setSelectionRange(end, end)
 }
 
 function hasDraftContent() {
   return Boolean(
-    content.value.trim() || tags.value.length || tagDraft.value.trim(),
+    content.value.trim() ||
+    tags.value.length ||
+    tagDraft.value.trim() ||
+    pendingAttachments.value.length,
   )
 }
 
@@ -518,6 +635,9 @@ function rememberDraft() {
     content: content.value,
     tags: [...tags.value],
     tagDraft: tagDraft.value,
+    attachments: pendingAttachments.value.map((attachment) => ({
+      ...attachment,
+    })),
   })
 }
 
@@ -532,10 +652,17 @@ function restoreDraft(boardId: string) {
   content.value = draft.content
   tags.value = [...draft.tags]
   tagDraft.value = draft.tagDraft
+  pendingAttachments.value = draft.attachments.map((attachment) => ({
+    ...attachment,
+  }))
   closeSlashMenu()
 }
 
 function close(returnFocus = false) {
+  if (processingImages.value) {
+    toast.push('图片正在处理，请稍候。', { tone: 'info', timeout: 2200 })
+    return
+  }
   tagSuggestionController?.abort()
   titleRegenerationController?.abort()
   if (!props.card && props.template !== 'daily-todo' && !suppressModeSync) {
@@ -569,12 +696,25 @@ function estimateCaptureHeight() {
       (total, line) => total + Math.max(1, Math.ceil(line.length / 23)),
       0,
     )
+  const attachmentHeight = pendingAttachments.value.reduce(
+    (total, attachment) =>
+      total +
+      Math.min(
+        320,
+        352 * (attachment.height / Math.max(1, attachment.width)) + 18,
+      ),
+    0,
+  )
 
   return Math.min(
-    560,
+    820,
     Math.max(
       280,
-      220 + titleLines * 37 + contentLines * 29 + (tags.value.length ? 28 : 0),
+      220 +
+        titleLines * 37 +
+        contentLines * 29 +
+        (tags.value.length ? 28 : 0) +
+        attachmentHeight,
     ),
   )
 }
@@ -622,6 +762,13 @@ function buildPlacement() {
 
 function save() {
   if (!canSave.value) return
+  if (processingImages.value) {
+    toast.push('图片正在处理，请稍候再保存。', {
+      tone: 'info',
+      timeout: 2400,
+    })
+    return
+  }
 
   addTagsFromDraft()
 
@@ -630,8 +777,16 @@ function save() {
     props.template === 'daily-todo'
       ? trimTrailingEmptyDailyTask(content.value)
       : content.value.trim()
+  const referencedIds = referencedAttachmentIds(rawContent)
+  const savedAttachments = pendingAttachments.value
+    .filter((attachment) => referencedIds.has(attachment.id))
+    .map((attachment) => ({ ...attachment }))
+  const previousAttachments = initialAttachments.map((attachment) => ({
+    ...attachment,
+  }))
+  const textContent = stripAttachmentReferences(rawContent)
   const firstLine =
-    rawContent
+    textContent
       .split('\n')
       .map((line) => line.trim())
       .find(Boolean) ?? ''
@@ -668,6 +823,9 @@ function save() {
       title.value = draft.title
       content.value = draft.content
       tags.value = [...draft.tags]
+      pendingAttachments.value = savedAttachments.map((attachment) => ({
+        ...attachment,
+      }))
       emit('update:open', true)
     }
 
@@ -678,20 +836,52 @@ function save() {
   }
 
   if (editingCard) {
-    void board.updateCard(editingCard.id, draft).then(() => {
-      toast.push('卡片已更新。', { tone: 'success', timeout: 2200 })
-    }, restoreAfterFailure)
+    void (async () => {
+      let attachmentsSaved = false
+      try {
+        await attachmentStore.replaceForCard(editingCard.id, savedAttachments)
+        attachmentsSaved = true
+        const updated = await board.updateCard(editingCard.id, draft)
+        if (!updated) throw new Error('卡片已不存在')
+        toast.push('卡片已更新。', { tone: 'success', timeout: 2200 })
+      } catch (cause) {
+        if (attachmentsSaved) {
+          await attachmentStore
+            .replaceForCard(editingCard.id, previousAttachments)
+            .catch((rollbackCause) => {
+              console.error(
+                '[card-canvas] Unable to roll back card attachments',
+                rollbackCause,
+              )
+            })
+        }
+        restoreAfterFailure(cause)
+      }
+    })()
     return
   }
 
   void board
     .captureAndPlace(draft, props.boardId || 'board-main', placement)
     .then(async ({ card }) => {
+      if (savedAttachments.length) {
+        try {
+          await attachmentStore.replaceForCard(card.id, savedAttachments)
+        } catch (cause) {
+          await board.deleteCard(card.id).catch(() => {})
+          throw cause
+        }
+      }
       const enriched =
         needsAutoTitle && ai.autoTitleEnabled
-          ? await autoTitleCapturedCard(card, rawContent)
+          ? await autoTitleCapturedCard(card, textContent)
           : card
-      if (!draft.tags.length) void autoTagCapturedCard(enriched, tagContext)
+      if (
+        !draft.tags.length &&
+        (enriched.title !== UNTITLED_CARD_TITLE || textContent)
+      ) {
+        void autoTagCapturedCard(enriched, tagContext)
+      }
     })
     .catch(restoreAfterFailure)
 }
@@ -778,20 +968,29 @@ watch(
         content.value = DAILY_TODO_CONTENT
         tags.value = [DAILY_TODO_TAG]
         tagDraft.value = ''
+        pendingAttachments.value = []
+        initialAttachments = []
         closeSlashMenu()
       } else if (props.card) {
+        await attachmentStore.initialize()
         title.value = props.card.title
         content.value = props.card.content
         tags.value = [...props.card.tags]
         tagDraft.value = ''
+        const referencedIds = referencedAttachmentIds(props.card.content)
+        initialAttachments = attachmentStore
+          .forCard(props.card.id)
+          .filter((attachment) => referencedIds.has(attachment.id))
+          .map((attachment) => ({ ...attachment }))
+        pendingAttachments.value = initialAttachments.map((attachment) => ({
+          ...attachment,
+        }))
       } else {
+        initialAttachments = []
         restoreDraft(props.boardId || 'board-main')
       }
 
-      await nextTick()
-      contentEl.value?.focus()
-      const end = content.value.length
-      contentEl.value?.setSelectionRange(end, end)
+      await focusContentAtEnd()
       return
     }
 
@@ -958,6 +1157,7 @@ onBeforeUnmount(() => {
                 @keydown="handleContentKeydown"
                 @click="updateSlashMenu"
                 @blur="closeSlashMenu"
+                @paste="handleContentPaste"
               />
 
               <Transition name="slash-menu">
@@ -1020,6 +1220,47 @@ onBeforeUnmount(() => {
                   </p>
                 </div>
               </Transition>
+            </div>
+
+            <div
+              v-if="pendingAttachments.length || processingImages"
+              class="mt-3 flex flex-wrap items-center gap-2"
+              data-capture-attachments
+            >
+              <div
+                v-for="attachment in pendingAttachments"
+                :key="attachment.id"
+                class="group relative h-20 w-28 overflow-hidden rounded-xl border border-stone-200/80 bg-white/50 shadow-[0_1px_2px_rgba(41,37,36,0.04)] dark:border-white/10 dark:bg-white/[0.03]"
+                data-capture-attachment
+              >
+                <img
+                  :src="attachment.dataUrl"
+                  :alt="attachment.fileName"
+                  class="h-full w-full object-cover"
+                  draggable="false"
+                />
+                <button
+                  type="button"
+                  class="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-stone-950/55 text-white opacity-80 backdrop-blur transition-[background-color,opacity] hover:bg-rose-600 hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                  :aria-label="`移除图片 ${attachment.fileName}`"
+                  @click="removeAttachment(attachment.id)"
+                >
+                  <X :size="10" :stroke-width="2.2" aria-hidden="true" />
+                </button>
+              </div>
+              <div
+                v-if="processingImages"
+                class="flex h-20 w-28 items-center justify-center rounded-xl border border-dashed border-stone-300/80 text-stone-400 dark:border-white/10 dark:text-zinc-500"
+                role="status"
+                aria-live="polite"
+              >
+                <LoaderCircle
+                  :size="15"
+                  :stroke-width="1.8"
+                  class="animate-spin"
+                  aria-hidden="true"
+                />
+              </div>
             </div>
 
             <div class="mt-4 flex flex-wrap items-center gap-2">
@@ -1112,6 +1353,10 @@ onBeforeUnmount(() => {
                 >·</span
               >
               <span class="hidden sm:inline">#标签自动解析</span>
+              <span class="hidden text-stone-300 sm:inline dark:text-zinc-700"
+                >·</span
+              >
+              <span class="hidden sm:inline">⌘/Ctrl+V 图片</span>
             </div>
 
             <button

@@ -2,10 +2,12 @@
 import { computed } from 'vue'
 import { Check } from '@lucide/vue'
 import { parseAtomicMarkdown } from '../../lib/atomic-markdown'
+import type { CardAttachment } from '../../types'
 import InlineMarkdown from './InlineMarkdown.vue'
 
 const props = defineProps<{
   content: string
+  attachments?: CardAttachment[]
 }>()
 
 const emit = defineEmits<{
@@ -13,6 +15,15 @@ const emit = defineEmits<{
 }>()
 
 const blocks = computed(() => parseAtomicMarkdown(props.content))
+const attachmentsById = computed(
+  () =>
+    new Map(
+      (props.attachments ?? []).map((attachment) => [
+        attachment.id,
+        attachment,
+      ]),
+    ),
+)
 
 function toggleTask(lineIndex: number) {
   emit('toggleTask', lineIndex)
@@ -31,6 +42,23 @@ function toggleTask(lineIndex: number) {
       <p v-else-if="block.type === 'paragraph'" class="atomic-paragraph">
         <InlineMarkdown :nodes="block.nodes" />
       </p>
+
+      <figure
+        v-else-if="block.type === 'image'"
+        class="atomic-image"
+        data-card-selectable
+      >
+        <img
+          v-if="attachmentsById.get(block.attachmentId)?.dataUrl"
+          :src="attachmentsById.get(block.attachmentId)!.dataUrl"
+          :alt="block.alt"
+          draggable="false"
+          loading="lazy"
+        />
+        <span v-else class="atomic-image-missing">
+          {{ block.alt || '图片' }} · 正在同步或附件不可用
+        </span>
+      </figure>
 
       <ol
         v-else
@@ -119,6 +147,41 @@ function toggleTask(lineIndex: number) {
   margin: 0.12rem 0 0.22rem;
   padding: 0;
   list-style: none;
+}
+
+.atomic-image {
+  overflow: hidden;
+  margin: 0.35rem 0 0.55rem;
+  border: 1px solid rgba(168, 162, 158, 0.28);
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.dark .atomic-image {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.atomic-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 32rem;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.atomic-image-missing {
+  display: flex;
+  min-height: 5rem;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  color: rgb(168 162 158);
+  font-size: 0.6875rem;
+  text-align: center;
 }
 
 .atomic-list-item {

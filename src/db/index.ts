@@ -1,6 +1,13 @@
 import Dexie, { type Table } from 'dexie'
 import type { SyncMetaRecord, SyncOutboxRecord } from '../lib/sync/types'
-import type { Board, BoardItem, Card, CardVersion, Connection } from '../types'
+import type {
+  Board,
+  BoardItem,
+  Card,
+  CardAttachment,
+  CardVersion,
+  Connection,
+} from '../types'
 
 /**
  * Local-first storage for the workspace.
@@ -16,6 +23,7 @@ export class KnowledgeDatabase extends Dexie {
   syncOutbox!: Table<SyncOutboxRecord, string>
   syncMeta!: Table<SyncMetaRecord, string>
   cardVersions!: Table<CardVersion, string>
+  attachments!: Table<CardAttachment, string>
 
   constructor() {
     super('card-canvas')
@@ -41,6 +49,10 @@ export class KnowledgeDatabase extends Dexie {
 
     this.version(4).stores({
       cardVersions: 'id, cardId, snapshotAt',
+    })
+
+    this.version(5).stores({
+      attachments: 'id, cardId, updatedAt, isDeleted',
     })
   }
 }

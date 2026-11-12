@@ -18,6 +18,13 @@ export interface MarkdownBlank {
   lineIndex: number
 }
 
+export interface MarkdownImage {
+  type: 'image'
+  lineIndex: number
+  attachmentId: string
+  alt: string
+}
+
 export interface MarkdownListItem {
   type: 'bullet' | 'ordered' | 'task'
   lineIndex: number
@@ -33,7 +40,8 @@ export interface MarkdownList {
   items: MarkdownListItem[]
 }
 
-export type MarkdownBlock = MarkdownParagraph | MarkdownBlank | MarkdownList
+export type MarkdownBlock =
+  MarkdownParagraph | MarkdownBlank | MarkdownImage | MarkdownList
 
 export interface ActionTaskSource {
   cardId: string
@@ -56,6 +64,7 @@ export interface ActionTask {
 const TASK_LINE = /^(\s*-\s+\[)([ xX])(\]\s*)(.*)$/
 const BULLET_LINE = /^(\s*)-\s+(.*)$/
 const ORDERED_LINE = /^(\s*)(\d+)[.)]\s+(.*)$/
+const ATTACHMENT_IMAGE_LINE = /^!\[([^\]]*)\]\(attachment:\/\/([^)]+)\)$/
 const INLINE_DELIMITERS = [
   { delimiter: '`', type: 'code' as const },
   { delimiter: '**', type: 'strong' as const },
@@ -169,6 +178,37 @@ export function inlineNodesToText(nodes: InlineNode[]): string {
     .join('')
 }
 
+export function attachmentMarkdown(id: string, alt = '图片') {
+  const safeAlt = alt.replace(/[\r\n\]]/g, ' ').trim() || '图片'
+  return `![${safeAlt}](attachment://${id})`
+}
+
+export function referencedAttachmentIds(content: string) {
+  const ids = new Set<string>()
+  for (const line of content.split(/\r?\n/)) {
+    const match = ATTACHMENT_IMAGE_LINE.exec(line.trim())
+    if (match?.[2]) ids.add(match[2])
+  }
+  return ids
+}
+
+export function removeAttachmentReference(
+  content: string,
+  attachmentId: string,
+) {
+  return content
+    .split(/\r?\n/)
+    .filter((line) => {
+      const match = ATTACHMENT_IMAGE_LINE.exec(line.trim())
+      return match?.[2] !== attachmentId
+    })
+    .join(content.includes('\r\n') ? '\r\n' : '\n')
+}
+
+export function stripAttachmentReferences(content: string) {
+  return content.replace(/^!\[[^\]]*\]\(attachment:\/\/[^)]+\)$/gmu, '').trim()
+}
+
 export function parseTaskLine(line: string) {
   const match = TASK_LINE.exec(line)
   if (!match) return null
@@ -190,6 +230,17 @@ export function parseAtomicMarkdown(source: string): MarkdownBlock[] {
 
     if (!line.trim()) {
       blocks.push({ type: 'blank', lineIndex })
+      continue
+    }
+
+    const image = ATTACHMENT_IMAGE_LINE.exec(line.trim())
+    if (image?.[2]) {
+      blocks.push({
+        type: 'image',
+        lineIndex,
+        attachmentId: image[2],
+        alt: image[1]?.trim() || '图片',
+      })
       continue
     }
 

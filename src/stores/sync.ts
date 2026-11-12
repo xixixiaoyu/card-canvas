@@ -42,6 +42,7 @@ import {
 import { isPristineLocalWorkspace } from '../lib/sync/workspace-claim'
 import type { Card } from '../types'
 import { useBoardStore } from './board'
+import { useToastStore } from './toast'
 import {
   DEFAULT_BOARD_ID,
   DEFAULT_BOARD_NAME,
@@ -60,11 +61,25 @@ function errorMessage(cause: unknown) {
   return cause instanceof Error ? cause.message : String(cause)
 }
 
+function isMissingRemoteTable(errorLike: unknown) {
+  if (!errorLike || typeof errorLike !== 'object') return false
+  const error = errorLike as { code?: unknown; message?: unknown }
+  return (
+    error.code === 'PGRST205' ||
+    (typeof error.message === 'string' &&
+      /relation .* does not exist|could not find the table/i.test(
+        error.message,
+      ))
+  )
+}
+
 export const useSyncStore = defineStore('sync', () => {
+  const toast = useToastStore()
   const phase = ref<SyncPhase>('idle')
   const pendingCount = ref(0)
   const lastSyncedAt = ref<number | null>(null)
   const error = ref<string | null>(null)
+  const attachmentCloudMissing = ref(false)
 
   let activeUserId: string | null = null
   let running: Promise<void> | null = null
@@ -79,6 +94,7 @@ export const useSyncStore = defineStore('sync', () => {
   let visibilityAttached = false
   let onlineAttached = false
   let pendingRemoteDemoCleanupUserId: string | null = null
+  let attachmentWarningShown = false
 
   const isActive = computed(() => Boolean(activeUserId))
   const isBusy = computed(() => phase.value === 'syncing')
@@ -105,6 +121,21 @@ export const useSyncStore = defineStore('sync', () => {
     pendingCount.value = await db.syncOutbox.count()
   }
 
+  function markAttachmentCloudMissing(showWarning = true) {
+    attachmentCloudMissing.value = true
+    if (!showWarning || attachmentWarningShown) return
+    attachmentWarningShown = true
+    toast.push(
+      '图片已保存在本机；Supabase 附件表尚未安装，跨设备图片同步暂未启用。',
+      { tone: 'info', timeout: 7000 },
+    )
+  }
+
+  function markAttachmentCloudReady() {
+    attachmentCloudMissing.value = false
+    attachmentWarningShown = false
+  }
+
   async function clearPristineLocalWorkspace() {
     await withSyncTrackingSuppressed(async () => {
       await db.transaction(
@@ -112,6 +143,7 @@ export const useSyncStore = defineStore('sync', () => {
         [
           db.boards,
           db.cards,
+          db.attachments,
           db.boardItems,
           db.connections,
           db.syncOutbox,
@@ -121,6 +153,7 @@ export const useSyncStore = defineStore('sync', () => {
           await Promise.all([
             db.boards.clear(),
             db.cards.clear(),
+            db.attachments.clear(),
             db.boardItems.clear(),
             db.connections.clear(),
             db.syncOutbox.clear(),
@@ -139,15 +172,17 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   async function hasPristineLocalWorkspace() {
-    const [boards, cards, boardItems, connections] = await Promise.all([
-      db.boards.toArray(),
-      db.cards.toArray(),
-      db.boardItems.toArray(),
-      db.connections.toArray(),
-    ])
+    const [boards, cards, attachments, boardItems, connections] =
+      await Promise.all([
+        db.boards.toArray(),
+        db.cards.toArray(),
+        db.attachments.toArray(),
+        db.boardItems.toArray(),
+        db.connections.toArray(),
+      ])
 
     return isPristineLocalWorkspace(
-      { boards, cards, boardItems, connections },
+      { boards, cards, attachments, boardItems, connections },
       { id: DEFAULT_BOARD_ID, name: DEFAULT_BOARD_NAME },
     )
   }
@@ -208,8 +243,18 @@ export const useSyncStore = defineStore('sync', () => {
         .from(remoteTableName(table))
         .upsert(rows, { onConflict: 'user_id,id' })
 
-      if (pushError) throw new Error(pushError.message)
+      if (pushError) {
+        if (table === 'attachments' && isMissingRemoteTable(pushError)) {
+          console.warn(
+            '[card-canvas] Attachment table is not installed; keeping image uploads pending',
+          )
+          markAttachmentCloudMissing()
+          continue
+        }
+        throw new Error(pushError.message)
+      }
       await removePushedEntries(batch)
+      if (table === 'attachments') markAttachmentCloudReady()
     }
   }
 
@@ -282,6 +327,8 @@ export const useSyncStore = defineStore('sync', () => {
                     updatedAt: remoteUpdatedAt(row),
                   })
                 }
+              } else if (table === 'attachments') {
+                await db.attachments.delete(recordId)
               } else if (table === 'boardItems') {
                 await db.boardItems.delete(recordId)
               } else {
@@ -296,6 +343,8 @@ export const useSyncStore = defineStore('sync', () => {
               await db.boards.put(local as never)
             } else if (table === 'cards') {
               await db.cards.put(local as never)
+            } else if (table === 'attachments') {
+              await db.attachments.put(local as never)
             } else if (table === 'boardItems') {
               await db.boardItems.put(local as never)
             } else {
@@ -332,6 +381,7 @@ export const useSyncStore = defineStore('sync', () => {
         const cursor = parsePullCursor(
           typeof storedCursor === 'string' ? storedCursor : null,
         )
+        const pageSize = table === 'attachments' ? 20 : PULL_PAGE_SIZE
         let offset = 0
         let nextCursor: PullCursor | null = null
 
@@ -346,14 +396,24 @@ export const useSyncStore = defineStore('sync', () => {
           const { data, error: pullError } = await query
             .order('server_updated_at', { ascending: true })
             .order('id', { ascending: true })
-            .range(offset, offset + PULL_PAGE_SIZE - 1)
-          if (pullError) throw new Error(pullError.message)
+            .range(offset, offset + pageSize - 1)
+          if (pullError) {
+            if (table === 'attachments' && isMissingRemoteTable(pullError)) {
+              console.warn(
+                '[card-canvas] Attachment table is not installed; skipping image download',
+              )
+              markAttachmentCloudMissing(false)
+              break
+            }
+            throw new Error(pullError.message)
+          }
+          if (table === 'attachments') markAttachmentCloudReady()
 
           const rows = (data ?? []) as RemoteRow[]
           if (!isCurrent()) return changed
           changed = (await applyRemoteRows(table, rows)) || changed
           nextCursor = latestRemoteServerCursor(rows) ?? nextCursor
-          if (rows.length < PULL_PAGE_SIZE) break
+          if (rows.length < pageSize) break
           offset += rows.length
         }
 
@@ -608,6 +668,8 @@ export const useSyncStore = defineStore('sync', () => {
     }
     activeUserId = null
     pendingRemoteDemoCleanupUserId = null
+    attachmentCloudMissing.value = false
+    attachmentWarningShown = false
     phase.value = 'idle'
     error.value = null
   }
@@ -617,6 +679,7 @@ export const useSyncStore = defineStore('sync', () => {
     pendingCount,
     lastSyncedAt,
     error,
+    attachmentCloudMissing,
     isActive,
     isBusy,
     label,

@@ -16,6 +16,20 @@ export interface Card {
   highlights?: CardHighlight[]
 }
 
+export interface CardAttachment {
+  id: string
+  cardId: string
+  fileName: string
+  mimeType: string
+  size: number
+  width: number
+  height: number
+  dataUrl: string
+  createdAt: number
+  updatedAt: number
+  isDeleted?: boolean
+}
+
 export interface BoardItem {
   id: string
   cardId: string

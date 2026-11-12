@@ -90,6 +90,48 @@ describe('Supabase record mapping', () => {
     })
   })
 
+  it('maps compact attachment metadata and data URLs', () => {
+    const remote = localRecordToRemote(
+      {
+        table: 'attachments',
+        recordId: 'attachment-a',
+        operation: 'upsert',
+        updatedAt: 3200,
+        payload: {
+          cardId: 'card-a',
+          fileName: '截图.webp',
+          mimeType: 'image/webp',
+          size: 2048,
+          width: 640,
+          height: 360,
+          dataUrl: 'data:image/webp;base64,AAAA',
+          createdAt: 3000,
+        },
+      },
+      'user-a',
+      'client-a',
+    )
+    const local = remoteRecordToLocal('attachments', {
+      ...remote,
+      updated_at: 3200,
+    })
+
+    expect(remote).toMatchObject({
+      id: 'attachment-a',
+      card_id: 'card-a',
+      file_name: '截图.webp',
+      data_url: 'data:image/webp;base64,AAAA',
+    })
+    expect(local).toMatchObject({
+      id: 'attachment-a',
+      cardId: 'card-a',
+      dataUrl: 'data:image/webp;base64,AAAA',
+      width: 640,
+      height: 360,
+      updatedAt: 3200,
+    })
+  })
+
   it('preserves tombstones when mapping remote cards', () => {
     const local = remoteRecordToLocal('cards', {
       id: 'card-a',

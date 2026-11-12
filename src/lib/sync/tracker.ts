@@ -41,9 +41,12 @@ async function queueRecord(
   updatedAt: number,
 ) {
   const key = `${table}:${recordId}`
-  const payload = {
+  const payload: Record<string, unknown> = {
     ...plainRecord(source),
     updatedAt,
+  }
+  if (table === 'attachments' && operation === 'delete') {
+    payload.dataUrl = ''
   }
 
   await db.transaction('rw', outboxTable(), async () => {

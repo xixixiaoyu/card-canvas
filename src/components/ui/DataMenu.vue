@@ -50,8 +50,11 @@ function handleKeydown(event: KeyboardEvent) {
 async function handleExport() {
   try {
     const counts = await downloadBackup()
+    const imageSummary = counts.attachments
+      ? `、${counts.attachments} 张图片`
+      : ''
     toast.push(
-      `已导出 ${counts.cards} 张卡片与 ${counts.connections} 条连线。`,
+      `已导出 ${counts.cards} 张卡片${imageSummary}与 ${counts.connections} 条连线。`,
       {
         tone: 'success',
         timeout: 3000,
@@ -85,10 +88,16 @@ async function handleImportFile(event: Event) {
     }
     board.clearHistory()
     broadcastWorkspaceChange('all')
-    toast.push(`已导入 ${counts.cards} 张卡片、${counts.boardItems} 个投影。`, {
-      tone: 'success',
-      timeout: 4000,
-    })
+    const imageSummary = counts.attachments
+      ? `、${counts.attachments} 张图片`
+      : ''
+    toast.push(
+      `已导入 ${counts.cards} 张卡片${imageSummary}、${counts.boardItems} 个投影。`,
+      {
+        tone: 'success',
+        timeout: 4000,
+      },
+    )
     close()
   } catch (cause) {
     console.error('[card-canvas] Unable to import backup', cause)
@@ -195,7 +204,7 @@ onBeforeUnmount(() => {
         <p
           class="border-t border-stone-200/70 px-3.5 py-2 font-mono text-[8px] uppercase tracking-[0.14em] text-stone-400 dark:border-white/[0.08] dark:text-zinc-600"
         >
-          Cards · Wires · Boards · v1.9.1
+          Cards · Wires · Boards · v1.10.0
         </p>
       </div>
     </Transition>

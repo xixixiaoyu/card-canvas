@@ -61,6 +61,33 @@ describe('sync outbox tracker', () => {
     })
   })
 
+  it('does not retain image binary data in an attachment tombstone', async () => {
+    await db.attachments.put({
+      id: 'attachment-delete',
+      cardId: 'card-a',
+      fileName: '图.webp',
+      mimeType: 'image/webp',
+      size: 16,
+      width: 8,
+      height: 8,
+      dataUrl: 'data:image/webp;base64,AAAA',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await vi.waitFor(async () => {
+      expect(
+        await db.syncOutbox.get('attachments:attachment-delete'),
+      ).toBeDefined()
+    })
+
+    await db.attachments.delete('attachment-delete')
+    await vi.waitFor(async () => {
+      const entry = await db.syncOutbox.get('attachments:attachment-delete')
+      expect(entry?.operation).toBe('delete')
+      expect(entry?.payload.dataUrl).toBe('')
+    })
+  })
+
   it('does not enqueue writes applied from the cloud', async () => {
     await withSyncTrackingSuppressed(async () => {
       await db.cards.put({

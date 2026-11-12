@@ -23,13 +23,14 @@ import { tagMatches } from '../../lib/galaxy'
 import { useCardDrag, type CardDragCommit } from '../../composables/useCardDrag'
 import { canvasCameraKey, type CanvasCamera } from '../../composables/useCanvas'
 import { connectionKey } from '../../composables/useConnection'
-import type { BoardItem, Card } from '../../types'
+import type { BoardItem, Card, CardAttachment } from '../../types'
 import AtomicMarkdown from './AtomicMarkdown.vue'
 
 const props = withDefaults(
   defineProps<{
     item: BoardItem
     card: Card
+    attachments?: CardAttachment[]
     selected?: boolean
     landing?: boolean
     isHighlighted?: boolean
@@ -41,6 +42,7 @@ const props = withDefaults(
   }>(),
   {
     selected: false,
+    attachments: () => [],
     landing: false,
     isHighlighted: false,
     isDimmed: false,
@@ -335,6 +337,7 @@ function tagTone(index: number) {
           <AtomicMarkdown
             class="card-content card-selectable mt-3.5 text-[0.9375rem] leading-[1.9] text-stone-600 dark:text-zinc-400"
             :content="card.content"
+            :attachments="attachments"
             @toggle-task="emit('toggleTask', $event)"
           />
 

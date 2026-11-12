@@ -2,7 +2,7 @@
 
 > 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
 >
-> **v1.9.1 · Local-First · 可选 AI 与 Supabase**
+> **v1.10.0 · Local-First · 可选 AI 与 Supabase**
 
 Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
 
@@ -29,6 +29,7 @@ Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记�
 | 能力        | 体验                                                         |
 | ----------- | ------------------------------------------------------------ |
 | 即时捕获    | `⌘K` 速记，卡片直接落在当前白板                              |
+| 图片附件    | 正文可直接粘贴截图，自动压缩为 WebP 并随卡片备份、离线与同步 |
 | 2D 漫游     | 空格/中键平移，滚轮或捏合缩放，10%–300%                      |
 | 认知连线    | 从卡片边缘拖出曲线，自动贴边并支持语义标签                   |
 | 卡片纵览    | `⌘F` 打开 Card Atlas，浏览全库并跨白板飞行到目标卡片         |
@@ -87,7 +88,7 @@ pnpm preview
 ### 1. 创建 Supabase 项目
 
 1. 在 Supabase 创建项目，区域优先选择 Singapore 或 Tokyo。
-2. 在 SQL Editor 中执行 [supabase/schema.sql](supabase/schema.sql)。
+2. 在 SQL Editor 中执行 [supabase/schema.sql](supabase/schema.sql)。该脚本可重复运行；从旧版本升级时会补建图片附件表与 RLS。
 3. 在 Authentication 的 URL Configuration 中把 Site URL 设为生产域名，并把本地 `http://localhost:5199` 与生产域名加入 Redirect URLs。
 4. 从 Project Settings 的 API 页面取得 Project URL 与 publishable key（旧项目也可能显示 anon public key）。
 5. 如需 GitHub 登录，在 GitHub 创建 OAuth App，Callback URL 使用 `https://<project-ref>.supabase.co/auth/v1/callback`，再把 Client ID / Secret 填入 Supabase Authentication → Sign In / Providers → GitHub。
@@ -187,6 +188,7 @@ API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git
 - **持久化时机**：拖拽期间只写 DOM transform；`pointerup` 时多卡通过一个 `bulkPut` 事务提交 Pinia，并只记录一条历史
 - **原子 Markdown**：支持加粗、斜体、行内代码、高亮、无序列表与任务框；标题、HTML 和表格不会被解析成富文本
 - **`/` 格式命令**：在速记正文的空白行输入 `/`，可快速插入无序列表、有序列表或任务清单；普通 `Enter` 会自动延续列表并递增序号，空列表项再次按 `Enter` 退出列表，`Shift + Enter` 始终只换行
+- **图片粘贴**：在速记正文按 `⌘V` / `Ctrl+V` 粘贴截图或图片文件。应用会等比缩放到最长边 1600px、压缩为 WebP，单图上限约 600KB，每卡最多 8 张；正文只保存 `attachment://id` 引用
 - **行动透镜**：顶栏汇总当前白板未完成任务，可直达对应卡片，也可在抽屉内直接勾选
 
 ## 即时速记（Capture to Board）
@@ -293,7 +295,7 @@ API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git
 - **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
 - **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
 - **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
-- **版本锚点**：浮层页脚展示 `v1.9.1`，与顶栏、页脚和数据菜单保持一致
+- **版本锚点**：浮层页脚展示 `v1.10.0`，与顶栏、页脚和数据菜单保持一致
 - **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
@@ -328,12 +330,12 @@ HUD 的网格按钮提供三种方式：全部卡片按阅读顺序整理、只�
 
 - 速记上板、移动、编辑、删除、建线/删线/Label 均可撤销/重做（内存历史，最多 50 步）
 - 删除为可恢复软删除；回收站保留 30 天，永久删除会同步清理投影、连线与历史版本
-- 顶栏数据菜单可导出/导入完整 JSON 备份（cards / boardItems / connections / boards / cardVersions）；导入按 id 合并
+- 顶栏数据菜单可导出/导入完整 JSON 备份（cards / attachments / boardItems / connections / boards / cardVersions）；导入按 id 合并
 - 启动时申请 `navigator.storage.persist()`；写入失败会回滚并给出可重试 toast
 
 ## 版本与 PWA 元信息
 
-- 版本：`v1.9.1`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- 版本：`v1.10.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
 - `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
 - `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 192/512/maskable PNG 图标
 - `vite-plugin-pwa`：生产构建生成 Service Worker，预缓存应用壳与静态资源；`/api/*` 不进入离线回退
@@ -500,3 +502,5 @@ v1.8.1 修复云端增量同步的跨白板误挂问题：只有在卡片与 `bo
 v1.9.0 为多选卡片增加批量删除入口：选中两张或更多卡片后，选区上方显示“批量删除”，可选择仅从当前白板移除或删除整张卡片。两种操作都作为单个历史步骤原子执行，可一次撤销；跨板复用的卡片在其他白板中的投影不会被误删。旧备份导入也显式落到当前白板，与云端同步的自动恢复路径保持隔离。
 
 v1.9.1 收紧 AI 自动补全边界：自动标题与自动标签只处理新卡片，编辑已有卡片时即使清空标签再保存也不会暗中补回；标题可通过编辑页的「重新命名」按钮显式生成，标签继续通过「建议」按钮主动请求。速记正文同时加入 Markdown 列表续写，无序、有序和任务清单均可在 Enter 后自动延续，空列表项退出列表，Shift + Enter 保持普通换行。
+
+v1.10.0 加入卡片图片附件：速记正文可直接粘贴截图，图片自动压缩为 WebP 并保存独立的 `attachment://id` 引用；卡片画布、离线刷新、撤销恢复、JSON 备份与 Supabase 增量同步均支持附件。附件只存在专用表中，不把 Base64 塞进正文，单图约 600KB、每卡最多 8 张，并同步补齐附件表、RLS、索引与 Realtime 配置。

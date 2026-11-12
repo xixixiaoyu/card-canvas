@@ -154,6 +154,10 @@ export function normalizeShareContent(content: string) {
     .split(/\r?\n/)
     .map((line) =>
       line
+        .replace(
+          /^!\[([^\]]*)\]\(attachment:\/\/[^)]+\)$/u,
+          (_, alt: string) => (alt.trim() ? `[图片：${alt.trim()}]` : '[图片]'),
+        )
         .replace(/^\s*#{1,6}\s+/u, '')
         .replace(/^\s*[-*+]\s+\[([ xX])\]\s+/u, (_, checked: string) =>
           checked.trim() ? '☑ ' : '☐ ',

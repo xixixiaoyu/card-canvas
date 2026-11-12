@@ -26,11 +26,12 @@ describe('workspace backup', () => {
     const backup = await createBackup()
 
     expect(backup.app).toBe('card-canvas')
-    expect(backup.version).toBe(2)
+    expect(backup.version).toBe(3)
     expect(backup.cards).toHaveLength(3)
     expect(backup.boardItems).toHaveLength(3)
     expect(backup.connections).toHaveLength(0)
     expect(backup.cardVersions).toHaveLength(0)
+    expect(backup.attachments).toHaveLength(0)
 
     await db.cards.clear()
     await db.boardItems.clear()
@@ -44,6 +45,7 @@ describe('workspace backup', () => {
       connections: 0,
       boards: 0,
       cardVersions: 0,
+      attachments: 0,
     })
     expect(await db.cards.count()).toBe(3)
     expect(await db.boardItems.count()).toBe(3)
@@ -76,6 +78,34 @@ describe('workspace backup', () => {
     await db.cardVersions.clear()
     await importBackupText(JSON.stringify(backup))
     expect(await db.cardVersions.count()).toBe(1)
+  })
+
+  it('includes image attachments and restores their binary data', async () => {
+    const board = await seed()
+    await db.attachments.put({
+      id: 'attachment-backup',
+      cardId: board.cards[0]!.id,
+      fileName: '图.webp',
+      mimeType: 'image/webp',
+      size: 32,
+      width: 20,
+      height: 10,
+      dataUrl: 'data:image/webp;base64,AAAA',
+      createdAt: 1,
+      updatedAt: 2,
+    })
+
+    const backup = await createBackup()
+    expect(backup.version).toBe(3)
+    expect(backup.attachments).toHaveLength(1)
+    await db.attachments.clear()
+    const counts = await importBackupText(JSON.stringify(backup))
+
+    expect(counts.attachments).toBe(1)
+    expect(await db.attachments.get('attachment-backup')).toMatchObject({
+      cardId: board.cards[0]!.id,
+      dataUrl: 'data:image/webp;base64,AAAA',
+    })
   })
 
   it('normalizes tags while importing and preserves projections', async () => {

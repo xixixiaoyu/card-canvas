@@ -121,7 +121,8 @@ test('Enter continues Markdown lists and Shift+Enter stays a plain newline', asy
   page,
 }) => {
   await page.goto('/')
-  await page.keyboard.press('Control+k')
+  await expect(page.locator('.canvas-stage')).toHaveClass(/is-ready/)
+  await page.getByRole('button', { name: '打开速记' }).click()
   const content = page.getByLabel('卡片正文')
   await expect(content).toBeFocused()
 
@@ -144,6 +145,75 @@ test('Enter continues Markdown lists and Shift+Enter stays a plain newline', asy
   await content.fill('- 不续写')
   await content.press('Shift+Enter')
   await expect(content).toHaveValue('- 不续写\n')
+})
+
+test('pasted images are compressed, saved with the card and survive reload', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('.canvas-stage')).toHaveClass(/is-ready/)
+  await page.getByRole('button', { name: '打开速记' }).click()
+  const dialog = page.getByRole('dialog')
+  const content = dialog.getByLabel('卡片正文')
+  await expect(content).toBeFocused()
+
+  await content.evaluate(async (element) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 320
+    canvas.height = 180
+    const context = canvas.getContext('2d')!
+    context.fillStyle = '#d97706'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (value) => (value ? resolve(value) : reject(new Error('canvas'))),
+        'image/png',
+      )
+    })
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([blob], 'paste.png', { type: 'image/png' }))
+    element.dispatchEvent(
+      new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer,
+      }),
+    )
+  })
+
+  await expect(dialog.locator('[data-capture-attachment]')).toHaveCount(1)
+  await expect(content).toHaveValue(
+    /!\[paste\.webp\]\(attachment:\/\/attachment-/,
+  )
+  await dialog.getByLabel('卡片标题').fill('图片卡片')
+  await page.keyboard.press('Control+Enter')
+  await expect(dialog).toBeHidden()
+
+  const card = page.locator('[data-world-item]').filter({ hasText: '图片卡片' })
+  const image = card.locator('.atomic-image img')
+  await expect(image).toBeVisible()
+  await expect(image).toHaveAttribute('src', /^data:image\/webp;base64,/)
+
+  await page.reload()
+  await expect(
+    page
+      .locator('[data-world-item]')
+      .filter({ hasText: '图片卡片' })
+      .locator('.atomic-image img'),
+  ).toBeVisible()
+
+  const reloadedCard = page
+    .locator('[data-world-item]')
+    .filter({ hasText: '图片卡片' })
+  await reloadedCard.locator('h2').click()
+  await reloadedCard.getByRole('button', { name: '编辑卡片' }).click()
+  const editDialog = page.getByRole('dialog')
+  await editDialog.getByRole('button', { name: /移除图片 paste\.webp/ }).click()
+  await page.keyboard.press('Control+Enter')
+  await expect(reloadedCard.locator('.atomic-image img')).toHaveCount(0)
+
+  await page.locator('header button[aria-label="撤销"]').click()
+  await expect(reloadedCard.locator('.atomic-image img')).toBeVisible()
 })
 
 test('clicking the capture backdrop never discards a non-empty draft', async ({

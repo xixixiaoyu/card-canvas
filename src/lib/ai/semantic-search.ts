@@ -1,4 +1,5 @@
 import type { GlobalSearchEntry, GlobalSearchResult } from '../global-search'
+import { stripAttachmentReferences } from '../atomic-markdown'
 
 export interface SemanticCandidate {
   entry: GlobalSearchEntry
@@ -45,7 +46,9 @@ function excerptFor(content: string, terms: string[]) {
 
 function scoreDocument(entry: GlobalSearchEntry, terms: string[]) {
   const title = entry.card.title.toLocaleLowerCase()
-  const content = entry.card.content.toLocaleLowerCase()
+  const content = stripAttachmentReferences(
+    entry.card.content,
+  ).toLocaleLowerCase()
   const tags = entry.card.tags.map((tag) => tag.toLocaleLowerCase())
   let score = 0
   const matchedTags = new Set<string>()
@@ -104,7 +107,10 @@ export function selectSemanticCandidates(
       const match = scoreDocument(entry, normalizedTerms)
       return {
         entry,
-        excerpt: excerptFor(entry.card.content, normalizedTerms),
+        excerpt: excerptFor(
+          stripAttachmentReferences(entry.card.content),
+          normalizedTerms,
+        ),
         matchedTags: match.matchedTags,
         localScore: match.score,
       }

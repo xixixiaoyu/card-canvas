@@ -297,11 +297,13 @@ export const useBoardStore = defineStore('board', () => {
     await db.transaction(
       'rw',
       db.cards,
+      db.attachments,
       db.boardItems,
       db.connections,
       db.cardVersions,
       async () => {
         await db.cards.delete(cardId)
+        await db.attachments.where('cardId').equals(cardId).delete()
         await db.boardItems.where('cardId').equals(cardId).delete()
         const [outgoing, incoming] = await Promise.all([
           db.connections.where('fromCardId').equals(cardId).toArray(),
