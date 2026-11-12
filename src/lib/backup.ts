@@ -2,6 +2,8 @@ import { db } from '../db'
 import type { Board, BoardItem, Card, CardVersion, Connection } from '../types'
 import { normalizeTags } from './tags'
 
+const DEFAULT_CARD_WIDTH = 420
+
 export interface BackupPayload {
   app: 'card-canvas'
   version: 2
@@ -172,7 +174,10 @@ export function backupFileName(date = new Date()) {
 }
 
 /** Validate and merge a backup file. Existing ids are overwritten. */
-export async function importBackupText(text: string): Promise<BackupCounts> {
+export async function importBackupText(
+  text: string,
+  fallbackBoardId?: string,
+): Promise<BackupCounts> {
   let raw: unknown
 
   try {
@@ -200,6 +205,7 @@ export async function importBackupText(text: string): Promise<BackupCounts> {
   const connections = (raw.connections ?? []).map(parseConnection)
   const boards = (raw.boards ?? []).map(parseBoard)
   const cardVersions = (raw.cardVersions ?? []).map(parseCardVersion)
+  let importedBoardItems = boardItems
 
   await db.transaction(
     'rw',
@@ -210,7 +216,46 @@ export async function importBackupText(text: string): Promise<BackupCounts> {
     db.cardVersions,
     async () => {
       if (cards.length) await db.cards.bulkPut(cards)
-      if (boardItems.length) await db.boardItems.bulkPut(boardItems)
+      const allItems = await db.boardItems.toArray()
+      const projectedCardIds = new Set(
+        [...allItems, ...boardItems].map((item) => item.cardId),
+      )
+      const fallbackItems: BoardItem[] = []
+
+      if (fallbackBoardId) {
+        const targetItems = [...allItems, ...boardItems].filter(
+          (item) => item.boardId === fallbackBoardId,
+        )
+        const baseX = targetItems.length
+          ? Math.max(
+              ...targetItems.map(
+                (item) => item.x + (item.width ?? DEFAULT_CARD_WIDTH),
+              ),
+            ) + 120
+          : 0
+        const baseY = targetItems.length
+          ? Math.min(...targetItems.map((item) => item.y))
+          : -150
+
+        for (const card of cards) {
+          if (card.isDeleted || projectedCardIds.has(card.id)) continue
+          projectedCardIds.add(card.id)
+          fallbackItems.push({
+            id: `projection-${crypto.randomUUID()}`,
+            cardId: card.id,
+            boardId: fallbackBoardId,
+            x: baseX + (fallbackItems.length % 2) * 460,
+            y: baseY + Math.floor(fallbackItems.length / 2) * 340,
+            width: DEFAULT_CARD_WIDTH,
+            updatedAt: Date.now(),
+          })
+        }
+      }
+
+      importedBoardItems = [...boardItems, ...fallbackItems]
+      if (importedBoardItems.length) {
+        await db.boardItems.bulkPut(importedBoardItems)
+      }
       if (connections.length) await db.connections.bulkPut(connections)
       if (boards.length) await db.boards.bulkPut(boards)
       if (cardVersions.length) {
@@ -221,15 +266,15 @@ export async function importBackupText(text: string): Promise<BackupCounts> {
 
   return {
     cards: cards.length,
-    boardItems: boardItems.length,
+    boardItems: importedBoardItems.length,
     connections: connections.length,
     boards: boards.length,
     cardVersions: cardVersions.length,
   }
 }
 
-export async function importBackupFile(file: File) {
-  return importBackupText(await file.text())
+export async function importBackupFile(file: File, fallbackBoardId?: string) {
+  return importBackupText(await file.text(), fallbackBoardId)
 }
 
 /** Trigger a browser download for a backup snapshot. */

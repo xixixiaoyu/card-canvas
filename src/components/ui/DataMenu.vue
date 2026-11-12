@@ -77,7 +77,7 @@ async function handleImportFile(event: Event) {
   importing.value = true
 
   try {
-    const counts = await importBackupFile(file)
+    const counts = await importBackupFile(file, workspace.activeBoardId)
     const previousBoardId = workspace.activeBoardId
     await workspace.loadBoards()
     if (workspace.activeBoardId === previousBoardId) {

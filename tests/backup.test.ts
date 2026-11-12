@@ -115,6 +115,36 @@ describe('workspace backup', () => {
     expect(item).toMatchObject({ x: 12, y: 34, cardId: 'card-imported' })
   })
 
+  it('places legacy cards without projections on the requested board', async () => {
+    const payload = {
+      app: 'card-canvas',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      cards: [
+        {
+          id: 'card-legacy-import',
+          title: '旧备份卡片',
+          content: '没有投影',
+          tags: [],
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+      boardItems: [],
+      connections: [],
+    }
+
+    const counts = await importBackupText(JSON.stringify(payload), 'board-main')
+    const [item] = await db.boardItems.toArray()
+
+    expect(counts.boardItems).toBe(1)
+    expect(item).toMatchObject({
+      cardId: 'card-legacy-import',
+      boardId: 'board-main',
+      width: 420,
+    })
+  })
+
   it('rejects malformed backups without writing anything', async () => {
     await expect(importBackupText('{oops')).rejects.toThrow('JSON')
     await expect(
