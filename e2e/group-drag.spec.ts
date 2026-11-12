@@ -9,7 +9,10 @@ async function dragBox(
 ) {
   const surface = await locator.boundingBox()
   const title = await locator.locator('h2').boundingBox()
-  const sx = mode === 'title' ? title!.x + 30 : surface!.x + 16
+  const sx =
+    mode === 'title'
+      ? title!.x + 30
+      : surface!.x + Math.min(16, surface!.width * 0.02)
   const sy =
     mode === 'title'
       ? title!.y + title!.height * 0.8
@@ -77,7 +80,7 @@ async function largestVisibleSelectedIndex(page: Page, useEdge = false) {
         const rect = element.getBoundingClientRect()
         const title = element.querySelector('h2')?.getBoundingClientRect()
         const clickX = withEdge
-          ? rect.x + 16
+          ? rect.x + Math.min(16, rect.width * 0.02)
           : title
             ? title.x + Math.min(30, title.width - 1)
             : -1
@@ -327,9 +330,9 @@ test('rigid offsets survive at 40% and 200% zoom', async ({ page }) => {
   await zoomTo(page, 40, 'out')
   await page.waitForTimeout(600)
   await page.waitForTimeout(800)
-  const source40 = await largestVisibleSelectedIndex(page)
+  const source40 = await largestVisibleSelectedIndex(page, true)
   const line40 = await page.locator('[data-line]').getAttribute('d')
-  await dragBox(page, cards.nth(source40), 30, 18)
+  await dragBox(page, cards.nth(source40), 30, 18, 'edge')
   expect(await page.locator('[data-line]').getAttribute('d')).not.toBe(line40)
   await expect
     .poll(() => rigidTransformError(page), { timeout: 3_000 })
