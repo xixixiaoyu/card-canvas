@@ -1,15 +1,16 @@
 import { db } from '../db'
-import type { Board, BoardItem, Card, Connection } from '../types'
+import type { Board, BoardItem, Card, CardVersion, Connection } from '../types'
 import { normalizeTags } from './tags'
 
 export interface BackupPayload {
   app: 'card-canvas'
-  version: 1
+  version: 2
   exportedAt: string
   cards: Card[]
   boardItems: BoardItem[]
   connections: Connection[]
   boards: Board[]
+  cardVersions: CardVersion[]
 }
 
 export interface BackupCounts {
@@ -17,6 +18,7 @@ export interface BackupCounts {
   boardItems: number
   connections: number
   boards: number
+  cardVersions: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,23 +111,53 @@ function parseConnection(value: unknown): Connection {
   }
 }
 
+function parseCardVersion(value: unknown): CardVersion {
+  if (!isRecord(value)) throw new Error('备份中的历史版本格式无效')
+  if (!isString(value.id) || !isString(value.cardId)) {
+    throw new Error('备份中的历史版本缺少 id')
+  }
+  if (typeof value.title !== 'string' || typeof value.content !== 'string') {
+    throw new Error('备份中的历史版本内容无效')
+  }
+  if (!isFiniteNumber(value.snapshotAt)) {
+    throw new Error('备份中的历史版本时间无效')
+  }
+
+  return {
+    id: value.id,
+    cardId: value.cardId,
+    title: value.title,
+    content: value.content,
+    tags: Array.isArray(value.tags)
+      ? normalizeTags(value.tags.filter(isString))
+      : [],
+    highlights: Array.isArray(value.highlights)
+      ? (value.highlights as CardVersion['highlights'])
+      : undefined,
+    snapshotAt: value.snapshotAt,
+  }
+}
+
 /** Build a portable snapshot of every durable table. */
 export async function createBackup(): Promise<BackupPayload> {
-  const [cards, boardItems, connections, boards] = await Promise.all([
-    db.cards.toArray(),
-    db.boardItems.toArray(),
-    db.connections.toArray(),
-    db.boards.toArray(),
-  ])
+  const [cards, boardItems, connections, boards, cardVersions] =
+    await Promise.all([
+      db.cards.toArray(),
+      db.boardItems.toArray(),
+      db.connections.toArray(),
+      db.boards.toArray(),
+      db.cardVersions.toArray(),
+    ])
 
   return {
     app: 'card-canvas',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     cards,
     boardItems,
     connections,
     boards,
+    cardVersions,
   }
 }
 
@@ -159,11 +191,15 @@ export async function importBackupText(text: string): Promise<BackupCounts> {
   if (raw.boards !== undefined && !Array.isArray(raw.boards)) {
     throw new Error('备份中的 boards 格式无效')
   }
+  if (raw.cardVersions !== undefined && !Array.isArray(raw.cardVersions)) {
+    throw new Error('备份中的 cardVersions 格式无效')
+  }
 
   const cards = raw.cards.map(parseCard)
   const boardItems = raw.boardItems.map(parseBoardItem)
   const connections = (raw.connections ?? []).map(parseConnection)
   const boards = (raw.boards ?? []).map(parseBoard)
+  const cardVersions = (raw.cardVersions ?? []).map(parseCardVersion)
 
   await db.transaction(
     'rw',
@@ -171,11 +207,15 @@ export async function importBackupText(text: string): Promise<BackupCounts> {
     db.boardItems,
     db.connections,
     db.boards,
+    db.cardVersions,
     async () => {
       if (cards.length) await db.cards.bulkPut(cards)
       if (boardItems.length) await db.boardItems.bulkPut(boardItems)
       if (connections.length) await db.connections.bulkPut(connections)
       if (boards.length) await db.boards.bulkPut(boards)
+      if (cardVersions.length) {
+        await db.cardVersions.bulkPut(cardVersions)
+      }
     },
   )
 
@@ -184,6 +224,7 @@ export async function importBackupText(text: string): Promise<BackupCounts> {
     boardItems: boardItems.length,
     connections: connections.length,
     boards: boards.length,
+    cardVersions: cardVersions.length,
   }
 }
 
@@ -214,5 +255,6 @@ export async function downloadBackup() {
     boardItems: payload.boardItems.length,
     connections: payload.connections.length,
     boards: payload.boards.length,
+    cardVersions: payload.cardVersions.length,
   }
 }

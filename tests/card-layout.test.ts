@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  arrangeConnectedClusters,
   arrangeCards,
   type LayoutCard,
   type LayoutPosition,
@@ -65,5 +66,27 @@ describe('one-click card layout', () => {
     const positions = arrangeCards(many, { maxColumns: 2, columnGap: 40 })
 
     expect(new Set(positions.map((position) => position.x)).size).toBe(2)
+  })
+
+  it('keeps connected clusters together as separate layout groups', () => {
+    const clusterCards = [
+      card('a', 0, 0),
+      card('b', 500, 0),
+      card('c', 0, 600),
+      card('d', 500, 600),
+    ]
+    const positions = arrangeConnectedClusters(clusterCards, [
+      { fromCardId: 'a', toCardId: 'b' },
+      { fromCardId: 'c', toCardId: 'd' },
+    ])
+    const byId = new Map(
+      positions.map((position) => [position.itemId, position]),
+    )
+
+    expect(byId.get('a')?.y).toBe(byId.get('b')?.y)
+    expect(byId.get('c')?.y).toBe(byId.get('d')?.y)
+    expect((byId.get('c')?.x ?? 0) - (byId.get('a')?.x ?? 0)).toBeGreaterThan(
+      420,
+    )
   })
 })

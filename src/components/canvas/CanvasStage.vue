@@ -21,7 +21,7 @@ const emit = defineEmits<{
   'background-pointerdown': [payload: { shiftKey: boolean }]
   ready: [boardId: string]
   search: []
-  arrange: []
+  arrange: [mode: 'reading' | 'selected' | 'clusters']
   shortcuts: []
 }>()
 
@@ -293,11 +293,13 @@ defineExpose({
       <CanvasHUD
         :zoom-percent="zoomPercent"
         :at-limit="atLimit"
+        :selected-count="board.selectedItemIds.size"
+        :has-connections="board.connections.length > 0"
         @zoom-in="zoomIn"
         @zoom-out="zoomOut"
         @reset-zoom="resetZoom"
         @fit="fitAll(true)"
-        @arrange="emit('arrange')"
+        @arrange="emit('arrange', $event)"
         @search="emit('search')"
         @shortcuts="emit('shortcuts')"
       />

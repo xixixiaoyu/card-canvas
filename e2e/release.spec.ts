@@ -12,7 +12,7 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
   await expect(dialog).toContainText('Navigate')
   await expect(dialog).toContainText('Focus')
   await expect(dialog).toContainText('Compose')
-  await expect(dialog).toContainText('v1.7.0')
+  await expect(dialog).toContainText('v1.8.0')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -73,14 +73,14 @@ test('an empty board invites the first capture and fades away', async ({
   await expect(page.locator('[data-world-item]')).toContainText('第一块灵感')
 })
 
-test('v1.7.0 metadata is present in the shell and document head', async ({
+test('v1.8.0 metadata is present in the shell and document head', async ({
   page,
 }) => {
   await page.goto('/')
-  await expect(page.locator('.brand-subtitle')).toContainText('v1.7.0')
+  await expect(page.locator('.brand-subtitle')).toContainText('v1.8.0')
   await expect(
     page.locator('footer').filter({ hasText: 'Local-first' }),
-  ).toContainText('v1.7.0')
+  ).toContainText('v1.8.0')
 
   await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
     'content',
@@ -89,6 +89,17 @@ test('v1.7.0 metadata is present in the shell and document head', async ({
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
     'href',
     '/manifest.webmanifest',
+  )
+  const manifestResponse = await page.request.get('/manifest.webmanifest')
+  const manifest = (await manifestResponse.json()) as {
+    icons?: Array<{ sizes?: string; purpose?: string }>
+  }
+  expect(manifest.icons).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ sizes: '192x192' }),
+      expect.objectContaining({ sizes: '512x512' }),
+      expect.objectContaining({ purpose: 'maskable' }),
+    ]),
   )
 })
 

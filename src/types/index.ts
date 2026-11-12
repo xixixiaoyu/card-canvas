@@ -55,3 +55,14 @@ export interface CardHighlight {
   label: string
   text: string
 }
+
+/** Local-only recovery snapshot captured before a card content mutation. */
+export interface CardVersion {
+  id: string
+  cardId: string
+  title: string
+  content: string
+  tags: string[]
+  highlights?: CardHighlight[]
+  snapshotAt: number
+}

@@ -158,6 +158,7 @@ test('creates, labels, persists, deletes and cascades a connection', async ({
   const card = page.locator('[data-world-item]').nth(0)
   await card.hover()
   await card.getByRole('button', { name: '删除卡片' }).click()
+  await page.locator('[data-delete-card-dialog] [data-delete-card-all]').click()
   await expect(page.locator('[data-world-item]')).toHaveCount(2)
   await expect(page.locator('[data-line]')).toHaveCount(0)
   await expect(undoButton).toHaveAttribute('title', /删除卡片/)

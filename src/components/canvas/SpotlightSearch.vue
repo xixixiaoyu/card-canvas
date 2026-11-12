@@ -1,7 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { CornerDownLeft, Search, X } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { CornerDownLeft, LoaderCircle, Search, Sparkles, X } from '@lucide/vue'
 import { db } from '../../db'
+import { chatCompletion } from '../../lib/ai/deepseek'
+import {
+  buildSemanticQueryPrompt,
+  buildSemanticRerankPrompt,
+  parseSemanticQueryTerms,
+  parseSemanticSuggestions,
+  selectSemanticCandidates,
+  SEMANTIC_QUERY_SYSTEM_PROMPT,
+  SEMANTIC_RERANK_SYSTEM_PROMPT,
+  type SemanticSearchResult,
+} from '../../lib/ai/semantic-search'
 import { parseTaskLine } from '../../lib/atomic-markdown'
 import {
   searchGlobalEntries,
@@ -10,6 +21,7 @@ import {
   type SpotlightTarget,
 } from '../../lib/global-search'
 import { plainRecord } from '../../lib/plain-record'
+import { useAIStore } from '../../stores/ai'
 import { useBoardStore } from '../../stores/board'
 import { useWorkspaceStore } from '../../stores/workspace'
 
@@ -20,10 +32,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:open': [value: boolean]
   select: [target: SpotlightTarget]
+  'open-ai-settings': []
 }>()
 
 const board = useBoardStore()
 const workspace = useWorkspaceStore()
+const ai = useAIStore()
 const query = ref('')
 const scope = ref<'board' | 'workspace'>('workspace')
 const sortMode = ref<'recent' | 'title'>('recent')
@@ -33,10 +47,17 @@ const resultEls = ref<Array<HTMLElement | null>>([])
 const entries = ref<GlobalSearchEntry[]>([])
 const indexLoading = ref(false)
 const indexError = ref('')
+const semanticResults = ref<SemanticSearchResult[]>([])
+const semanticState = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>(
+  'idle',
+)
+const semanticError = ref('')
 
 let previousFocus: HTMLElement | null = null
 let skipFocusRestore = false
 let indexToken = 0
+let semanticController: AbortController | null = null
+const semanticCache = new Map<string, SemanticSearchResult[]>()
 
 const scopedEntries = computed(() =>
   scope.value === 'board'
@@ -44,7 +65,7 @@ const scopedEntries = computed(() =>
     : entries.value,
 )
 
-const results = computed<GlobalSearchResult[]>(() => {
+const localResults = computed<GlobalSearchResult[]>(() => {
   const matches = searchGlobalEntries(
     scopedEntries.value,
     query.value,
@@ -61,17 +82,32 @@ const results = computed<GlobalSearchResult[]>(() => {
   )
 })
 
+const results = computed<GlobalSearchResult[]>(() => {
+  if (semanticState.value === 'ready' || semanticState.value === 'empty') {
+    return semanticResults.value
+  }
+  return localResults.value
+})
+
 const selectedResult = computed(() => results.value[selectedIndex.value])
 const hasQuery = computed(() => query.value.trim().length > 0)
 const scopedCardCount = computed(
   () => new Set(scopedEntries.value.map((entry) => entry.card.id)).size,
 )
 const resultLabel = computed(() =>
-  hasQuery.value
-    ? `${results.value.length} 个结果`
-    : scope.value === 'board'
-      ? '当前白板全部卡片'
-      : '全工作区卡片',
+  semanticState.value === 'loading'
+    ? 'AI 正在理解查询'
+    : semanticState.value === 'ready'
+      ? `AI 语义结果 · ${results.value.length}`
+      : semanticState.value === 'empty'
+        ? 'AI 语义结果 · 0'
+        : semanticState.value === 'error'
+          ? 'AI 失败 · 本地结果'
+          : hasQuery.value
+            ? `${results.value.length} 个本地结果`
+            : scope.value === 'board'
+              ? '当前白板全部卡片'
+              : '全工作区卡片',
 )
 const pendingByCard = computed(() => {
   const counts = new Map<string, number>()
@@ -92,6 +128,12 @@ const pendingByCard = computed(() => {
 
 function pendingCount(cardId: string) {
   return pendingByCard.value.get(cardId) ?? 0
+}
+
+function semanticReason(result: GlobalSearchResult) {
+  return 'reason' in result && typeof result.reason === 'string'
+    ? result.reason
+    : ''
 }
 
 async function loadGlobalIndex() {
@@ -161,6 +203,136 @@ async function loadGlobalIndex() {
   }
 }
 
+function resetSemanticSearch() {
+  semanticController?.abort()
+  semanticController = null
+  semanticResults.value = []
+  semanticState.value = 'idle'
+  semanticError.value = ''
+}
+
+function semanticCacheKey(value: string) {
+  const signature = [...scopedEntries.value]
+    .map((entry) => `${entry.card.id}:${entry.card.updatedAt}`)
+    .sort()
+    .join(',')
+  return `${scope.value}\0${value}\0${signature}`
+}
+
+function openAISettings() {
+  resetSemanticSearch()
+  close()
+  emit('open-ai-settings')
+}
+
+async function runSemanticSearch() {
+  const value = query.value.trim()
+  if (value.length < 2 || indexLoading.value) return
+  if (!ai.hasKey) {
+    openAISettings()
+    return
+  }
+
+  semanticController?.abort()
+  const controller = new AbortController()
+  semanticController = controller
+  semanticState.value = 'loading'
+  semanticError.value = ''
+
+  try {
+    const cacheKey = semanticCacheKey(value)
+    const cached = semanticCache.get(cacheKey)
+    if (cached) {
+      if (controller.signal.aborted) return
+      semanticResults.value = cached
+      semanticState.value = cached.length ? 'ready' : 'empty'
+      return
+    }
+
+    const expansion = await chatCompletion(
+      ai.config,
+      [
+        { role: 'system', content: SEMANTIC_QUERY_SYSTEM_PROMPT },
+        { role: 'user', content: buildSemanticQueryPrompt(value) },
+      ],
+      {
+        maxTokens: 140,
+        temperature: 0.1,
+        timeoutMs: 20_000,
+        signal: controller.signal,
+      },
+    )
+    if (controller.signal.aborted) return
+    const terms = parseSemanticQueryTerms(expansion)
+    const candidates = selectSemanticCandidates(
+      scopedEntries.value,
+      [value, ...terms],
+      workspace.activeBoardId,
+      30,
+    )
+    if (!candidates.length) {
+      semanticResults.value = []
+      semanticState.value = 'empty'
+      semanticCache.set(cacheKey, [])
+      return
+    }
+
+    const reranked = await chatCompletion(
+      ai.config,
+      [
+        { role: 'system', content: SEMANTIC_RERANK_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: buildSemanticRerankPrompt(value, candidates),
+        },
+      ],
+      {
+        maxTokens: 1200,
+        temperature: 0.1,
+        timeoutMs: 30_000,
+        signal: controller.signal,
+      },
+    )
+    if (controller.signal.aborted) return
+    const suggestions = parseSemanticSuggestions(
+      reranked,
+      candidates.map((candidate) => candidate.entry.card.id),
+    )
+    const candidateByCard = new Map(
+      candidates.map((candidate) => [candidate.entry.card.id, candidate]),
+    )
+    const next = suggestions.flatMap<SemanticSearchResult>((suggestion) => {
+      const candidate = candidateByCard.get(suggestion.cardId)
+      if (!candidate) return []
+      return [
+        {
+          card: candidate.entry.card,
+          entry: candidate.entry,
+          excerpt: candidate.excerpt,
+          matchedTags: candidate.matchedTags,
+          score: suggestion.score,
+          semanticScore: suggestion.score,
+          reason: suggestion.reason,
+        },
+      ]
+    })
+
+    if (semanticCache.size >= 20) {
+      semanticCache.delete(semanticCache.keys().next().value as string)
+    }
+    semanticCache.set(cacheKey, next)
+    semanticResults.value = next
+    semanticState.value = next.length ? 'ready' : 'empty'
+  } catch (cause) {
+    if (controller.signal.aborted) return
+    semanticState.value = 'error'
+    semanticError.value =
+      cause instanceof Error ? cause.message : 'AI 语义搜索暂时不可用。'
+  } finally {
+    if (semanticController === controller) semanticController = null
+  }
+}
+
 watch(
   () => props.open,
   async (isOpen) => {
@@ -174,6 +346,7 @@ watch(
       scope.value = 'workspace'
       sortMode.value = 'recent'
       selectedIndex.value = 0
+      resetSemanticSearch()
       void loadGlobalIndex()
       await nextTick()
       inputEl.value?.focus()
@@ -195,10 +368,12 @@ watch(
 
 watch(query, () => {
   selectedIndex.value = 0
+  resetSemanticSearch()
 })
 
 watch([scope, sortMode], () => {
   selectedIndex.value = 0
+  resetSemanticSearch()
 })
 
 watch(results, (next) => {
@@ -216,6 +391,7 @@ watch(selectedIndex, async () => {
 
 function close() {
   if (!props.open) return
+  resetSemanticSearch()
   emit('update:open', false)
 }
 
@@ -265,6 +441,17 @@ function handleKeydown(event: KeyboardEvent) {
     return
   }
 
+  if (
+    event.key === 'Enter' &&
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+    void runSemanticSearch()
+    return
+  }
+
   if (event.key === 'Enter') {
     event.preventDefault()
     event.stopPropagation()
@@ -277,6 +464,11 @@ function handleKeydown(event: KeyboardEvent) {
     inputEl.value?.focus()
   }
 }
+
+onBeforeUnmount(() => {
+  semanticController?.abort()
+  semanticController = null
+})
 </script>
 
 <template>
@@ -319,6 +511,36 @@ function handleKeydown(event: KeyboardEvent) {
             autocomplete="off"
             spellcheck="false"
           />
+          <button
+            type="button"
+            class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-amber-700/15 bg-amber-500/[0.055] px-2.5 text-[9px] font-medium text-amber-800 transition-colors hover:border-amber-700/25 hover:bg-amber-500/[0.1] disabled:cursor-not-allowed disabled:opacity-40 dark:border-amber-200/10 dark:bg-amber-200/[0.04] dark:text-amber-200 dark:hover:border-amber-200/20 dark:hover:bg-amber-200/[0.075]"
+            :disabled="
+              semanticState === 'loading' ||
+              indexLoading ||
+              (ai.hasKey && query.trim().length < 2)
+            "
+            :aria-busy="semanticState === 'loading'"
+            :title="
+              ai.hasKey ? 'AI 语义搜索 · ⌘Enter' : '配置 AI Key 后使用语义搜索'
+            "
+            data-semantic-search
+            @click.stop="runSemanticSearch"
+          >
+            <LoaderCircle
+              v-if="semanticState === 'loading'"
+              :size="12"
+              :stroke-width="1.8"
+              class="animate-spin"
+              aria-hidden="true"
+            />
+            <Sparkles
+              v-else
+              :size="12"
+              :stroke-width="1.7"
+              aria-hidden="true"
+            />
+            <span class="hidden sm:inline">AI 语义</span>
+          </button>
           <button
             type="button"
             class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-zinc-500 dark:hover:bg-white/[0.08] dark:hover:text-zinc-200"
@@ -400,6 +622,34 @@ function handleKeydown(event: KeyboardEvent) {
         </div>
 
         <div
+          v-if="semanticState === 'loading'"
+          class="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-amber-700/10 bg-amber-500/[0.045] px-3 py-2 text-[10px] text-amber-800 dark:border-amber-200/10 dark:bg-amber-200/[0.03] dark:text-amber-200"
+          aria-live="polite"
+        >
+          <LoaderCircle
+            :size="12"
+            :stroke-width="1.8"
+            class="animate-spin"
+            aria-hidden="true"
+          />
+          正在理解自然语言并精排候选，本地结果暂时保留
+        </div>
+        <div
+          v-else-if="semanticState === 'error'"
+          class="mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl border border-rose-200/70 bg-rose-500/[0.035] px-3 py-2 text-[10px] text-rose-600 dark:border-rose-300/10 dark:text-rose-300"
+          role="alert"
+        >
+          <span class="line-clamp-2">{{ semanticError }}</span>
+          <button
+            type="button"
+            class="shrink-0 rounded-full px-2 py-1 hover:bg-rose-500/[0.08]"
+            @click="runSemanticSearch"
+          >
+            重试
+          </button>
+        </div>
+
+        <div
           class="flex items-center justify-between px-4 pb-1.5 pt-2.5 font-mono text-[8px] uppercase tracking-[0.18em] text-stone-400 dark:text-zinc-600"
         >
           <span>{{ resultLabel }}</span>
@@ -462,6 +712,19 @@ function handleKeydown(event: KeyboardEvent) {
               class="mt-2 block line-clamp-2 text-[10px] leading-[1.75] text-stone-500 dark:text-zinc-400"
             >
               {{ result.excerpt }}
+            </span>
+
+            <span
+              v-if="semanticReason(result)"
+              class="mt-1.5 flex items-start gap-1.5 text-[9px] leading-4 text-amber-800/80 dark:text-amber-200/70"
+            >
+              <Sparkles
+                :size="9"
+                :stroke-width="1.7"
+                class="mt-0.5 shrink-0"
+                aria-hidden="true"
+              />
+              {{ semanticReason(result) }}
             </span>
 
             <span
@@ -551,12 +814,20 @@ function handleKeydown(event: KeyboardEvent) {
               aria-hidden="true"
             />
             <p class="mt-3 text-[12px] text-stone-500 dark:text-zinc-400">
-              没有匹配的卡片
+              {{
+                semanticState === 'empty'
+                  ? 'AI 没有找到真正相关的卡片'
+                  : '没有匹配的卡片'
+              }}
             </p>
             <p
               class="mt-1 font-mono text-[8px] uppercase tracking-[0.16em] text-stone-400 dark:text-zinc-600"
             >
-              试试标题、正文或 #标签
+              {{
+                semanticState === 'empty'
+                  ? '可以换一种自然语言表达'
+                  : '试试标题、正文或 #标签'
+              }}
             </p>
           </div>
         </div>
@@ -568,6 +839,8 @@ function handleKeydown(event: KeyboardEvent) {
             <span>↑↓ 选择</span>
             <span class="text-stone-300 dark:text-zinc-700">·</span>
             <span>↵ 飞往</span>
+            <span class="text-stone-300 dark:text-zinc-700">·</span>
+            <span>⌘↵ AI 语义</span>
           </div>
           <span>Esc 关闭</span>
         </footer>

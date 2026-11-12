@@ -11,6 +11,7 @@ import {
   Check,
   Copy,
   Grip,
+  Layers3,
   Link2,
   Pencil,
   Share2,
@@ -60,6 +61,7 @@ const emit = defineEmits<{
   delete: []
   copyMarkdown: []
   share: []
+  addToBoard: []
   findConnections: []
   toggleTask: [lineIndex: number]
   tagClick: [tag: string]
@@ -276,6 +278,18 @@ function tagTone(index: number) {
                   @click.stop="emit('findConnections')"
                 >
                   <Sparkles :size="13" :stroke-width="1.7" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="card-action card-action--board"
+                  data-card-interactive
+                  data-card-add-board
+                  aria-label="加入其他白板"
+                  title="加入其他白板"
+                  @pointerdown.stop
+                  @click.stop="emit('addToBoard')"
+                >
+                  <Layers3 :size="13" :stroke-width="1.7" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -645,6 +659,11 @@ function tagTone(index: number) {
   color: rgb(146 64, 14);
 }
 
+.card-action--board:hover {
+  background: rgba(209, 250, 229, 0.72);
+  color: rgb(5, 150, 105);
+}
+
 .dark .card-action {
   color: rgb(113 113 122);
 }
@@ -672,6 +691,11 @@ function tagTone(index: number) {
 .dark .card-action--radar:hover {
   background: rgba(253, 230, 138, 0.09);
   color: rgb(253, 230, 138);
+}
+
+.dark .card-action--board:hover {
+  background: rgba(110, 231, 183, 0.09);
+  color: rgb(167, 243, 208);
 }
 
 .card-action--copy.is-copied,

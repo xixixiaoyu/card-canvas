@@ -26,10 +26,11 @@ describe('workspace backup', () => {
     const backup = await createBackup()
 
     expect(backup.app).toBe('card-canvas')
-    expect(backup.version).toBe(1)
+    expect(backup.version).toBe(2)
     expect(backup.cards).toHaveLength(3)
     expect(backup.boardItems).toHaveLength(3)
     expect(backup.connections).toHaveLength(0)
+    expect(backup.cardVersions).toHaveLength(0)
 
     await db.cards.clear()
     await db.boardItems.clear()
@@ -42,6 +43,7 @@ describe('workspace backup', () => {
       boardItems: 3,
       connections: 0,
       boards: 0,
+      cardVersions: 0,
     })
     expect(await db.cards.count()).toBe(3)
     expect(await db.boardItems.count()).toBe(3)
@@ -58,6 +60,22 @@ describe('workspace backup', () => {
     await db.connections.clear()
     await importBackupText(JSON.stringify(backup))
     expect(await db.connections.count()).toBe(1)
+  })
+
+  it('includes local card version snapshots', async () => {
+    const board = await seed()
+    const card = board.cards[0]!
+    await board.updateCard(card.id, {
+      title: '版本后的标题',
+      content: '版本后的正文',
+      tags: card.tags,
+    })
+
+    const backup = await createBackup()
+    expect(backup.cardVersions).toHaveLength(1)
+    await db.cardVersions.clear()
+    await importBackupText(JSON.stringify(backup))
+    expect(await db.cardVersions.count()).toBe(1)
   })
 
   it('normalizes tags while importing and preserves projections', async () => {

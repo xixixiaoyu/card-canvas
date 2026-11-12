@@ -11,6 +11,7 @@ import {
 import {
   CornerDownLeft,
   Hash,
+  History,
   List,
   ListOrdered,
   ListTodo,
@@ -59,6 +60,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
+  'open-history': []
 }>()
 
 const board = useBoardStore()
@@ -821,14 +823,26 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <button
-              type="button"
-              class="flex h-8 w-8 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
-              aria-label="关闭速记"
-              @click="close()"
-            >
-              <X :size="15" :stroke-width="1.6" aria-hidden="true" />
-            </button>
+            <div class="flex items-center gap-1">
+              <button
+                v-if="isEditing"
+                type="button"
+                class="flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[9px] text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
+                aria-label="查看历史版本"
+                @click="emit('open-history')"
+              >
+                <History :size="13" :stroke-width="1.7" aria-hidden="true" />
+                <span class="hidden sm:inline">历史</span>
+              </button>
+              <button
+                type="button"
+                class="flex h-8 w-8 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200 dark:focus-visible:ring-white/25"
+                aria-label="关闭速记"
+                @click="close()"
+              >
+                <X :size="15" :stroke-width="1.6" aria-hidden="true" />
+              </button>
+            </div>
           </header>
 
           <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-5 sm:px-7">

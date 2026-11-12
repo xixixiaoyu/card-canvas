@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue'
 import {
   CalendarPlus,
   Layers2,
@@ -13,23 +21,16 @@ import {
 } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
-import ActionLens from './components/canvas/ActionLens.vue'
-import ConnectionRadar from './components/ai/ConnectionRadar.vue'
 import EmptyBoardState from './components/canvas/EmptyBoardState.vue'
-import ShortcutModal from './components/canvas/ShortcutModal.vue'
-import SpotlightSearch from './components/canvas/SpotlightSearch.vue'
-import ShareStudio from './components/share/ShareStudio.vue'
 import CloudAccount from './components/auth/CloudAccount.vue'
 import BoardSwitcher from './components/board/BoardSwitcher.vue'
-import QuickCapture from './components/capture/QuickCapture.vue'
-import AISettingsModal from './components/ui/AISettingsModal.vue'
 import DataMenu from './components/ui/DataMenu.vue'
 import ToastStack from './components/ui/ToastStack.vue'
 import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
 import { getItemRect } from './lib/card-metrics'
 import { cardHasTag } from './lib/galaxy'
-import { arrangeCards } from './lib/card-layout'
+import { arrangeCards, arrangeConnectedClusters } from './lib/card-layout'
 import type { SpotlightTarget } from './lib/global-search'
 import { buildMarkdown, copyTextToClipboard } from './lib/markdownExport'
 import { DEMO_FOCUS_ITEM_ID } from './lib/demo-data'
@@ -41,6 +42,40 @@ import { useSyncStore } from './stores/sync'
 import { useToastStore } from './stores/toast'
 import { useWorkspaceStore } from './stores/workspace'
 import type { Card } from './types'
+
+const ActionLens = defineAsyncComponent(
+  () => import('./components/canvas/ActionLens.vue'),
+)
+const BoardPlacementPicker = defineAsyncComponent(
+  () => import('./components/canvas/BoardPlacementPicker.vue'),
+)
+const CardHistoryModal = defineAsyncComponent(
+  () => import('./components/canvas/CardHistoryModal.vue'),
+)
+const DeleteCardDialog = defineAsyncComponent(
+  () => import('./components/canvas/DeleteCardDialog.vue'),
+)
+const ShortcutModal = defineAsyncComponent(
+  () => import('./components/canvas/ShortcutModal.vue'),
+)
+const SpotlightSearch = defineAsyncComponent(
+  () => import('./components/canvas/SpotlightSearch.vue'),
+)
+const TrashModal = defineAsyncComponent(
+  () => import('./components/canvas/TrashModal.vue'),
+)
+const ConnectionRadar = defineAsyncComponent(
+  () => import('./components/ai/ConnectionRadar.vue'),
+)
+const ShareStudio = defineAsyncComponent(
+  () => import('./components/share/ShareStudio.vue'),
+)
+const QuickCapture = defineAsyncComponent(
+  () => import('./components/capture/QuickCapture.vue'),
+)
+const AISettingsModal = defineAsyncComponent(
+  () => import('./components/ui/AISettingsModal.vue'),
+)
 
 const { isDark, toggleTheme } = useTheme()
 const workspace = useWorkspaceStore()
@@ -58,13 +93,21 @@ const isActionTrayOpen = ref(false)
 const isAISettingsOpen = ref(false)
 const isConnectionRadarOpen = ref(false)
 const isShareStudioOpen = ref(false)
+const isBoardPickerOpen = ref(false)
+const isDeleteDialogOpen = ref(false)
+const isTrashOpen = ref(false)
+const isCardHistoryOpen = ref(false)
 const radarCard = ref<Card | null>(null)
 const shareCard = ref<Card | null>(null)
+const boardPickerCard = ref<Card | null>(null)
+const deleteDialogCard = ref<Card | null>(null)
+const historyCard = ref<Card | null>(null)
 const captureTemplate = ref<'daily-todo' | null>(null)
 const editingCard = ref<Card | null>(null)
 const stageReady = ref(false)
 const pendingTeleport = ref<SpotlightTarget | null>(null)
 const copiedCardId = ref<string | null>(null)
+const deleteBusy = ref(false)
 let booting = true
 let teleportToken = 0
 let teleportRunning = false
@@ -122,6 +165,10 @@ watch(
     stageReady.value = false
     isConnectionRadarOpen.value = false
     isShareStudioOpen.value = false
+    isBoardPickerOpen.value = false
+    isDeleteDialogOpen.value = false
+    isTrashOpen.value = false
+    isCardHistoryOpen.value = false
     if (pendingTeleport.value && pendingTeleport.value.boardId !== boardId) {
       cancelPendingTeleport()
     }
@@ -361,8 +408,11 @@ function handleGroupCommit(
   return board.commitItemPositions(positions)
 }
 
-async function handleArrangeCards() {
-  if (board.items.length < 2) {
+async function handleArrangeCards(
+  mode: 'reading' | 'selected' | 'clusters' = 'reading',
+) {
+  const sourceItems = mode === 'selected' ? board.selectedItems : board.items
+  if (sourceItems.length < 2) {
     toast.push('当前白板至少需要两张卡片才能整理。', {
       tone: 'info',
       timeout: 2400,
@@ -370,18 +420,43 @@ async function handleArrangeCards() {
     return
   }
 
-  const layout = arrangeCards(
-    board.items.map((item) => {
-      const rect = getItemRect(item)
-      return {
-        id: item.id,
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height,
-      }
-    }),
-  )
+  const layoutCards = sourceItems.map((item) => {
+    const rect = getItemRect(item)
+    return {
+      id: item.id,
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    }
+  })
+  let layout
+  if (mode === 'clusters') {
+    layout = arrangeConnectedClusters(layoutCards, board.connections)
+  } else if (mode === 'selected') {
+    const selectedIds = new Set(sourceItems.map((item) => item.id))
+    const unselected = board.items.filter((item) => !selectedIds.has(item.id))
+    const anchor = unselected.length
+      ? {
+          x:
+            Math.max(
+              ...unselected.map(
+                (item) => getItemRect(item).x + getItemRect(item).width,
+              ),
+            ) + 120,
+          y: Math.min(...unselected.map((item) => getItemRect(item).y)),
+        }
+      : undefined
+    layout = arrangeCards(layoutCards, { anchor })
+  } else {
+    layout = arrangeCards(layoutCards)
+  }
+  const historyLabel =
+    mode === 'selected'
+      ? '整理选中卡片'
+      : mode === 'clusters'
+        ? '按关联整理'
+        : '整理当前白板'
   const changed = layout.some((position) => {
     const item = board.items.find((entry) => entry.id === position.itemId)
     return item?.x !== position.x || item?.y !== position.y
@@ -395,7 +470,7 @@ async function handleArrangeCards() {
     return
   }
 
-  const saved = await board.commitItemPositions(layout, '整理当前白板')
+  const saved = await board.commitItemPositions(layout, historyLabel)
   if (!saved) return
 
   board.clearSelection()
@@ -525,6 +600,11 @@ function openShareStudio(card: Card) {
   isShareStudioOpen.value = true
 }
 
+function openBoardPicker(card: Card) {
+  boardPickerCard.value = card
+  isBoardPickerOpen.value = true
+}
+
 function openConnectionRadar(card: Card) {
   radarCard.value = card
   shareCard.value = null
@@ -541,15 +621,89 @@ async function openAISettingsFromRadar() {
   isAISettingsOpen.value = true
 }
 
-async function handleDelete(card: Card) {
-  const ok = await board.deleteCard(card.id)
-  if (!ok) return
+async function openAISettingsFromSpotlight() {
+  isSpotlightOpen.value = false
+  await nextTick()
+  isAISettingsOpen.value = true
+}
 
-  toast.push(`已删除「${card.title}」。`, {
-    tone: 'info',
-    timeout: 5000,
-    action: { label: '撤销', run: () => board.undo() },
+async function handleDelete(card: Card) {
+  deleteDialogCard.value = card
+  isDeleteDialogOpen.value = true
+}
+
+async function placeCardOnBoard(payload: {
+  boardId: string
+  boardName: string
+}) {
+  const card = boardPickerCard.value
+  if (!card) return
+  const sourceItem = board.entries.find((entry) => entry.card.id === card.id)
+  const item = await board.addCardToBoard(
+    card.id,
+    payload.boardId,
+    sourceItem?.item.width,
+  )
+  isBoardPickerOpen.value = false
+  if (!item) return
+
+  toast.push(`已加入「${payload.boardName}」。`, {
+    tone: 'success',
+    timeout: 4200,
+    action: {
+      label: '前往',
+      run: () => {
+        workspace.switchBoard(payload.boardId)
+      },
+    },
   })
+}
+
+async function removeCardFromBoard() {
+  const card = deleteDialogCard.value
+  if (!card || deleteBusy.value) return
+  deleteBusy.value = true
+  try {
+    const removed = await board.removeCardFromBoard(
+      card.id,
+      workspace.activeBoardId,
+    )
+    if (!removed) return
+    isDeleteDialogOpen.value = false
+    toast.push(`已将「${card.title}」移出当前白板。`, {
+      tone: 'info',
+      timeout: 5000,
+      action: { label: '撤销', run: () => board.undo() },
+    })
+  } finally {
+    deleteBusy.value = false
+  }
+}
+
+async function deleteWholeCard() {
+  const card = deleteDialogCard.value
+  if (!card || deleteBusy.value) return
+  deleteBusy.value = true
+  try {
+    const deleted = await board.deleteCard(card.id)
+    if (!deleted) return
+    isDeleteDialogOpen.value = false
+    toast.push(`已将「${card.title}」移入回收站。`, {
+      tone: 'info',
+      timeout: 5000,
+      action: { label: '撤销', run: () => board.undo() },
+    })
+  } finally {
+    deleteBusy.value = false
+  }
+}
+
+function openCardHistory(card: Card | null) {
+  if (!card) return
+  isCaptureOpen.value = false
+  editingCard.value = null
+  historyCard.value = card
+  isCardHistoryOpen.value = true
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -581,7 +735,11 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     isCaptureOpen.value ||
     isActionTrayOpen.value ||
     isConnectionRadarOpen.value ||
-    isShareStudioOpen.value
+    isShareStudioOpen.value ||
+    isBoardPickerOpen.value ||
+    isDeleteDialogOpen.value ||
+    isTrashOpen.value ||
+    isCardHistoryOpen.value
   ) {
     return
   }
@@ -707,6 +865,7 @@ onBeforeUnmount(() => {
       @delete="handleDelete(entry.card)"
       @copy-markdown="handleCopyCardMarkdown(entry.item.id)"
       @share="openShareStudio(entry.card)"
+      @add-to-board="openBoardPicker(entry.card)"
       @find-connections="openConnectionRadar(entry.card)"
       @toggle-task="board.toggleCardTask(entry.card.id, $event)"
       @tag-click="board.toggleFilterTag($event)"
@@ -742,7 +901,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.7.0 · Local-first
+              v1.8.0 · Local-first
             </p>
           </div>
 
@@ -868,7 +1027,7 @@ onBeforeUnmount(() => {
             <span class="topbar-cluster-divider" aria-hidden="true" />
 
             <CloudAccount />
-            <DataMenu />
+            <DataMenu @open-trash="isTrashOpen = true" />
 
             <button
               type="button"
@@ -924,7 +1083,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.7.0</span>
+          <span>v1.8.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">
@@ -1008,11 +1167,13 @@ onBeforeUnmount(() => {
     :camera="camera"
     :board-id="workspace.activeBoardId"
     :template="captureTemplate"
+    @open-history="openCardHistory(editingCard)"
   />
 
   <SpotlightSearch
     v-model:open="isSpotlightOpen"
     @select="handleSpotlightSelect"
+    @open-ai-settings="openAISettingsFromSpotlight"
   />
 
   <ShortcutModal v-model:open="isShortcutOpen" />
@@ -1024,6 +1185,20 @@ onBeforeUnmount(() => {
     @open-settings="openAISettingsFromRadar"
   />
   <ShareStudio v-model:open="isShareStudioOpen" :card="shareCard" />
+  <BoardPlacementPicker
+    v-model:open="isBoardPickerOpen"
+    :card="boardPickerCard"
+    @select="placeCardOnBoard"
+  />
+  <DeleteCardDialog
+    v-model:open="isDeleteDialogOpen"
+    :card="deleteDialogCard"
+    :busy="deleteBusy"
+    @remove="removeCardFromBoard"
+    @delete="deleteWholeCard"
+  />
+  <TrashModal v-model:open="isTrashOpen" />
+  <CardHistoryModal v-model:open="isCardHistoryOpen" :card="historyCard" />
 
   <Transition name="account-lock">
     <div

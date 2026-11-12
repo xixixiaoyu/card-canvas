@@ -1,7 +1,7 @@
 {
   "name": "card-canvas",
   "private": true,
-  "version": "1.7.0",
+  "version": "1.8.0",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "build": "pnpm typecheck && vite build",
+    "build": "pnpm typecheck && vite build && node scripts/verify-pwa.mjs",
     "preview": "vite preview",
     "test:e2e:serial": "playwright test --workers=1",
     "test:e2e:chrome": "PLAYWRIGHT_CHROME=1 playwright test --workers=1"
@@ -48,7 +48,9 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1",
     "vite": "^8.3.6",
+    "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.1.0",
-    "vue-tsc": "^3.3.14"
+    "vue-tsc": "^3.3.14",
+    "workbox-window": "^7.4.1"
   }
 }

@@ -8,7 +8,7 @@ import {
 } from '../lib/tab-sync'
 import { normalizeTags } from '../lib/tags'
 import { toggleTaskLine } from '../lib/atomic-markdown'
-import type { BoardItem, Card, Connection } from '../types'
+import type { BoardItem, Card, CardVersion, Connection } from '../types'
 import { plainRecord } from '../lib/plain-record'
 import { useToastStore } from './toast'
 
@@ -29,6 +29,7 @@ export interface UpdateCardInput {
   title: string
   content: string
   tags: string[]
+  highlights?: Card['highlights']
 }
 
 export interface PlaceCardPosition {
@@ -53,6 +54,8 @@ export interface ClearBoardResult {
 
 const DEFAULT_CARD_WIDTH = 420
 const HISTORY_LIMIT = 50
+const CARD_VERSION_LIMIT = 8
+const CARD_VERSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 function normalizeCard(card: Card): Card {
   return { ...card, tags: normalizeTags(card.tags ?? []) }
@@ -232,6 +235,93 @@ export const useBoardStore = defineStore('board', () => {
     useToastStore().push(message, { tone: 'error', action })
   }
 
+  async function snapshotCardVersion(card: Card) {
+    const existing = await db.cardVersions
+      .where('cardId')
+      .equals(card.id)
+      .sortBy('snapshotAt')
+    const latest = existing.at(-1)
+    if (
+      latest &&
+      latest.title === card.title &&
+      latest.content === card.content &&
+      latest.tags.join('\0') === card.tags.join('\0') &&
+      JSON.stringify(latest.highlights ?? []) ===
+        JSON.stringify(card.highlights ?? [])
+    ) {
+      return
+    }
+
+    const snapshot: CardVersion = {
+      id: `version-${crypto.randomUUID()}`,
+      cardId: card.id,
+      title: card.title,
+      content: card.content,
+      tags: [...card.tags],
+      highlights: card.highlights
+        ? (plainRecord(card.highlights) as CardVersion['highlights'])
+        : undefined,
+      snapshotAt: Math.max(Date.now(), (latest?.snapshotAt ?? 0) + 1),
+    }
+    await db.cardVersions.put(snapshot)
+
+    const versions = [...existing, snapshot].sort(
+      (a, b) => a.snapshotAt - b.snapshotAt,
+    )
+    const keepIds = new Set(
+      versions
+        .slice(-CARD_VERSION_LIMIT)
+        .filter(
+          (version) =>
+            Date.now() - version.snapshotAt <= CARD_VERSION_RETENTION_MS,
+        )
+        .map((version) => version.id),
+    )
+    const staleIds = versions
+      .filter((version) => !keepIds.has(version.id))
+      .map((version) => version.id)
+    if (staleIds.length) await db.cardVersions.bulkDelete(staleIds)
+  }
+
+  async function purgeExpiredVersions() {
+    const cutoff = Date.now() - CARD_VERSION_RETENTION_MS
+    const staleIds = (await db.cardVersions.toArray())
+      .filter((version) => version.snapshotAt < cutoff)
+      .map((version) => version.id)
+    if (staleIds.length) await db.cardVersions.bulkDelete(staleIds)
+  }
+
+  async function hardDeleteCardData(cardId: string) {
+    await db.transaction(
+      'rw',
+      db.cards,
+      db.boardItems,
+      db.connections,
+      db.cardVersions,
+      async () => {
+        await db.cards.delete(cardId)
+        await db.boardItems.where('cardId').equals(cardId).delete()
+        const [outgoing, incoming] = await Promise.all([
+          db.connections.where('fromCardId').equals(cardId).toArray(),
+          db.connections.where('toCardId').equals(cardId).toArray(),
+        ])
+        await db.connections.bulkDelete([
+          ...new Set([...outgoing, ...incoming].map((entry) => entry.id)),
+        ])
+        await db.cardVersions.where('cardId').equals(cardId).delete()
+      },
+    )
+  }
+
+  async function purgeExpiredTrash() {
+    const cutoff = Date.now() - CARD_VERSION_RETENTION_MS
+    const expired = (await db.cards.toArray()).filter(
+      (card) => card.isDeleted && card.updatedAt < cutoff,
+    )
+    for (const card of expired) await hardDeleteCardData(card.id)
+    if (expired.length) broadcastWorkspaceChange('all')
+  }
+
   // --- bootstrap -----------------------------------------------------------
 
   async function readBoard(boardId: string) {
@@ -240,10 +330,16 @@ export const useBoardStore = defineStore('board', () => {
       db.boardItems.where('boardId').equals(boardId).toArray(),
       db.connections.where('boardId').equals(boardId).toArray(),
     ])
+    const cards = storedCards
+      .filter((card) => !card.isDeleted)
+      .map(normalizeCard)
+    const cardIds = new Set(cards.map((card) => card.id))
 
     return {
-      cards: storedCards.filter((card) => !card.isDeleted).map(normalizeCard),
-      items: storedItems.sort((a, b) => a.id.localeCompare(b.id)),
+      cards,
+      items: storedItems
+        .filter((item) => cardIds.has(item.cardId))
+        .sort((a, b) => a.id.localeCompare(b.id)),
       connections: storedConnections.sort((a, b) => a.id.localeCompare(b.id)),
     }
   }
@@ -358,6 +454,8 @@ export const useBoardStore = defineStore('board', () => {
 
       try {
         await db.open()
+        await purgeExpiredVersions()
+        await purgeExpiredTrash()
 
         if (import.meta.env.PROD) {
           await removeLegacyDemoData()
@@ -382,11 +480,9 @@ export const useBoardStore = defineStore('board', () => {
           db.cards.toArray(),
           db.boardItems.toArray(),
         ])
-        const liveCardIds = new Set(
-          allCards.filter((card) => !card.isDeleted).map((card) => card.id),
-        )
+        const existingCardIds = new Set(allCards.map((card) => card.id))
         const orphanItemIds = allItems
-          .filter((item) => !liveCardIds.has(item.cardId))
+          .filter((item) => !existingCardIds.has(item.cardId))
           .map((item) => item.id)
 
         if (orphanItemIds.length) {
@@ -543,10 +639,15 @@ export const useBoardStore = defineStore('board', () => {
       title: input.title.trim(),
       content: input.content.trim(),
       tags: normalizeTags(input.tags),
+      highlights:
+        input.highlights === undefined
+          ? previous.highlights
+          : plainRecord(input.highlights),
       updatedAt: Date.now(),
     })
     const after = plainRecord(next)
 
+    await snapshotCardVersion(before)
     replaceLocalCard(next)
 
     try {
@@ -659,6 +760,95 @@ export const useBoardStore = defineStore('board', () => {
     return item
   }
 
+  async function addCardToBoard(
+    cardId: string,
+    boardId: string,
+    width = DEFAULT_CARD_WIDTH,
+  ): Promise<BoardItem | null> {
+    const card = cards.value.find(
+      (entry) => entry.id === cardId && !entry.isDeleted,
+    )
+    if (!card) return null
+
+    const [storedCards, targetItems] = await Promise.all([
+      db.cards.toArray(),
+      db.boardItems.where('boardId').equals(boardId).toArray(),
+    ])
+    const liveCardIds = new Set(
+      storedCards.filter((entry) => !entry.isDeleted).map((entry) => entry.id),
+    )
+    const activeTargetItems = targetItems.filter((item) =>
+      liveCardIds.has(item.cardId),
+    )
+    if (activeTargetItems.some((item) => item.cardId === cardId)) {
+      useToastStore().push('这张卡片已经在目标白板中。', {
+        tone: 'info',
+        timeout: 2400,
+      })
+      return null
+    }
+
+    const baseX = activeTargetItems.length
+      ? Math.max(
+          ...activeTargetItems.map(
+            (item) => item.x + (item.width ?? DEFAULT_CARD_WIDTH),
+          ),
+        ) + 120
+      : 0
+    const baseY = activeTargetItems.length
+      ? Math.min(...activeTargetItems.map((item) => item.y))
+      : -150
+    const item: BoardItem = {
+      id: `projection-${crypto.randomUUID()}`,
+      cardId,
+      boardId,
+      x: baseX,
+      y: baseY,
+      width,
+    }
+    const snapshot = plainRecord(item)
+
+    if (boardId === activeBoardId.value) {
+      replaceLocalItem(item)
+      selectItem(item.id)
+    }
+
+    try {
+      await db.boardItems.put(snapshot)
+      broadcastWorkspaceChange('items', boardId)
+    } catch (cause) {
+      if (boardId === activeBoardId.value) {
+        removeLocalItem(item.id)
+        removeSelectedItem(item.id)
+      }
+      console.error('[card-canvas] Unable to add card to board', cause)
+      notifyFailure('卡片未能加入目标白板。')
+      return null
+    }
+
+    record({
+      label: '加入其他白板',
+      undo: async () => {
+        await db.boardItems.delete(item.id)
+        if (boardId === activeBoardId.value) {
+          removeLocalItem(item.id)
+          removeSelectedItem(item.id)
+        }
+        broadcastWorkspaceChange('items', boardId)
+      },
+      redo: async () => {
+        await db.boardItems.put(snapshot)
+        if (boardId === activeBoardId.value) {
+          replaceLocalItem(snapshot)
+          selectItem(snapshot.id)
+        }
+        broadcastWorkspaceChange('items', boardId)
+      },
+    })
+
+    return item
+  }
+
   async function deleteCard(cardId: string): Promise<boolean> {
     const card = cards.value.find((entry) => entry.id === cardId)
     if (!card) return false
@@ -669,6 +859,7 @@ export const useBoardStore = defineStore('board', () => {
       isDeleted: true,
       updatedAt: Date.now(),
     }
+    await snapshotCardVersion(cardSnapshot)
     const relatedItems = await db.boardItems
       .where('cardId')
       .equals(cardId)
@@ -707,21 +898,9 @@ export const useBoardStore = defineStore('board', () => {
     }
 
     try {
-      await db.transaction(
-        'rw',
-        db.cards,
-        db.boardItems,
-        db.connections,
-        async () => {
-          await db.cards.put(deleted)
-          await db.boardItems.where('cardId').equals(cardId).delete()
-          if (relatedConnections.length) {
-            await db.connections.bulkDelete(
-              relatedConnections.map((connection) => connection.id),
-            )
-          }
-        },
-      )
+      await db.transaction('rw', db.cards, async () => {
+        await db.cards.put(deleted)
+      })
       broadcastWorkspaceChange('all')
     } catch (cause) {
       replaceLocalCard(cardSnapshot)
@@ -750,21 +929,9 @@ export const useBoardStore = defineStore('board', () => {
         const restored: Card = { ...cardSnapshot }
         delete restored.isDeleted
 
-        await db.transaction(
-          'rw',
-          db.cards,
-          db.boardItems,
-          db.connections,
-          async () => {
-            await db.cards.put(restored)
-            if (relatedItems.length) {
-              await db.boardItems.bulkPut(plainRecord(relatedItems))
-            }
-            if (relatedConnections.length) {
-              await db.connections.bulkPut(relatedConnections)
-            }
-          },
-        )
+        await db.transaction('rw', db.cards, async () => {
+          await db.cards.put(restored)
+        })
 
         replaceLocalCard(restored)
         for (const item of relatedItems) {
@@ -778,21 +945,9 @@ export const useBoardStore = defineStore('board', () => {
         broadcastWorkspaceChange('all')
       },
       redo: async () => {
-        await db.transaction(
-          'rw',
-          db.cards,
-          db.boardItems,
-          db.connections,
-          async () => {
-            await db.cards.put(deleted)
-            await db.boardItems.where('cardId').equals(cardId).delete()
-            if (relatedConnections.length) {
-              await db.connections.bulkDelete(
-                relatedConnections.map((connection) => connection.id),
-              )
-            }
-          },
-        )
+        await db.transaction('rw', db.cards, async () => {
+          await db.cards.put(deleted)
+        })
 
         removeLocalCard(cardId)
         for (const item of relatedItems) removeLocalItem(item.id)
@@ -804,6 +959,230 @@ export const useBoardStore = defineStore('board', () => {
     })
 
     return true
+  }
+
+  async function removeCardFromBoard(
+    cardId: string,
+    boardId = activeBoardId.value,
+  ): Promise<boolean> {
+    if (!boardId) return false
+    const card = cards.value.find((entry) => entry.id === cardId)
+    if (!card) return false
+
+    const [allItems, allConnections] = await Promise.all([
+      db.boardItems.where('cardId').equals(cardId).toArray(),
+      db.connections
+        .where('boardId')
+        .equals(boardId)
+        .filter(
+          (connection) =>
+            connection.fromCardId === cardId || connection.toCardId === cardId,
+        )
+        .toArray(),
+    ])
+    const items = allItems.filter((item) => item.boardId === boardId)
+    if (!items.length) return false
+
+    const remainingProjection = allItems.some(
+      (item) => item.boardId !== boardId,
+    )
+    const cardSnapshot = plainRecord(card)
+    const deleted: Card | undefined = remainingProjection
+      ? undefined
+      : {
+          ...cardSnapshot,
+          isDeleted: true,
+          updatedAt: Date.now(),
+        }
+
+    if (deleted) await snapshotCardVersion(cardSnapshot)
+    removeLocalCard(cardId)
+    for (const item of items) removeLocalItem(item.id)
+    for (const connection of allConnections) {
+      removeLocalConnection(connection.id)
+    }
+    pruneSelectedItems()
+
+    try {
+      await db.transaction(
+        'rw',
+        db.cards,
+        db.boardItems,
+        db.connections,
+        async () => {
+          if (deleted) await db.cards.put(deleted)
+          await db.boardItems.bulkDelete(items.map((item) => item.id))
+          if (allConnections.length) {
+            await db.connections.bulkDelete(
+              allConnections.map((connection) => connection.id),
+            )
+          }
+        },
+      )
+      broadcastWorkspaceChange('all')
+    } catch (cause) {
+      replaceLocalCard(cardSnapshot)
+      if (boardId === activeBoardId.value) {
+        for (const item of items) replaceLocalItem(plainRecord(item))
+        for (const connection of allConnections) {
+          replaceLocalConnection(plainRecord(connection))
+        }
+      }
+      console.error('[card-canvas] Unable to remove card from board', cause)
+      notifyFailure('无法从当前白板移除卡片。')
+      return false
+    }
+
+    record({
+      label: '从白板移除',
+      undo: async () => {
+        await db.transaction(
+          'rw',
+          db.cards,
+          db.boardItems,
+          db.connections,
+          async () => {
+            if (deleted) {
+              const restored: Card = { ...cardSnapshot }
+              delete restored.isDeleted
+              await db.cards.put(restored)
+            }
+            await db.boardItems.bulkPut(items.map(plainRecord))
+            if (allConnections.length) {
+              await db.connections.bulkPut(allConnections.map(plainRecord))
+            }
+          },
+        )
+        replaceLocalCard(cardSnapshot)
+        if (boardId === activeBoardId.value) {
+          for (const item of items) replaceLocalItem(plainRecord(item))
+          for (const connection of allConnections) {
+            replaceLocalConnection(plainRecord(connection))
+          }
+        }
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.transaction(
+          'rw',
+          db.cards,
+          db.boardItems,
+          db.connections,
+          async () => {
+            if (deleted) await db.cards.put(deleted)
+            await db.boardItems.bulkDelete(items.map((item) => item.id))
+            if (allConnections.length) {
+              await db.connections.bulkDelete(
+                allConnections.map((connection) => connection.id),
+              )
+            }
+          },
+        )
+        removeLocalCard(cardId)
+        for (const item of items) removeLocalItem(item.id)
+        for (const connection of allConnections) {
+          removeLocalConnection(connection.id)
+        }
+        broadcastWorkspaceChange('all')
+      },
+    })
+
+    return true
+  }
+
+  async function restoreCard(
+    cardId: string,
+    boardId = activeBoardId.value,
+  ): Promise<BoardItem | null> {
+    const stored = await db.cards.get(cardId)
+    if (!stored?.isDeleted) return null
+    const restored: Card = {
+      ...plainRecord(stored),
+      updatedAt: Date.now(),
+    }
+    delete restored.isDeleted
+
+    let targetItem: BoardItem | null = null
+    if (boardId) {
+      const [targetItems, cardItems] = await Promise.all([
+        db.boardItems.where('boardId').equals(boardId).toArray(),
+        db.boardItems.where('cardId').equals(cardId).toArray(),
+      ])
+      targetItem = cardItems.find((item) => item.boardId === boardId) ?? null
+      if (!targetItem) {
+        const liveCardIds = new Set(
+          (await db.cards.toArray())
+            .filter((card) => !card.isDeleted)
+            .map((card) => card.id),
+        )
+        const visibleItems = targetItems.filter((item) =>
+          liveCardIds.has(item.cardId),
+        )
+        targetItem = {
+          id: `projection-${crypto.randomUUID()}`,
+          cardId,
+          boardId,
+          x: visibleItems.length
+            ? Math.max(
+                ...visibleItems.map(
+                  (item) => item.x + (item.width ?? DEFAULT_CARD_WIDTH),
+                ),
+              ) + 120
+            : 0,
+          y: visibleItems.length
+            ? Math.min(...visibleItems.map((item) => item.y))
+            : -150,
+          width: DEFAULT_CARD_WIDTH,
+        }
+      }
+    }
+
+    await db.transaction('rw', db.cards, db.boardItems, async () => {
+      await db.cards.put(restored)
+      if (targetItem) await db.boardItems.put(plainRecord(targetItem))
+    })
+    replaceLocalCard(restored)
+    if (targetItem && targetItem.boardId === activeBoardId.value) {
+      replaceLocalItem(plainRecord(targetItem))
+      selectItem(targetItem.id)
+    }
+    broadcastWorkspaceChange('all')
+    return targetItem
+  }
+
+  async function purgeCard(cardId: string): Promise<boolean> {
+    const card = await db.cards.get(cardId)
+    if (!card?.isDeleted) return false
+
+    removeLocalCard(cardId)
+    for (const item of items.value.filter((entry) => entry.cardId === cardId)) {
+      removeLocalItem(item.id)
+    }
+    for (const connection of connections.value.filter(
+      (entry) => entry.fromCardId === cardId || entry.toCardId === cardId,
+    )) {
+      removeLocalConnection(connection.id)
+    }
+    pruneSelectedItems()
+
+    await hardDeleteCardData(cardId)
+    broadcastWorkspaceChange('all')
+    return true
+  }
+
+  async function restoreCardVersion(cardId: string, versionId: string) {
+    const version = await db.cardVersions.get(versionId)
+    if (!version || version.cardId !== cardId) return null
+    return updateCard(
+      cardId,
+      {
+        title: version.title,
+        content: version.content,
+        tags: version.tags,
+        highlights: version.highlights,
+      },
+      '恢复历史版本',
+    )
   }
 
   async function clearBoard(): Promise<ClearBoardResult | null> {
@@ -1350,13 +1729,15 @@ export const useBoardStore = defineStore('board', () => {
       const liveCards = storedCards
         .filter((card) => !card.isDeleted)
         .map(normalizeCard)
+      const liveCardIds = new Set(liveCards.map((card) => card.id))
       const migrated = await placeMissingCards(boardId, liveCards)
       if (activeBoardId.value !== boardId || status.value !== 'ready') return
 
       cards.value = liveCards
-      items.value = [...storedItems, ...migrated].sort((a, b) =>
-        a.id.localeCompare(b.id),
-      )
+      items.value = [
+        ...storedItems.filter((item) => liveCardIds.has(item.cardId)),
+        ...migrated,
+      ].sort((a, b) => a.id.localeCompare(b.id))
       connections.value = await db.connections
         .where('boardId')
         .equals(boardId)
@@ -1494,8 +1875,13 @@ export const useBoardStore = defineStore('board', () => {
     updateCard,
     toggleCardTask,
     placeCard,
+    addCardToBoard,
     captureAndPlace,
     deleteCard,
+    removeCardFromBoard,
+    restoreCard,
+    purgeCard,
+    restoreCardVersion,
     clearBoard,
     createConnection,
     deleteConnection,

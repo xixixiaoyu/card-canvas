@@ -36,6 +36,7 @@ test('edits, deletes and undoes card actions', async ({ page }) => {
 
   await edited.hover()
   await edited.getByRole('button', { name: '删除卡片' }).click()
+  await page.locator('[data-delete-card-dialog] [data-delete-card-all]').click()
   await expect(page.locator('[data-world-item]')).toHaveCount(2)
 
   await expect(undoButton).toBeEnabled()
@@ -80,6 +81,7 @@ test('a deleted card stays deleted after refresh', async ({ page }) => {
 
   await card.hover()
   await card.getByRole('button', { name: '删除卡片' }).click()
+  await page.locator('[data-delete-card-dialog] [data-delete-card-all]').click()
   await expect(page.locator('[data-world-item]')).toHaveCount(2)
 
   await page.reload()

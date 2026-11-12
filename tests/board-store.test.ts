@@ -455,7 +455,7 @@ describe('board store', () => {
     expect(board.connections[0].label).toBe('底层机制相同')
   })
 
-  it('cascades connections when a card is deleted and restores them on undo', async () => {
+  it('preserves projections and connections for trash recovery', async () => {
     const board = await freshBoard()
     const cardA = board.cards[0]
     const cardB = board.cards[1]
@@ -463,7 +463,8 @@ describe('board store', () => {
 
     expect(await board.deleteCard(cardA.id)).toBe(true)
     expect(board.connections).toHaveLength(0)
-    expect(await db.connections.get(connection!.id)).toBeUndefined()
+    expect(await db.connections.get(connection!.id)).toBeDefined()
+    expect(await db.boardItems.where('cardId').equals(cardA.id).count()).toBe(1)
 
     await board.undo()
     expect(board.cards.map((entry) => entry.id)).toContain(cardA.id)
@@ -472,6 +473,106 @@ describe('board store', () => {
 
     await board.redo()
     expect(board.connections).toHaveLength(0)
+    expect(await db.connections.get(connection!.id)).toBeDefined()
+  })
+
+  it('reuses one card across boards without duplicating it on a board', async () => {
+    const board = await freshBoard()
+    const card = board.cards[0]!
+    await db.boards.put({
+      id: 'board-reuse',
+      name: '复用板',
+      createdAt: 2,
+      updatedAt: 2,
+    })
+
+    const added = await board.addCardToBoard(card.id, 'board-reuse', 420)
+    expect(added).toMatchObject({
+      cardId: card.id,
+      boardId: 'board-reuse',
+    })
+    expect(board.items.filter((item) => item.cardId === card.id)).toHaveLength(
+      1,
+    )
+    expect(await db.boardItems.where('cardId').equals(card.id).count()).toBe(2)
+
+    expect(await board.addCardToBoard(card.id, 'board-reuse')).toBeNull()
+    expect(await db.boardItems.where('cardId').equals(card.id).count()).toBe(2)
+  })
+
+  it('removes a shared card from one board while preserving the other copy', async () => {
+    const board = await freshBoard()
+    const card = board.cards[0]!
+    await db.boards.put({
+      id: 'board-remove',
+      name: '另一块板',
+      createdAt: 2,
+      updatedAt: 2,
+    })
+    await board.addCardToBoard(card.id, 'board-remove')
+
+    expect(await board.removeCardFromBoard(card.id, 'board-main')).toBe(true)
+    expect(board.cards.some((entry) => entry.id === card.id)).toBe(false)
+    expect((await db.cards.get(card.id))?.isDeleted).toBeUndefined()
+    expect(
+      await db.boardItems
+        .where('boardId')
+        .equals('board-main')
+        .filter((item) => item.cardId === card.id)
+        .count(),
+    ).toBe(0)
+    expect(
+      await db.boardItems
+        .where('boardId')
+        .equals('board-remove')
+        .filter((item) => item.cardId === card.id)
+        .count(),
+    ).toBe(1)
+
+    await board.undo()
+    expect(board.cards.some((entry) => entry.id === card.id)).toBe(true)
+  })
+
+  it('restores trashed cards to the current board and permanently purges them', async () => {
+    const board = await freshBoard()
+    const card = board.cards[0]!
+
+    expect(await board.deleteCard(card.id)).toBe(true)
+    expect((await db.cards.get(card.id))?.isDeleted).toBe(true)
+    const restoredItem = await board.restoreCard(card.id, 'board-main')
+    expect(restoredItem?.boardId).toBe('board-main')
+    expect((await db.cards.get(card.id))?.isDeleted).toBeUndefined()
+
+    expect(await board.deleteCard(card.id)).toBe(true)
+    expect(await board.purgeCard(card.id)).toBe(true)
+    expect(await db.cards.get(card.id)).toBeUndefined()
+    expect(await db.boardItems.where('cardId').equals(card.id).count()).toBe(0)
+  })
+
+  it('keeps recent versions and restores an earlier snapshot', async () => {
+    const board = await freshBoard()
+    const card = board.cards[0]!
+    const originalTitle = card.title
+
+    await board.updateCard(card.id, {
+      title: '第一版标题',
+      content: '第一版正文',
+      tags: ['版本'],
+    })
+    await board.updateCard(card.id, {
+      title: '第二版标题',
+      content: '第二版正文',
+      tags: ['版本'],
+    })
+
+    const versions = await db.cardVersions
+      .where('cardId')
+      .equals(card.id)
+      .sortBy('snapshotAt')
+    expect(versions.length).toBeGreaterThanOrEqual(2)
+
+    const restored = await board.restoreCardVersion(card.id, versions[0]!.id)
+    expect(restored?.title).toBe(originalTitle)
   })
 
   it('cleans orphan projections left by a partial database', async () => {
