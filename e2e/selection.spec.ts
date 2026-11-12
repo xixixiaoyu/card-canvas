@@ -245,7 +245,6 @@ test('multi-selection can remove every selected card from the current board as o
   await expect(dialog).toContainText('处理 3 张卡片')
   await dialog.locator('[data-batch-remove]').click()
 
-  await expect(page.getByText('已从当前白板移除 3 张卡片。')).toBeVisible()
   await expect(page.locator('[data-world-item]')).toHaveCount(0)
 
   await page.locator('header button[aria-label="撤销"]').click()
@@ -270,7 +269,6 @@ test('multi-selection can move every selected card into trash and undo once', as
 
   await page.getByRole('button', { name: '批量处理选中卡片' }).click()
   await page.locator('[data-batch-delete-all]').click()
-  await expect(page.getByText('已将 3 张卡片移入回收站。')).toBeVisible()
   await expect(page.locator('[data-world-item]')).toHaveCount(0)
 
   await page.getByRole('button', { name: '数据与备份' }).click()

@@ -180,7 +180,7 @@ async function removeSelectedFromBoard() {
     await closeBatchDelete(false, true)
     toast.push(`已从当前白板移除 ${ids.length} 张卡片。`, {
       tone: 'info',
-      timeout: 5000,
+      timeout: 8000,
       action: { label: '撤销', run: () => board.undo() },
     })
   } finally {
@@ -203,7 +203,7 @@ async function deleteSelectedCards() {
     await closeBatchDelete(false, true)
     toast.push(`已将 ${ids.length} 张卡片移入回收站。`, {
       tone: 'info',
-      timeout: 5000,
+      timeout: 8000,
       action: { label: '撤销', run: () => board.undo() },
     })
   } finally {
