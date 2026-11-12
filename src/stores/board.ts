@@ -868,40 +868,51 @@ export const useBoardStore = defineStore('board', () => {
     return item
   }
 
-  async function deleteCard(cardId: string): Promise<boolean> {
-    const card = cards.value.find((entry) => entry.id === cardId)
-    if (!card) return false
+  async function deleteCards(cardIds: string[]): Promise<boolean> {
+    const requestedIds = new Set(cardIds)
+    const cardSnapshots = cards.value
+      .filter((card) => requestedIds.has(card.id))
+      .map((card) => plainRecord(card))
+    if (!cardSnapshots.length) return false
 
-    const cardSnapshot = plainRecord(card)
-    const deleted: Card = {
-      ...cardSnapshot,
+    const ids = new Set(cardSnapshots.map((card) => card.id))
+    const deletedAt = Date.now()
+    const deletedCards: Card[] = cardSnapshots.map((card) => ({
+      ...card,
       isDeleted: true,
-      updatedAt: Date.now(),
+      updatedAt: deletedAt,
+    }))
+    for (const cardSnapshot of cardSnapshots) {
+      await snapshotCardVersion(cardSnapshot)
     }
-    await snapshotCardVersion(cardSnapshot)
-    const relatedItems = await db.boardItems
-      .where('cardId')
-      .equals(cardId)
-      .toArray()
-    const [outgoing, incoming] = await Promise.all([
+
+    const connectionQueries = [...ids].flatMap((cardId) => [
       db.connections.where('fromCardId').equals(cardId).toArray(),
       db.connections.where('toCardId').equals(cardId).toArray(),
     ])
+    const [itemQueries, connectionLists] = await Promise.all([
+      Promise.all(
+        [...ids].map((cardId) =>
+          db.boardItems.where('cardId').equals(cardId).toArray(),
+        ),
+      ),
+      Promise.all(connectionQueries),
+    ])
+    const relatedItems = itemQueries.flat()
     const relatedConnections = [
       ...new Map(
-        [...outgoing, ...incoming].map((connection) => [
-          connection.id,
-          plainRecord(connection),
-        ]),
+        connectionLists
+          .flat()
+          .map((connection) => [connection.id, plainRecord(connection)]),
       ).values(),
     ]
-    const localItems = items.value.filter((item) => item.cardId === cardId)
+    const localItems = items.value.filter((item) => ids.has(item.cardId))
     const localConnections = connections.value.filter(
       (connection) =>
-        connection.fromCardId === cardId || connection.toCardId === cardId,
+        ids.has(connection.fromCardId) || ids.has(connection.toCardId),
     )
 
-    removeLocalCard(cardId)
+    for (const cardId of ids) removeLocalCard(cardId)
     for (const item of localItems) removeLocalItem(item.id)
     for (const connection of localConnections) {
       removeLocalConnection(connection.id)
@@ -918,11 +929,13 @@ export const useBoardStore = defineStore('board', () => {
 
     try {
       await db.transaction('rw', db.cards, async () => {
-        await db.cards.put(deleted)
+        await db.cards.bulkPut(plainRecord(deletedCards))
       })
       broadcastWorkspaceChange('all')
     } catch (cause) {
-      replaceLocalCard(cardSnapshot)
+      for (const cardSnapshot of cardSnapshots) {
+        replaceLocalCard(cardSnapshot)
+      }
       for (const item of localItems) replaceLocalItem(plainRecord(item))
       for (const connection of localConnections) {
         replaceLocalConnection(plainRecord(connection))
@@ -935,7 +948,7 @@ export const useBoardStore = defineStore('board', () => {
 
     // A visibility refresh can race the delete transaction. Re-apply the
     // durable result after commit so a stale read cannot resurrect the card.
-    removeLocalCard(cardId)
+    for (const cardId of ids) removeLocalCard(cardId)
     for (const item of relatedItems) removeLocalItem(item.id)
     for (const connection of relatedConnections) {
       removeLocalConnection(connection.id)
@@ -943,16 +956,22 @@ export const useBoardStore = defineStore('board', () => {
     pruneSelectedItems()
 
     record({
-      label: '删除卡片',
+      label:
+        cardSnapshots.length === 1
+          ? '删除卡片'
+          : `删除 ${cardSnapshots.length} 张卡片`,
       undo: async () => {
-        const restored: Card = { ...cardSnapshot }
-        delete restored.isDeleted
-
-        await db.transaction('rw', db.cards, async () => {
-          await db.cards.put(restored)
+        const restoredCards: Card[] = cardSnapshots.map((cardSnapshot) => {
+          const restored: Card = { ...cardSnapshot }
+          delete restored.isDeleted
+          return restored
         })
 
-        replaceLocalCard(restored)
+        await db.transaction('rw', db.cards, async () => {
+          await db.cards.bulkPut(plainRecord(restoredCards))
+        })
+
+        for (const restored of restoredCards) replaceLocalCard(restored)
         for (const item of relatedItems) {
           if (item.boardId === activeBoardId.value) replaceLocalItem(item)
         }
@@ -965,10 +984,10 @@ export const useBoardStore = defineStore('board', () => {
       },
       redo: async () => {
         await db.transaction('rw', db.cards, async () => {
-          await db.cards.put(deleted)
+          await db.cards.bulkPut(plainRecord(deletedCards))
         })
 
-        removeLocalCard(cardId)
+        for (const cardId of ids) removeLocalCard(cardId)
         for (const item of relatedItems) removeLocalItem(item.id)
         for (const connection of relatedConnections) {
           removeLocalConnection(connection.id)
@@ -980,42 +999,60 @@ export const useBoardStore = defineStore('board', () => {
     return true
   }
 
-  async function removeCardFromBoard(
-    cardId: string,
+  async function removeCardsFromBoard(
+    cardIds: string[],
     boardId = activeBoardId.value,
   ): Promise<boolean> {
     if (!boardId) return false
-    const card = cards.value.find((entry) => entry.id === cardId)
-    if (!card) return false
+    const requestedIds = new Set(cardIds)
+    if (!requestedIds.size) return false
 
-    const [allItems, allConnections] = await Promise.all([
-      db.boardItems.where('cardId').equals(cardId).toArray(),
-      db.connections
-        .where('boardId')
-        .equals(boardId)
-        .filter(
-          (connection) =>
-            connection.fromCardId === cardId || connection.toCardId === cardId,
-        )
-        .toArray(),
+    const [itemLists, boardConnections] = await Promise.all([
+      Promise.all(
+        [...requestedIds].map((cardId) =>
+          db.boardItems.where('cardId').equals(cardId).toArray(),
+        ),
+      ),
+      db.connections.where('boardId').equals(boardId).toArray(),
     ])
+    const allItems = itemLists.flat()
     const items = allItems.filter((item) => item.boardId === boardId)
     if (!items.length) return false
 
-    const remainingProjection = allItems.some(
-      (item) => item.boardId !== boardId,
-    )
-    const cardSnapshot = plainRecord(card)
-    const deleted: Card | undefined = remainingProjection
-      ? undefined
-      : {
-          ...cardSnapshot,
-          isDeleted: true,
-          updatedAt: Date.now(),
-        }
+    const affectedIds = new Set(items.map((item) => item.cardId))
+    const cardSnapshots = cards.value
+      .filter((card) => affectedIds.has(card.id))
+      .map((card) => plainRecord(card))
+    if (!cardSnapshots.length) return false
 
-    if (deleted) await snapshotCardVersion(cardSnapshot)
-    removeLocalCard(cardId)
+    const allConnections = boardConnections.filter(
+      (connection) =>
+        affectedIds.has(connection.fromCardId) ||
+        affectedIds.has(connection.toCardId),
+    )
+    const retainedProjectionIds = new Set(
+      allItems
+        .filter(
+          (item) => item.boardId !== boardId && affectedIds.has(item.cardId),
+        )
+        .map((item) => item.cardId),
+    )
+    const deletedAt = Date.now()
+    const deletedCards: Card[] = cardSnapshots
+      .filter((card) => !retainedProjectionIds.has(card.id))
+      .map((card) => ({
+        ...card,
+        isDeleted: true,
+        updatedAt: deletedAt,
+      }))
+    const deletedCardIds = new Set(deletedCards.map((card) => card.id))
+
+    for (const cardSnapshot of cardSnapshots) {
+      if (deletedCardIds.has(cardSnapshot.id)) {
+        await snapshotCardVersion(cardSnapshot)
+      }
+    }
+    for (const cardId of affectedIds) removeLocalCard(cardId)
     for (const item of items) removeLocalItem(item.id)
     for (const connection of allConnections) {
       removeLocalConnection(connection.id)
@@ -1029,7 +1066,9 @@ export const useBoardStore = defineStore('board', () => {
         db.boardItems,
         db.connections,
         async () => {
-          if (deleted) await db.cards.put(deleted)
+          if (deletedCards.length) {
+            await db.cards.bulkPut(plainRecord(deletedCards))
+          }
           await db.boardItems.bulkDelete(items.map((item) => item.id))
           if (allConnections.length) {
             await db.connections.bulkDelete(
@@ -1040,7 +1079,9 @@ export const useBoardStore = defineStore('board', () => {
       )
       broadcastWorkspaceChange('all')
     } catch (cause) {
-      replaceLocalCard(cardSnapshot)
+      for (const cardSnapshot of cardSnapshots) {
+        replaceLocalCard(cardSnapshot)
+      }
       if (boardId === activeBoardId.value) {
         for (const item of items) replaceLocalItem(plainRecord(item))
         for (const connection of allConnections) {
@@ -1053,7 +1094,10 @@ export const useBoardStore = defineStore('board', () => {
     }
 
     record({
-      label: '从白板移除',
+      label:
+        cardSnapshots.length === 1
+          ? '从白板移除'
+          : `从当前白板移除 ${cardSnapshots.length} 张卡片`,
       undo: async () => {
         await db.transaction(
           'rw',
@@ -1061,10 +1105,13 @@ export const useBoardStore = defineStore('board', () => {
           db.boardItems,
           db.connections,
           async () => {
-            if (deleted) {
-              const restored: Card = { ...cardSnapshot }
-              delete restored.isDeleted
-              await db.cards.put(restored)
+            if (deletedCards.length) {
+              const restoredCards = deletedCards.map((card) => {
+                const restored: Card = { ...card }
+                delete restored.isDeleted
+                return restored
+              })
+              await db.cards.bulkPut(plainRecord(restoredCards))
             }
             await db.boardItems.bulkPut(items.map(plainRecord))
             if (allConnections.length) {
@@ -1072,7 +1119,9 @@ export const useBoardStore = defineStore('board', () => {
             }
           },
         )
-        replaceLocalCard(cardSnapshot)
+        for (const cardSnapshot of cardSnapshots) {
+          replaceLocalCard(cardSnapshot)
+        }
         if (boardId === activeBoardId.value) {
           for (const item of items) replaceLocalItem(plainRecord(item))
           for (const connection of allConnections) {
@@ -1088,7 +1137,9 @@ export const useBoardStore = defineStore('board', () => {
           db.boardItems,
           db.connections,
           async () => {
-            if (deleted) await db.cards.put(deleted)
+            if (deletedCards.length) {
+              await db.cards.bulkPut(plainRecord(deletedCards))
+            }
             await db.boardItems.bulkDelete(items.map((item) => item.id))
             if (allConnections.length) {
               await db.connections.bulkDelete(
@@ -1097,7 +1148,7 @@ export const useBoardStore = defineStore('board', () => {
             }
           },
         )
-        removeLocalCard(cardId)
+        for (const cardId of affectedIds) removeLocalCard(cardId)
         for (const item of items) removeLocalItem(item.id)
         for (const connection of allConnections) {
           removeLocalConnection(connection.id)
@@ -1107,6 +1158,17 @@ export const useBoardStore = defineStore('board', () => {
     })
 
     return true
+  }
+
+  async function deleteCard(cardId: string): Promise<boolean> {
+    return deleteCards([cardId])
+  }
+
+  async function removeCardFromBoard(
+    cardId: string,
+    boardId = activeBoardId.value,
+  ): Promise<boolean> {
+    return removeCardsFromBoard([cardId], boardId)
   }
 
   async function restoreCard(
@@ -1893,7 +1955,9 @@ export const useBoardStore = defineStore('board', () => {
     placeCard,
     addCardToBoard,
     captureAndPlace,
+    deleteCards,
     deleteCard,
+    removeCardsFromBoard,
     removeCardFromBoard,
     restoreCard,
     purgeCard,

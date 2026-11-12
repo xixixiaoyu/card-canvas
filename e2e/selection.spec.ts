@@ -222,3 +222,63 @@ test('selection cluster copies a connected Markdown synthesis', async ({
   expect(markdown).toContain('> ↳ 关联 [边界不是墙，是可移动的膜]')
   expect(markdown).toContain('---')
 })
+
+test('multi-selection can remove every selected card from the current board as one action', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  const bounds = await cardBounds(page)
+  await marquee(
+    page,
+    { x: Math.max(10, bounds.x - 24), y: Math.max(66, bounds.y - 20) },
+    {
+      x: Math.min(1270, bounds.right + 20),
+      y: Math.min(650, bounds.bottom + 20),
+    },
+  )
+  await expect(page.locator('[data-world-item].is-selected')).toHaveCount(3)
+
+  await page.getByRole('button', { name: '批量处理选中卡片' }).click()
+  const dialog = page.locator('[data-batch-delete-dialog]')
+  await expect(dialog).toContainText('处理 3 张卡片')
+  await dialog.locator('[data-batch-remove]').click()
+
+  await expect(page.getByText('已从当前白板移除 3 张卡片。')).toBeVisible()
+  await expect(page.locator('[data-world-item]')).toHaveCount(0)
+
+  await page.locator('header button[aria-label="撤销"]').click()
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+})
+
+test('multi-selection can move every selected card into trash and undo once', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  const bounds = await cardBounds(page)
+  await marquee(
+    page,
+    { x: Math.max(10, bounds.x - 24), y: Math.max(66, bounds.y - 20) },
+    {
+      x: Math.min(1270, bounds.right + 20),
+      y: Math.min(650, bounds.bottom + 20),
+    },
+  )
+
+  await page.getByRole('button', { name: '批量处理选中卡片' }).click()
+  await page.locator('[data-batch-delete-all]').click()
+  await expect(page.getByText('已将 3 张卡片移入回收站。')).toBeVisible()
+  await expect(page.locator('[data-world-item]')).toHaveCount(0)
+
+  await page.getByRole('button', { name: '数据与备份' }).click()
+  await page.getByRole('menuitem', { name: '回收站' }).click()
+  const trash = page.locator('[data-trash-modal]')
+  await expect(trash.locator('[data-trash-card]')).toHaveCount(3)
+  await trash.getByRole('button', { name: '关闭回收站' }).click()
+
+  await page.locator('header button[aria-label="撤销"]').click()
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+})

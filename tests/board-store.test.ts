@@ -533,6 +533,65 @@ describe('board store', () => {
     expect(board.cards.some((entry) => entry.id === card.id)).toBe(true)
   })
 
+  it('deletes selected cards as one undoable trash action', async () => {
+    const board = await freshBoard()
+    const ids = board.cards.slice(0, 2).map((card) => card.id)
+
+    expect(await board.deleteCards(ids)).toBe(true)
+    expect(board.cards.map((card) => card.id)).not.toEqual(
+      expect.arrayContaining(ids),
+    )
+    expect(board.items).toHaveLength(1)
+    expect(board.undoLabel).toBe('删除 2 张卡片')
+    for (const id of ids) {
+      expect((await db.cards.get(id))?.isDeleted).toBe(true)
+    }
+
+    await board.undo()
+    expect(board.cards.map((card) => card.id)).toEqual(
+      expect.arrayContaining(ids),
+    )
+    expect(board.items).toHaveLength(3)
+    for (const id of ids) {
+      expect((await db.cards.get(id))?.isDeleted).toBeUndefined()
+    }
+
+    await board.redo()
+    expect(board.items).toHaveLength(1)
+  })
+
+  it('removes selected cards from one board without deleting shared content', async () => {
+    const board = await freshBoard()
+    const shared = board.cards[0]!
+    const exclusive = board.cards[1]!
+    await db.boards.put({
+      id: 'board-batch-remove',
+      name: '批量移除目标板',
+      createdAt: 2,
+      updatedAt: 2,
+    })
+    await board.addCardToBoard(shared.id, 'board-batch-remove')
+
+    expect(
+      await board.removeCardsFromBoard([shared.id, exclusive.id], 'board-main'),
+    ).toBe(true)
+    expect(board.items).toHaveLength(1)
+    expect(board.undoLabel).toBe('从当前白板移除 2 张卡片')
+    expect((await db.cards.get(shared.id))?.isDeleted).toBeUndefined()
+    expect((await db.cards.get(exclusive.id))?.isDeleted).toBe(true)
+    expect(
+      await db.boardItems
+        .where('boardId')
+        .equals('board-batch-remove')
+        .filter((item) => item.cardId === shared.id)
+        .count(),
+    ).toBe(1)
+
+    await board.undo()
+    expect(board.items).toHaveLength(3)
+    expect((await db.cards.get(exclusive.id))?.isDeleted).toBeUndefined()
+  })
+
   it('restores trashed cards to the current board and permanently purges them', async () => {
     const board = await freshBoard()
     const card = board.cards[0]!
