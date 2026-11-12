@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../src/db'
+import { SYNC_META_KEYS } from '../src/lib/sync/types'
 import { useBoardStore } from '../src/stores/board'
 import type { Board } from '../src/types'
 
@@ -130,5 +131,50 @@ describe('board and card isolation', () => {
     expect(
       await db.boardItems.where('boardId').equals('board-isolation-c').count(),
     ).toBe(1)
+  })
+
+  it('keeps cloud cards hidden until their real board projection arrives', async () => {
+    await db.open()
+    await db.boards.bulkPut(boards)
+    await db.syncMeta.put({
+      key: SYNC_META_KEYS.ownerId,
+      value: 'cloud-owner',
+    })
+    await db.cards.put({
+      id: 'card-partial-cloud-sync',
+      title: '价值观卡片',
+      content: '只在价值观白板',
+      tags: ['心理学'],
+      createdAt: 1,
+      updatedAt: 1,
+    })
+
+    const board = useBoardStore()
+    await board.initialize('board-isolation-c')
+
+    expect(board.entries).toHaveLength(0)
+    expect(
+      await db.boardItems
+        .where('cardId')
+        .equals('card-partial-cloud-sync')
+        .count(),
+    ).toBe(0)
+
+    await db.boardItems.put({
+      id: 'projection-values-only',
+      cardId: 'card-partial-cloud-sync',
+      boardId: 'board-isolation-b',
+      x: 24,
+      y: 32,
+      width: 420,
+    })
+
+    await board.refresh()
+    expect(board.entries).toHaveLength(0)
+
+    await board.loadBoard('board-isolation-b')
+    expect(board.entries.map((entry) => entry.card.title)).toEqual([
+      '价值观卡片',
+    ])
   })
 })

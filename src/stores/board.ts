@@ -8,6 +8,7 @@ import {
 } from '../lib/tab-sync'
 import { normalizeTags } from '../lib/tags'
 import { toggleTaskLine } from '../lib/atomic-markdown'
+import { SYNC_META_KEYS } from '../lib/sync/types'
 import type { BoardItem, Card, CardVersion, Connection } from '../types'
 import { plainRecord } from '../lib/plain-record'
 import { useToastStore } from './toast'
@@ -56,6 +57,7 @@ const DEFAULT_CARD_WIDTH = 420
 const HISTORY_LIMIT = 50
 const CARD_VERSION_LIMIT = 8
 const CARD_VERSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+const LEGACY_PLACEMENT_MIGRATION_KEY = 'legacy-unplaced-migrated'
 
 function normalizeCard(card: Card): Card {
   return { ...card, tags: normalizeTags(card.tags ?? []) }
@@ -345,48 +347,69 @@ export const useBoardStore = defineStore('board', () => {
   }
 
   /**
-   * Legacy/unplaced cards must not become invisible after the inbox removal.
-   * Any card with no projection on any board is placed on the active board in
-   * a deterministic grid to the right of existing content.
+   * Before cloud sync existed, removing the inbox could leave a legacy card
+   * without a projection. Migrate those records exactly once, and only while
+   * this browser is still local-only. Cloud workspaces must wait for both
+   * cards and board_items to finish pulling before deciding a card is orphaned.
    */
-  async function placeMissingCards(
+  async function migrateLegacyUnplacedCardsOnce(
     boardId: string,
-    liveCards: Card[],
   ): Promise<BoardItem[]> {
     try {
-      // Read + write inside one transaction so concurrent loads/refreshes
-      // cannot create duplicate projections for the same legacy card.
-      const snapshots = await db.transaction('rw', db.boardItems, async () => {
-        const allItems = await db.boardItems.toArray()
-        const placedCardIds = new Set(allItems.map((item) => item.cardId))
-        const missing = liveCards.filter((card) => !placedCardIds.has(card.id))
-        if (!missing.length) return [] as BoardItem[]
+      const snapshots = await db.transaction(
+        'rw',
+        db.cards,
+        db.boardItems,
+        db.syncMeta,
+        async () => {
+          const [owner, migration, allCards, allItems] = await Promise.all([
+            db.syncMeta.get(SYNC_META_KEYS.ownerId),
+            db.syncMeta.get(LEGACY_PLACEMENT_MIGRATION_KEY),
+            db.cards.toArray(),
+            db.boardItems.toArray(),
+          ])
+          if (owner || migration?.value === true) return [] as BoardItem[]
 
-        const activeItems = allItems.filter((item) => item.boardId === boardId)
-        const baseX = activeItems.length
-          ? Math.max(
-              ...activeItems.map(
-                (item) => item.x + (item.width ?? DEFAULT_CARD_WIDTH),
-              ),
-            ) + 120
-          : 0
-        const baseY = activeItems.length
-          ? Math.min(...activeItems.map((item) => item.y))
-          : -150
+          const liveCards = allCards
+            .filter((card) => !card.isDeleted)
+            .map(normalizeCard)
+          const placedCardIds = new Set(allItems.map((item) => item.cardId))
+          const missing = liveCards.filter(
+            (card) => !placedCardIds.has(card.id),
+          )
 
-        const created: BoardItem[] = missing.map((card, index) => ({
-          id: `projection-${crypto.randomUUID()}`,
-          cardId: card.id,
-          boardId,
-          x: baseX + (index % 2) * 460,
-          y: baseY + Math.floor(index / 2) * 340,
-          width: DEFAULT_CARD_WIDTH,
-        }))
-        const next = plainRecord(created)
+          const activeItems = allItems.filter(
+            (item) => item.boardId === boardId,
+          )
+          const baseX = activeItems.length
+            ? Math.max(
+                ...activeItems.map(
+                  (item) => item.x + (item.width ?? DEFAULT_CARD_WIDTH),
+                ),
+              ) + 120
+            : 0
+          const baseY = activeItems.length
+            ? Math.min(...activeItems.map((item) => item.y))
+            : -150
 
-        await db.boardItems.bulkPut(next)
-        return next
-      })
+          const created: BoardItem[] = missing.map((card, index) => ({
+            id: `projection-${crypto.randomUUID()}`,
+            cardId: card.id,
+            boardId,
+            x: baseX + (index % 2) * 460,
+            y: baseY + Math.floor(index / 2) * 340,
+            width: DEFAULT_CARD_WIDTH,
+          }))
+          const next = plainRecord(created)
+
+          if (next.length) await db.boardItems.bulkPut(next)
+          await db.syncMeta.put({
+            key: LEGACY_PLACEMENT_MIGRATION_KEY,
+            value: true,
+          })
+          return next
+        },
+      )
 
       if (snapshots.length) {
         broadcastWorkspaceChange('items', boardId)
@@ -417,13 +440,8 @@ export const useBoardStore = defineStore('board', () => {
       const snapshot = await readBoard(boardId)
       if (token !== loadToken) return
 
-      const migrated = await placeMissingCards(boardId, snapshot.cards)
-      if (token !== loadToken) return
-
       cards.value = snapshot.cards
-      items.value = [...snapshot.items, ...migrated].sort((a, b) =>
-        a.id.localeCompare(b.id),
-      )
+      items.value = snapshot.items.sort((a, b) => a.id.localeCompare(b.id))
       connections.value = snapshot.connections
       selectedItemIds.value = new Set()
       selectedConnectionId.value = null
@@ -489,6 +507,7 @@ export const useBoardStore = defineStore('board', () => {
           await db.boardItems.bulkDelete(orphanItemIds)
         }
 
+        await migrateLegacyUnplacedCardsOnce(boardId)
         await loadBoard(boardId)
       } catch (cause) {
         status.value = 'error'
@@ -1730,14 +1749,11 @@ export const useBoardStore = defineStore('board', () => {
         .filter((card) => !card.isDeleted)
         .map(normalizeCard)
       const liveCardIds = new Set(liveCards.map((card) => card.id))
-      const migrated = await placeMissingCards(boardId, liveCards)
-      if (activeBoardId.value !== boardId || status.value !== 'ready') return
 
       cards.value = liveCards
-      items.value = [
-        ...storedItems.filter((item) => liveCardIds.has(item.cardId)),
-        ...migrated,
-      ].sort((a, b) => a.id.localeCompare(b.id))
+      items.value = storedItems
+        .filter((item) => liveCardIds.has(item.cardId))
+        .sort((a, b) => a.id.localeCompare(b.id))
       connections.value = await db.connections
         .where('boardId')
         .equals(boardId)

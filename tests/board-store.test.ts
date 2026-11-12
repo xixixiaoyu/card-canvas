@@ -594,8 +594,9 @@ describe('board store', () => {
     expect(await db.boardItems.count()).toBe(0)
   })
 
-  it('migrates cards without any projection onto the active board', async () => {
-    const board = await freshBoard()
+  it('migrates local legacy cards without projections only once', async () => {
+    await db.delete()
+    await db.open()
     await db.cards.put({
       id: 'card-legacy-unplaced',
       title: '历史未上板',
@@ -604,6 +605,10 @@ describe('board store', () => {
       createdAt: 1,
       updatedAt: 1,
     })
+
+    setActivePinia(createPinia())
+    const board = useBoardStore()
+    await board.initialize('board-main')
 
     await board.refresh()
 
@@ -619,6 +624,20 @@ describe('board store', () => {
         .equals('card-legacy-unplaced')
         .count(),
     ).toBe(1)
+
+    await db.cards.put({
+      id: 'card-new-unplaced',
+      title: '同步中尚未到达投影',
+      content: '',
+      tags: [],
+      createdAt: 2,
+      updatedAt: 2,
+    })
+
+    await board.refresh()
+    expect(
+      await db.boardItems.where('cardId').equals('card-new-unplaced').count(),
+    ).toBe(0)
   })
 
   it('rolls back a failed capture and surfaces the error', async () => {

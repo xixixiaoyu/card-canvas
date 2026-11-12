@@ -323,6 +323,7 @@ export const useSyncStore = defineStore('sync', () => {
     const supabase = await getSupabaseClient()
     if (!supabase) return false
     let changed = false
+    let completed = false
 
     try {
       for (const table of SYNC_TABLES) {
@@ -360,8 +361,11 @@ export const useSyncStore = defineStore('sync', () => {
           await writeMeta(cursorKey, JSON.stringify(nextCursor))
         }
       }
+      // Cards are pulled before their board projections. Publishing a partial
+      // pass would briefly make them look like orphaned cards to the board UI.
+      completed = true
     } finally {
-      if (changed && isCurrent()) {
+      if (completed && changed && isCurrent()) {
         broadcastWorkspaceChange('all')
         await useWorkspaceStore().loadBoards()
         const boardStore = useBoardStore()
