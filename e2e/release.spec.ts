@@ -12,7 +12,7 @@ test('? opens the shortcut map and Escape closes it', async ({ page }) => {
   await expect(dialog).toContainText('Navigate')
   await expect(dialog).toContainText('Focus')
   await expect(dialog).toContainText('Compose')
-  await expect(dialog).toContainText('v1.10.0')
+  await expect(dialog).toContainText('v1.10.1')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -73,14 +73,14 @@ test('an empty board invites the first capture and fades away', async ({
   await expect(page.locator('[data-world-item]')).toContainText('第一块灵感')
 })
 
-test('v1.10.0 metadata is present in the shell and document head', async ({
+test('v1.10.1 metadata is present in the shell and document head', async ({
   page,
 }) => {
   await page.goto('/')
-  await expect(page.locator('.brand-subtitle')).toContainText('v1.10.0')
+  await expect(page.locator('.brand-subtitle')).toContainText('v1.10.1')
   await expect(
     page.locator('footer').filter({ hasText: 'Local-first' }),
-  ).toContainText('v1.10.0')
+  ).toContainText('v1.10.1')
 
   await expect(page.locator('meta[name="application-name"]')).toHaveAttribute(
     'content',
@@ -108,23 +108,64 @@ test('mobile header and HUD remain inside the viewport', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
 
-  const theme = page.getByRole('button', { name: /切换到.*主题/ })
+  const board = page.getByRole('button', { name: '切换白板' })
   const today = page.getByRole('button', { name: '创建今日待办卡片' })
-  const ai = page.getByRole('button', { name: /AI 认知辅助/ })
+  const more = page.getByRole('button', { name: '更多工具' })
   const zoomOut = page.getByRole('button', { name: '缩小画布' })
   const arrange = page.getByRole('button', { name: '一键整理当前白板' })
   const help = page.getByRole('button', { name: '查看快捷键' })
 
-  for (const control of [today, ai, theme, zoomOut, arrange, help]) {
+  await expect(board).toContainText('我的白板')
+  for (const control of [board, today, more, zoomOut, arrange, help]) {
     const box = await control.boundingBox()
     expect(box).not.toBeNull()
     expect(box!.x).toBeGreaterThanOrEqual(0)
     expect(box!.x + box!.width).toBeLessThanOrEqual(390)
   }
 
+  await more.click()
+  const utilityMenu = page.getByRole('menu', { name: '更多工具' })
+  await expect(
+    utilityMenu.getByRole('menuitem', { name: /AI 认知辅助/ }),
+  ).toBeVisible()
+  await expect(
+    utilityMenu.getByRole('menuitem', { name: /切换.*主题/ }),
+  ).toBeVisible()
+
   const zoomBox = await zoomOut.boundingBox()
   expect(zoomBox!.width).toBeGreaterThanOrEqual(39.9)
   expect(zoomBox!.height).toBeGreaterThanOrEqual(39.9)
+})
+
+test('compact mobile header keeps board context and utility actions reachable', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 800 })
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  const board = page.getByRole('button', { name: '切换白板' })
+  const more = page.getByRole('button', { name: '更多工具' })
+  await expect(board).toContainText('我的白板')
+
+  for (const control of [board, more]) {
+    const box = await control.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(320)
+  }
+
+  await more.click()
+  const utilityMenu = page.getByRole('menu', { name: '更多工具' })
+  const actionItem = utilityMenu.getByRole('menuitem', {
+    name: /行动透镜/,
+  })
+  await expect(actionItem).toBeVisible()
+  const actionBox = await actionItem.boundingBox()
+  expect(actionBox).not.toBeNull()
+  expect(actionBox!.height).toBeGreaterThanOrEqual(44)
+  expect(actionBox!.x).toBeGreaterThanOrEqual(0)
+  expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(320)
 })
 
 test('desktop history controls are labelled and stay in the viewport', async ({

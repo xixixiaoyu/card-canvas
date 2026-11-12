@@ -168,9 +168,9 @@ onBeforeUnmount(detachInteraction)
               </span>
               <div>
                 <p
-                  class="font-mono text-[8px] uppercase tracking-[0.22em] text-stone-400 dark:text-zinc-500"
+                  class="font-mono text-[9px] uppercase tracking-[0.18em] text-stone-400 dark:text-zinc-500"
                 >
-                  Shortcut Map · v1.10.0
+                  Shortcut Map · v1.10.1
                 </p>
                 <h2
                   :id="titleId"
@@ -178,7 +178,7 @@ onBeforeUnmount(detachInteraction)
                 >
                   快捷键备忘录
                 </h2>
-                <p class="mt-1 text-[11px] text-stone-500 dark:text-zinc-400">
+                <p class="mt-1 text-[12px] text-stone-500 dark:text-zinc-400">
                   键盘是一块更快的画布。输入框内不会触发。
                 </p>
               </div>
@@ -211,12 +211,12 @@ onBeforeUnmount(detachInteraction)
                   aria-hidden="true"
                 />
                 <h3
-                  class="text-[11px] font-medium text-stone-700 dark:text-zinc-300"
+                  class="text-[12px] font-medium text-stone-700 dark:text-zinc-300"
                 >
                   {{ group.title }}
                 </h3>
                 <span
-                  class="ml-auto font-mono text-[7px] uppercase tracking-[0.14em] text-stone-300 dark:text-zinc-600"
+                  class="ml-auto font-mono text-[8px] uppercase tracking-[0.12em] text-stone-400 dark:text-zinc-500"
                 >
                   {{ group.caption }}
                 </span>
@@ -229,7 +229,7 @@ onBeforeUnmount(detachInteraction)
                   class="flex items-start justify-between gap-2"
                 >
                   <dt
-                    class="min-w-0 text-[10px] leading-[1.55] text-stone-500 dark:text-zinc-400"
+                    class="min-w-0 text-[11px] leading-[1.62] text-stone-500 dark:text-zinc-400"
                   >
                     {{ item.label }}
                   </dt>
@@ -237,7 +237,7 @@ onBeforeUnmount(detachInteraction)
                     <kbd
                       v-for="key in item.keys"
                       :key="`${item.label}-${key}`"
-                      class="min-w-[1.35rem] rounded-md border border-stone-200/80 bg-white/75 px-1 py-0.5 text-center font-mono text-[8px] leading-[1.35] text-stone-600 shadow-[0_1px_0_rgba(41,37,36,0.04)] dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300"
+                      class="min-w-[1.45rem] rounded-md border border-stone-200/80 bg-white/75 px-1 py-0.5 text-center font-mono text-[9px] leading-[1.4] text-stone-600 shadow-[0_1px_0_rgba(41,37,36,0.04)] dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-300"
                     >
                       {{ key }}
                     </kbd>
@@ -248,7 +248,7 @@ onBeforeUnmount(detachInteraction)
           </div>
 
           <footer
-            class="mt-4 flex flex-col gap-2 border-t border-stone-200/70 pt-3 font-mono text-[8px] uppercase tracking-[0.14em] text-stone-400 sm:flex-row sm:items-center sm:justify-between dark:border-white/[0.08] dark:text-zinc-600"
+            class="mt-4 flex flex-col gap-2 border-t border-stone-200/70 pt-3 font-mono text-[9px] uppercase tracking-[0.12em] text-stone-400 sm:flex-row sm:items-center sm:justify-between dark:border-white/[0.08] dark:text-zinc-500"
           >
             <span>Esc 关闭 · 点击遮罩关闭</span>
             <span>Windows / Linux 使用 Ctrl 替代 ⌘</span>

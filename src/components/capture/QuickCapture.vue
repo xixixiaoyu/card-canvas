@@ -604,9 +604,11 @@ function reset() {
 
 async function focusContentAtEnd() {
   await nextTick()
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve())
-  })
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  )
+  await new Promise<void>((resolve) => setTimeout(resolve, 40))
+  if (!props.open) return
   const element = contentEl.value
   if (!element) return
   element.focus({ preventScroll: true })
@@ -1361,7 +1363,7 @@ onBeforeUnmount(() => {
 
             <button
               type="button"
-              class="inline-flex h-9 items-center gap-2 rounded-full bg-stone-900 px-4 text-[11px] font-medium tracking-[0.01em] text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-[background-color,opacity,transform] duration-200 hover:bg-stone-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500 disabled:shadow-none dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-800 dark:disabled:text-zinc-600"
+              class="inline-flex h-9 items-center gap-2 rounded-full border border-transparent bg-stone-900 px-4 text-[11px] font-medium tracking-[0.01em] text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-[background-color,border-color,color,opacity,transform] duration-200 hover:bg-stone-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:border-stone-300/80 disabled:bg-stone-200/85 disabled:text-stone-500 disabled:opacity-100 disabled:shadow-none dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:border-white/10 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
               :disabled="!canSave"
               @click="save"
             >

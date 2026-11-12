@@ -6,6 +6,7 @@ import { useBoardStore } from '../../stores/board'
 
 const props = defineProps<{
   open: boolean
+  triggerClass?: string
 }>()
 
 const emit = defineEmits<{
@@ -77,7 +78,7 @@ onBeforeUnmount(() => {
     <button
       type="button"
       class="group relative flex h-10 items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 py-1 pl-1 pr-1 text-stone-500 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color,opacity,box-shadow] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 sm:pr-2.5 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/30"
-      :class="{ 'opacity-60': tasks.length === 0 }"
+      :class="[triggerClass, { 'opacity-60': tasks.length === 0 }]"
       :aria-label="
         tasks.length ? `行动透镜，${tasks.length} 个待办` : '行动透镜，无待办'
       "

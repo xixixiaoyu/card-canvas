@@ -198,7 +198,7 @@ onBeforeUnmount(() => {
   <div ref="rootEl" class="pointer-events-auto relative" data-canvas-ui>
     <button
       type="button"
-      class="inline-flex h-10 items-center gap-2 rounded-full border border-stone-200/80 bg-white/60 px-2.5 text-stone-600 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
+      class="inline-flex h-10 items-center gap-1.5 rounded-full border border-stone-200/80 bg-white/60 px-2 text-stone-600 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl transition-[background-color,border-color,color] duration-300 hover:border-stone-300/90 hover:bg-white hover:text-stone-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 sm:gap-2 sm:px-2.5 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-white/20 dark:hover:bg-zinc-900 dark:hover:text-zinc-100 dark:focus-visible:ring-white/25"
       aria-label="切换白板"
       aria-haspopup="menu"
       :aria-expanded="open"
@@ -206,7 +206,7 @@ onBeforeUnmount(() => {
     >
       <LayoutGrid :size="13" :stroke-width="1.7" aria-hidden="true" />
       <span
-        class="hidden max-w-[9rem] truncate text-[11px] font-medium md:inline"
+        class="max-w-[5.4rem] truncate text-[10px] font-medium max-[380px]:max-w-[4.2rem] sm:max-w-[9rem] sm:text-[11px]"
       >
         {{ workspace.activeBoardName }}
       </span>

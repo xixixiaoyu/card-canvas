@@ -495,6 +495,20 @@ onBeforeUnmount(() => {
         <header
           class="flex items-center gap-3 border-b border-stone-200/70 px-4 py-3.5 dark:border-white/[0.08]"
         >
+          <div
+            class="hidden shrink-0 flex-col border-r border-stone-200/70 pr-3 sm:flex dark:border-white/[0.08]"
+          >
+            <span
+              class="font-mono text-[8px] uppercase tracking-[0.16em] text-stone-400 dark:text-zinc-500"
+            >
+              Card Atlas
+            </span>
+            <span
+              class="mt-0.5 font-serif text-[12px] text-stone-700 dark:text-zinc-300"
+            >
+              卡片纵览
+            </span>
+          </div>
           <Search
             :size="16"
             :stroke-width="1.8"
@@ -513,7 +527,7 @@ onBeforeUnmount(() => {
           />
           <button
             type="button"
-            class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-amber-700/15 bg-amber-500/[0.055] px-2.5 text-[9px] font-medium text-amber-800 transition-colors hover:border-amber-700/25 hover:bg-amber-500/[0.1] disabled:cursor-not-allowed disabled:opacity-40 dark:border-amber-200/10 dark:bg-amber-200/[0.04] dark:text-amber-200 dark:hover:border-amber-200/20 dark:hover:bg-amber-200/[0.075]"
+            class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-amber-700/15 bg-amber-500/[0.055] px-2.5 text-[10px] font-medium text-amber-800 transition-colors hover:border-amber-700/25 hover:bg-amber-500/[0.1] disabled:cursor-not-allowed disabled:opacity-40 dark:border-amber-200/10 dark:bg-amber-200/[0.04] dark:text-amber-200 dark:hover:border-amber-200/20 dark:hover:bg-amber-200/[0.075]"
             :disabled="
               semanticState === 'loading' ||
               indexLoading ||
@@ -561,7 +575,7 @@ onBeforeUnmount(() => {
           >
             <button
               type="button"
-              class="rounded-full px-2.5 py-1 text-[9px] transition-colors"
+              class="rounded-full px-2.5 py-1 text-[10px] transition-colors"
               :class="
                 scope === 'board'
                   ? 'bg-stone-900 text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
@@ -575,7 +589,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="rounded-full px-2.5 py-1 text-[9px] transition-colors"
+              class="rounded-full px-2.5 py-1 text-[10px] transition-colors"
               :class="
                 scope === 'workspace'
                   ? 'bg-stone-900 text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-900'
@@ -592,7 +606,7 @@ onBeforeUnmount(() => {
           <div class="flex items-center gap-2">
             <button
               type="button"
-              class="rounded-full px-2 py-1 font-mono text-[8px] uppercase tracking-[0.1em] transition-colors"
+              class="rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[0.08em] transition-colors"
               :class="
                 sortMode === 'recent'
                   ? 'bg-stone-900/[0.06] text-stone-700 dark:bg-white/[0.08] dark:text-zinc-200'
@@ -606,7 +620,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="rounded-full px-2 py-1 font-mono text-[8px] uppercase tracking-[0.1em] transition-colors"
+              class="rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[0.08em] transition-colors"
               :class="
                 sortMode === 'title'
                   ? 'bg-stone-900/[0.06] text-stone-700 dark:bg-white/[0.08] dark:text-zinc-200'
@@ -650,7 +664,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          class="flex items-center justify-between px-4 pb-1.5 pt-2.5 font-mono text-[8px] uppercase tracking-[0.18em] text-stone-400 dark:text-zinc-600"
+          class="flex items-center justify-between px-4 pb-1.5 pt-2.5 font-mono text-[9px] uppercase tracking-[0.15em] text-stone-400 dark:text-zinc-500"
         >
           <span>{{ resultLabel }}</span>
           <span
@@ -716,7 +730,7 @@ onBeforeUnmount(() => {
 
             <span
               v-if="semanticReason(result)"
-              class="mt-1.5 flex items-start gap-1.5 text-[9px] leading-4 text-amber-800/80 dark:text-amber-200/70"
+              class="mt-1.5 flex items-start gap-1.5 text-[10px] leading-4 text-amber-800/85 dark:text-amber-200/75"
             >
               <Sparkles
                 :size="9"
@@ -833,7 +847,7 @@ onBeforeUnmount(() => {
         </div>
 
         <footer
-          class="flex items-center justify-between border-t border-stone-200/70 px-4 py-2.5 font-mono text-[8px] uppercase tracking-[0.14em] text-stone-400 dark:border-white/[0.08] dark:text-zinc-600"
+          class="flex items-center justify-between border-t border-stone-200/70 px-4 py-2.5 font-mono text-[9px] uppercase tracking-[0.12em] text-stone-400 dark:border-white/[0.08] dark:text-zinc-500"
         >
           <div class="flex items-center gap-2">
             <span>↑↓ 选择</span>

@@ -25,9 +25,11 @@ import EmptyBoardState from './components/canvas/EmptyBoardState.vue'
 import CloudAccount from './components/auth/CloudAccount.vue'
 import BoardSwitcher from './components/board/BoardSwitcher.vue'
 import DataMenu from './components/ui/DataMenu.vue'
+import MobileUtilityMenu from './components/ui/MobileUtilityMenu.vue'
 import ToastStack from './components/ui/ToastStack.vue'
 import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
+import { collectPendingTasks } from './lib/atomic-markdown'
 import { getItemRect } from './lib/card-metrics'
 import { cardHasTag } from './lib/galaxy'
 import { arrangeCards, arrangeConnectedClusters } from './lib/card-layout'
@@ -128,6 +130,20 @@ const selectionAnnouncement = computed(() => {
   const card = board.cards.find((entry) => entry.id === item.cardId)
   return card ? `已选中：${card.title}` : '已选中卡片'
 })
+
+const pendingActionCount = computed(
+  () =>
+    collectPendingTasks(
+      board.entries.map((entry) => ({
+        cardId: entry.card.id,
+        itemId: entry.item.id,
+        title: entry.card.title,
+        content: entry.card.content,
+        x: entry.item.x,
+        y: entry.item.y,
+      })),
+    ).length,
+)
 
 const databaseLabel = computed(() => {
   if (board.status === 'ready') return 'Dexie ready'
@@ -886,7 +902,7 @@ onBeforeUnmount(() => {
       </Transition>
 
       <header
-        class="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 px-3 py-5 sm:px-8 sm:py-7"
+        class="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 px-3 py-5 max-[380px]:gap-1 max-[380px]:px-2 sm:px-8 sm:py-7"
       >
         <div class="flex items-center gap-3">
           <div
@@ -907,7 +923,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.10.0 · Local-first
+              v1.10.1 · Local-first
             </p>
           </div>
 
@@ -962,7 +978,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div
-            class="topbar-action-cluster flex items-center rounded-full border border-stone-200/80 bg-white/60 p-1 shadow-[0_1px_2px_rgba(41,37,36,0.04)] backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/60"
+            class="topbar-action-cluster flex items-center rounded-full border border-stone-200/80 bg-white/80 p-1 shadow-[0_1px_2px_rgba(41,37,36,0.04)] dark:border-white/10 dark:bg-zinc-900/80"
             data-topbar-actions
           >
             <button
@@ -999,78 +1015,93 @@ onBeforeUnmount(() => {
 
             <ActionLens
               v-model:open="isActionTrayOpen"
+              trigger-class="max-[380px]:hidden"
               @focus="handleActionTaskFocus"
               @toggle="board.toggleCardTask($event.cardId, $event.lineIndex)"
             />
-            <button
-              type="button"
-              data-canvas-ui
-              data-ai-entry
-              class="topbar-cluster-action relative"
-              :aria-label="
-                ai.hasKey ? 'AI 认知辅助，已配置' : 'AI 认知辅助，尚未配置'
-              "
-              aria-haspopup="dialog"
-              :title="
-                ai.hasKey
-                  ? 'AI 认知辅助 · 已配置'
-                  : 'AI 认知辅助 · 配置 DeepSeek Key'
-              "
-              @click="isAISettingsOpen = true"
-            >
-              <span
-                class="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-amber-700 dark:text-amber-200"
+            <span class="hidden sm:contents">
+              <button
+                type="button"
+                data-canvas-ui
+                data-ai-entry
+                class="topbar-cluster-action relative"
+                :aria-label="
+                  ai.hasKey ? 'AI 认知辅助，已配置' : 'AI 认知辅助，尚未配置'
+                "
+                aria-haspopup="dialog"
+                :title="
+                  ai.hasKey
+                    ? 'AI 认知辅助 · 已配置'
+                    : 'AI 认知辅助 · 配置 DeepSeek Key'
+                "
+                @click="isAISettingsOpen = true"
               >
-                <Sparkles :size="14" :stroke-width="1.7" aria-hidden="true" />
                 <span
-                  v-if="ai.hasKey"
-                  class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full border border-white bg-emerald-500 dark:border-zinc-900"
-                  aria-hidden="true"
-                />
-              </span>
-            </button>
+                  class="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-amber-700 dark:text-amber-200"
+                >
+                  <Sparkles :size="14" :stroke-width="1.7" aria-hidden="true" />
+                  <span
+                    v-if="ai.hasKey"
+                    class="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full border border-white bg-emerald-500 dark:border-zinc-900"
+                    aria-hidden="true"
+                  />
+                </span>
+              </button>
+            </span>
 
             <span class="topbar-cluster-divider" aria-hidden="true" />
 
             <CloudAccount />
             <DataMenu @open-trash="isTrashOpen = true" />
 
-            <button
-              type="button"
-              data-canvas-ui
-              class="topbar-cluster-action group"
-              :aria-label="isDark ? '切换到浅色主题' : '切换到深色主题'"
-              :aria-pressed="isDark"
-              :title="isDark ? '切换到浅色主题' : '切换到深色主题'"
-              @click="toggleTheme()"
-            >
-              <span
-                class="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full text-stone-600 dark:text-zinc-300"
+            <span class="hidden sm:contents">
+              <button
+                type="button"
+                data-canvas-ui
+                class="topbar-cluster-action group"
+                :aria-label="isDark ? '切换到浅色主题' : '切换到深色主题'"
+                :aria-pressed="isDark"
+                :title="isDark ? '切换到浅色主题' : '切换到深色主题'"
+                @click="toggleTheme()"
               >
-                <Transition name="theme-icon" mode="out-in">
-                  <Sun
-                    v-if="!isDark"
-                    key="sun"
-                    :size="15"
-                    :stroke-width="1.7"
-                    aria-hidden="true"
-                  />
-                  <Moon
-                    v-else
-                    key="moon"
-                    :size="14"
-                    :stroke-width="1.7"
-                    aria-hidden="true"
-                  />
-                </Transition>
-              </span>
-            </button>
+                <span
+                  class="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full text-stone-600 dark:text-zinc-300"
+                >
+                  <Transition name="theme-icon" mode="out-in">
+                    <Sun
+                      v-if="!isDark"
+                      key="sun"
+                      :size="15"
+                      :stroke-width="1.7"
+                      aria-hidden="true"
+                    />
+                    <Moon
+                      v-else
+                      key="moon"
+                      :size="14"
+                      :stroke-width="1.7"
+                      aria-hidden="true"
+                    />
+                  </Transition>
+                </span>
+              </button>
+            </span>
+
+            <MobileUtilityMenu
+              class="sm:hidden"
+              :is-dark="isDark"
+              :ai-configured="ai.hasKey"
+              :pending-action-count="pendingActionCount"
+              @open-ai="isAISettingsOpen = true"
+              @open-actions="isActionTrayOpen = true"
+              @toggle-theme="toggleTheme()"
+            />
           </div>
         </div>
       </header>
 
       <footer
-        class="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden items-center justify-between gap-6 px-8 pb-6 font-mono text-[9px] uppercase tracking-[0.16em] text-stone-500 dark:text-zinc-500 lg:flex"
+        class="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden items-center justify-between gap-6 px-8 pb-6 font-mono text-[10px] uppercase tracking-[0.13em] text-stone-500 dark:text-zinc-500 lg:flex"
       >
         <div class="flex items-center gap-2.5" aria-live="polite">
           <span class="relative flex h-1.5 w-1.5" aria-hidden="true">
@@ -1089,7 +1120,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.10.0</span>
+          <span>v1.10.1</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">
@@ -1325,9 +1356,40 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.07) !important;
 }
 
+@media (max-width: 639px), (hover: none) {
+  .topbar-action-cluster {
+    gap: 0;
+    padding: 0.125rem;
+  }
+
+  .topbar-cluster-action {
+    min-width: 2.5rem;
+    height: 2.5rem;
+    justify-content: center;
+    padding: 0 0.4rem;
+  }
+
+  .topbar-cluster-divider {
+    margin: 0 0.08rem;
+  }
+
+  .topbar-action-cluster :deep([data-canvas-ui] > button) {
+    min-width: 2.5rem !important;
+    height: 2.5rem !important;
+  }
+}
+
 @media (max-width: 380px) {
   .brand-subtitle {
     display: none;
+  }
+
+  .topbar-cluster-action {
+    min-width: 2.375rem;
+  }
+
+  .topbar-action-cluster :deep([data-canvas-ui] > button) {
+    min-width: 2.375rem !important;
   }
 }
 

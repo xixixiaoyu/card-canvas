@@ -44,17 +44,20 @@
     --selection-bg: rgba(245, 222, 179, 0.22);
     --selection-fg: #f4f4f5;
     --card-shadow-rest:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 30px 80px -28px rgba(0, 0, 0, 0.9);
+      inset 0 1px 0 rgba(255, 255, 255, 0.075),
+      0 0 0 1px rgba(255, 255, 255, 0.018),
+      0 24px 65px -30px rgba(0, 0, 0, 0.96),
+      0 0 34px -24px rgba(148, 163, 184, 0.08);
     --card-shadow-hover:
-      inset 0 1px 0 rgba(255, 255, 255, 0.07),
-      0 36px 90px -26px rgba(0, 0, 0, 0.95),
-      0 0 40px -20px rgba(255, 255, 255, 0.06);
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 0 0 1px rgba(255, 255, 255, 0.025),
+      0 34px 78px -28px rgba(0, 0, 0, 0.98),
+      0 0 46px -22px rgba(186, 230, 253, 0.09);
     --card-shadow-drag:
       inset 0 1px 0 rgba(255, 255, 255, 0.08),
       0 45px 110px -30px rgba(0, 0, 0, 0.98),
       0 0 60px -18px rgba(148, 163, 184, 0.14);
-    --card-hover-border: rgba(255, 255, 255, 0.16);
+    --card-hover-border: rgba(255, 255, 255, 0.22);
     --card-selected-border: rgba(186, 230, 253, 0.3);
     --card-selection-border: rgba(186, 230, 253, 0.34);
     --card-selection-glow:

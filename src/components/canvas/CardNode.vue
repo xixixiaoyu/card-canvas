@@ -213,7 +213,7 @@ function tagTone(index: number) {
       />
 
       <div
-        class="note-card card-surface relative w-full overflow-hidden rounded-[26px] border border-stone-200/80 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-zinc-900/80"
+        class="note-card card-surface relative w-full overflow-hidden rounded-[26px] border border-stone-200/80 bg-white/95 backdrop-blur-md dark:border-white/[0.13] dark:bg-zinc-900/[0.93]"
         :class="{ 'note-card--compact': compact }"
       >
         <!-- A hairline of light along the top edge keeps the paper feeling physical. -->
@@ -380,20 +380,23 @@ function tagTone(index: number) {
           </template>
 
           <footer
+            v-if="card.tags.length || isDragging"
             class="card-footer mt-7 flex items-start justify-between gap-4 border-t border-stone-200/70 pt-4 dark:border-white/[0.08]"
+            :class="isDragging ? 'justify-between' : 'justify-end'"
           >
             <div
+              v-if="isDragging"
               class="flex shrink-0 items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400"
             >
               <span class="relative flex h-1.5 w-1.5" aria-hidden="true">
                 <span
-                  class="absolute inset-0 rounded-full bg-emerald-500/25 blur-[3px]"
+                  class="absolute inset-0 rounded-full bg-amber-500/30 blur-[3px]"
                 />
                 <span
-                  class="relative h-1.5 w-1.5 rounded-full bg-emerald-500/80"
+                  class="relative h-1.5 w-1.5 rounded-full bg-amber-500/85"
                 />
               </span>
-              <span>{{ isDragging ? '拖动中' : '已保存' }}</span>
+              <span>拖动中</span>
             </div>
 
             <div
@@ -635,6 +638,18 @@ function tagTone(index: number) {
   transition:
     background-color 160ms ease,
     color 160ms ease;
+}
+
+@media (hover: none), (max-width: 640px) {
+  .card-action {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .card-drag-grip {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
 }
 
 .card-action:hover {
