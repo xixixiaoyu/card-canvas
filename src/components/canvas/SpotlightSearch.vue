@@ -14,6 +14,7 @@ import {
   type SemanticSearchResult,
 } from '../../lib/ai/semantic-search'
 import { parseTaskLine } from '../../lib/atomic-markdown'
+import { cardDisplayTitle } from '../../lib/card-display'
 import {
   searchGlobalEntries,
   type GlobalSearchEntry,
@@ -77,8 +78,10 @@ const localResults = computed<GlobalSearchResult[]>(() => {
 
   return [...matches].sort(
     (a, b) =>
-      a.card.title.localeCompare(b.card.title, 'zh-CN') ||
-      a.entry.boardName.localeCompare(b.entry.boardName, 'zh-CN'),
+      cardDisplayTitle(a.card).localeCompare(
+        cardDisplayTitle(b.card),
+        'zh-CN',
+      ) || a.entry.boardName.localeCompare(b.entry.boardName, 'zh-CN'),
   )
 })
 
@@ -708,7 +711,7 @@ onBeforeUnmount(() => {
                 <span
                   class="block min-w-0 truncate font-serif text-[14px] font-medium tracking-[-0.01em] text-stone-800 dark:text-zinc-100"
                 >
-                  {{ result.card.title }}
+                  {{ cardDisplayTitle(result.card) }}
                 </span>
               </span>
 

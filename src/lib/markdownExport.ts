@@ -1,4 +1,5 @@
 import type { Card, Connection } from '../types'
+import { cardDisplayTitle } from './card-display'
 
 export interface MarkdownEntry {
   card: Card
@@ -42,7 +43,8 @@ function cardBlock(
   titles: Map<string, string>,
 ) {
   const { card } = entry
-  const sections: string[] = [`### ${card.title.trim() || '未命名卡片'}`]
+  const explicitTitle = card.title.trim()
+  const sections: string[] = explicitTitle ? [`### ${explicitTitle}`] : []
 
   if (card.tags.length) sections.push(tagsLine(card))
   if (card.content.trim()) sections.push(card.content.trim())
@@ -93,10 +95,7 @@ export function buildMarkdown(
     ordered.map((entry, index) => [entry.card.id, index]),
   )
   const titles = new Map(
-    ordered.map((entry) => [
-      entry.card.id,
-      entry.card.title.trim() || '未命名卡片',
-    ]),
+    ordered.map((entry) => [entry.card.id, cardDisplayTitle(entry.card)]),
   )
 
   const selectedConnections = connections.filter(

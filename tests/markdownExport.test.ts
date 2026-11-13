@@ -99,6 +99,15 @@ describe('markdown synthesis', () => {
     expect(markdown).toContain('\n\n---\n\n')
   })
 
+  it('keeps titleless pasted content in the body without inventing a heading', () => {
+    const markdown = buildMarkdown(
+      [entry(card('pasted', '', '# 原文标题\n\n完整正文'), 100, 100)],
+      [],
+    )
+
+    expect(markdown).toBe('# 原文标题\n\n完整正文')
+  })
+
   it('returns an empty string for an empty selection', () => {
     expect(buildMarkdown([], [])).toBe('')
   })

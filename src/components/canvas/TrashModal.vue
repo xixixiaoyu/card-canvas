@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ArchiveRestore, LoaderCircle, RotateCcw, Trash2, X } from '@lucide/vue'
 import { db } from '../../db'
+import { cardDisplayTitle } from '../../lib/card-display'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -65,7 +66,7 @@ async function restore(card: Card) {
     const item = await board.restoreCard(card.id, workspace.activeBoardId)
     if (!item) throw new Error('无法恢复卡片')
     cards.value = cards.value.filter((entry) => entry.id !== card.id)
-    toast.push(`已恢复「${card.title}」。`, {
+    toast.push(`已恢复「${cardDisplayTitle(card)}」。`, {
       tone: 'success',
       timeout: 3200,
     })
@@ -231,9 +232,10 @@ onBeforeUnmount(() => {
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
                     <h3
+                      v-if="card.title"
                       class="truncate font-serif text-[14px] text-stone-700 dark:text-zinc-200"
                     >
-                      {{ card.title || '未命名卡片' }}
+                      {{ card.title }}
                     </h3>
                     <p
                       class="mt-1 line-clamp-2 text-[10px] leading-5 text-stone-500 dark:text-zinc-400"

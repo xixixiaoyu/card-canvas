@@ -6,37 +6,33 @@ import {
 } from '../src/lib/paste-to-card'
 
 describe('paste to card', () => {
-  it('uses a short first line as the title and keeps the rest as content', () => {
+  it('keeps every pasted block in the body without inventing a title', () => {
     expect(
       buildPastedCardDraft(
         '  粘贴的内容\r\n第二段内容\r\n\r\n#学习 #Product  ',
       ),
     ).toEqual({
-      title: '粘贴的内容',
-      content: '第二段内容\n\n#学习 #Product',
+      content: '粘贴的内容\n第二段内容\n\n#学习 #Product',
       tags: ['学习', 'Product'],
     })
   })
 
-  it('removes Markdown heading markers from a derived title', () => {
+  it('keeps Markdown headings in the body', () => {
     expect(buildPastedCardDraft('## 长文摘录\n\n正文内容')).toEqual({
-      title: '长文摘录',
-      content: '正文内容',
+      content: '## 长文摘录\n\n正文内容',
       tags: [],
     })
   })
 
-  it('keeps lists and long first lines in the body', () => {
+  it('keeps lists and long text in the body', () => {
     expect(
       buildPastedCardDraft('- [ ] 第一件事\n- [ ] 第二件事'),
     ).toMatchObject({
-      title: '未命名卡片',
       content: '- [ ] 第一件事\n- [ ] 第二件事',
     })
 
     const longLine = '这是一段很长但仍然是正文的内容'.repeat(8)
     expect(buildPastedCardDraft(longLine)).toMatchObject({
-      title: '未命名卡片',
       content: longLine,
     })
   })

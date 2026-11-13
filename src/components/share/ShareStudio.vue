@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue'
 import { toBlob } from 'html-to-image'
 import type { Card } from '../../types'
+import { cardDisplayTitle } from '../../lib/card-display'
 import {
   buildShareFilename,
   SHARE_RATIOS,
@@ -148,7 +149,7 @@ async function downloadImage() {
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = buildShareFilename(
-      props.card.title,
+      cardDisplayTitle(props.card),
       selectedTheme.value.id,
       selectedRatio.value.id,
     )
@@ -309,7 +310,7 @@ onBeforeUnmount(() => {
                 <p
                   class="mt-0.5 truncate font-mono text-[8px] uppercase tracking-[0.16em] text-stone-400 dark:text-zinc-500"
                 >
-                  {{ card.title }} · private by default
+                  {{ cardDisplayTitle(card) }} · private by default
                 </p>
               </div>
             </div>

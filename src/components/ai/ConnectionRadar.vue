@@ -19,6 +19,7 @@ import {
   parseRadarSuggestions,
   RADAR_SYSTEM_PROMPT,
 } from '../../lib/ai/prompts'
+import { cardDisplayTitle } from '../../lib/card-display'
 import { useAIStore } from '../../stores/ai'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
@@ -84,6 +85,11 @@ function openAISettings() {
 
 function candidateFor(targetId: string) {
   return candidatesById.value.get(targetId) ?? null
+}
+
+function candidateTitle(targetId: string) {
+  const entry = candidateFor(targetId)
+  return entry ? cardDisplayTitle(entry.card) : ''
 }
 
 async function analyze() {
@@ -308,7 +314,9 @@ onBeforeUnmount(() => {
                 <p
                   class="mt-1 truncate text-[11px] text-stone-500 dark:text-zinc-400"
                 >
-                  从「{{ card.title }}」出发，只寻找值得落盘的深层联系
+                  从「{{
+                    cardDisplayTitle(card)
+                  }}」出发，只寻找值得落盘的深层联系
                 </p>
               </div>
             </div>
@@ -480,7 +488,7 @@ onBeforeUnmount(() => {
                       <h3
                         class="line-clamp-1 text-[12px] font-medium text-stone-700 dark:text-zinc-200"
                       >
-                        {{ candidateFor(suggestion.targetId)?.card.title }}
+                        {{ candidateTitle(suggestion.targetId) }}
                       </h3>
                       <span
                         class="shrink-0 rounded-full border border-stone-200/80 bg-stone-50 px-1.5 py-0.5 font-mono text-[8px] text-stone-400 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-zinc-500"

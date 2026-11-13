@@ -26,6 +26,7 @@ const contentLines = computed(() =>
     .split('\n')
     .filter((line, index, lines) => line || lines[index - 1]),
 )
+const hasTitle = computed(() => Boolean(props.card.title.trim()))
 const visibleHighlights = computed(
   () => props.card.highlights?.slice(0, 3) ?? [],
 )
@@ -80,8 +81,10 @@ const artworkStyle = computed<Record<string, string>>(() => ({
           </span>
         </div>
 
-        <h1 class="share-artwork__title">{{ card.title }}</h1>
-        <span class="share-artwork__rule" aria-hidden="true" />
+        <template v-if="hasTitle">
+          <h1 class="share-artwork__title">{{ card.title }}</h1>
+          <span class="share-artwork__rule" aria-hidden="true" />
+        </template>
 
         <div class="share-artwork__body">
           <p

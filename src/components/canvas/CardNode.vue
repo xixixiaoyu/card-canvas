@@ -19,6 +19,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { removeCardHeight, setCardHeight } from '../../lib/card-metrics'
+import { cardDisplayTitle } from '../../lib/card-display'
 import { tagMatches } from '../../lib/galaxy'
 import { useCardDrag, type CardDragCommit } from '../../composables/useCardDrag'
 import { canvasCameraKey, type CanvasCamera } from '../../composables/useCanvas'
@@ -108,6 +109,8 @@ onBeforeUnmount(() => {
 const compact = computed(() => (props.item.width ?? 420) < 360)
 const highlights = computed(() => props.card.highlights ?? [])
 const titleId = computed(() => `card-title-${props.card.id}`)
+const hasTitle = computed(() => Boolean(props.card.title.trim()))
+const displayTitle = computed(() => cardDisplayTitle(props.card))
 
 function handleLinkPointerDown(event: PointerEvent) {
   if (!connection) return
@@ -190,7 +193,8 @@ function tagTone(index: number) {
     }"
     :data-card-id="card.id"
     :data-item-id="item.id"
-    :aria-labelledby="titleId"
+    :aria-labelledby="hasTitle ? titleId : undefined"
+    :aria-label="hasTitle ? undefined : displayTitle"
     :aria-current="selected ? 'true' : undefined"
     data-world-item
     tabindex="0"
@@ -328,6 +332,7 @@ function tagTone(index: number) {
           </header>
 
           <h2
+            v-if="hasTitle"
             :id="titleId"
             class="card-title mt-7 font-serif text-[1.7rem] font-medium leading-[1.36] tracking-[-0.02em] text-stone-900 dark:text-zinc-100"
           >
@@ -335,7 +340,8 @@ function tagTone(index: number) {
           </h2>
 
           <AtomicMarkdown
-            class="card-content card-selectable mt-3.5 text-[0.9375rem] leading-[1.9] text-stone-600 dark:text-zinc-400"
+            class="card-content card-selectable text-[0.9375rem] leading-[1.9] text-stone-600 dark:text-zinc-400"
+            :class="hasTitle ? 'mt-3.5' : 'mt-7'"
             :content="card.content"
             :attachments="attachments"
             @toggle-task="emit('toggleTask', $event)"

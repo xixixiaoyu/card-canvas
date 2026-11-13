@@ -25,9 +25,10 @@ test('pasting text on the canvas creates one undoable card', async ({
   await expect(page.locator('[data-world-item]')).toHaveCount(4)
   const card = page
     .locator('[data-world-item]')
-    .filter({ has: page.getByRole('heading', { name: '剪贴板标题' }) })
+    .filter({ hasText: '剪贴板标题' })
   await expect(card).toBeVisible()
   await expect(card).toContainText('这是粘贴进来的正文。')
+  await expect(card.locator('h2')).toHaveCount(0)
   await expect(card.locator('[data-filter-tag="测试"]')).toBeVisible()
 
   const notice = page.getByRole('status').filter({ hasText: '已粘贴为卡片' })
@@ -60,6 +61,42 @@ test('pasting inside an editable field never creates a canvas card', async ({
 
   await expect(dialog).toBeVisible()
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
+})
+
+test('editing a titleless pasted card keeps the title empty', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  await pasteText(page, '第一行仍是正文\n\n第二段内容')
+  const card = page
+    .locator('[data-world-item]')
+    .filter({ hasText: '第一行仍是正文' })
+  await expect(card).toBeVisible()
+  await expect(card.locator('h2')).toHaveCount(0)
+
+  await card.focus()
+  await card.getByRole('button', { name: '编辑卡片' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel('卡片标题')).toHaveValue('')
+  await dialog
+    .getByLabel('卡片正文')
+    .fill('第一行仍是正文\n\n第二段内容\n\n补充内容')
+  await page.keyboard.press('Control+Enter')
+
+  await expect(card).toContainText('补充内容')
+  await expect(card.locator('h2')).toHaveCount(0)
+  await page.reload()
+  await expect(
+    page.locator('[data-world-item]').filter({ hasText: '补充内容' }),
+  ).toBeVisible()
+  await expect(
+    page
+      .locator('[data-world-item]')
+      .filter({ hasText: '补充内容' })
+      .locator('h2'),
+  ).toHaveCount(0)
 })
 
 test('pasting an image creates a card with an undoable attachment', async ({
@@ -95,10 +132,11 @@ test('pasting an image creates a card with an undoable attachment', async ({
   })
 
   await expect(page.locator('[data-world-item]')).toHaveCount(4)
-  const card = page
-    .locator('[data-world-item]')
-    .filter({ has: page.getByRole('heading', { name: '粘贴的图片' }) })
+  const card = page.locator('[data-world-item]').filter({
+    has: page.locator('.atomic-image img'),
+  })
   await expect(card).toBeVisible()
+  await expect(card.locator('h2')).toHaveCount(0)
   await expect(card.locator('.atomic-image img')).toBeVisible()
 
   const notice = page
@@ -117,7 +155,7 @@ test('pasting an image creates a card with an undoable attachment', async ({
   await expect(
     page
       .locator('[data-world-item]')
-      .filter({ has: page.getByRole('heading', { name: '粘贴的图片' }) })
+      .filter({ has: page.locator('.atomic-image img') })
       .locator('.atomic-image img'),
   ).toBeVisible()
 })

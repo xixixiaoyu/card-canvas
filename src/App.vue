@@ -36,6 +36,7 @@ import {
 } from './lib/attachments'
 import { getItemRect } from './lib/card-metrics'
 import { chooseCapturePlacement } from './lib/capture-placement'
+import { cardDisplayTitle } from './lib/card-display'
 import { cardHasTag } from './lib/galaxy'
 import { arrangeCards, arrangeConnectedClusters } from './lib/card-layout'
 import type { SpotlightTarget } from './lib/global-search'
@@ -143,7 +144,7 @@ const selectionAnnouncement = computed(() => {
 
   const item = board.selectedItems[0]
   const card = board.cards.find((entry) => entry.id === item.cardId)
-  return card ? `已选中：${card.title}` : '已选中卡片'
+  return card ? `已选中：${cardDisplayTitle(card)}` : '已选中卡片'
 })
 
 const pendingActionCount = computed(
@@ -152,7 +153,7 @@ const pendingActionCount = computed(
       board.entries.map((entry) => ({
         cardId: entry.card.id,
         itemId: entry.item.id,
-        title: entry.card.title,
+        title: cardDisplayTitle(entry.card),
         content: entry.card.content,
         x: entry.item.x,
         y: entry.item.y,
@@ -172,7 +173,7 @@ const carryoverTaskCount = computed(() => {
     .map((entry) => ({
       cardId: entry.card.id,
       itemId: entry.item.id,
-      title: entry.card.title,
+      title: cardDisplayTitle(entry.card),
       content: entry.card.content,
       x: entry.item.x,
       y: entry.item.y,
@@ -775,7 +776,7 @@ async function capturePastedClipboard(rawText: string, imageFiles: File[]) {
     .filter((part): part is string => Boolean(part))
     .join('\n\n')
   const draft = {
-    title: textDraft?.title ?? '粘贴的图片',
+    title: '',
     content,
     tags: textDraft?.tags ?? [],
   }
@@ -983,7 +984,7 @@ async function removeCardFromBoard() {
     )
     if (!removed) return
     isDeleteDialogOpen.value = false
-    toast.push(`已将「${card.title}」移出当前白板。`, {
+    toast.push(`已将「${cardDisplayTitle(card)}」移出当前白板。`, {
       tone: 'info',
       timeout: 5000,
       action: { label: '撤销', run: () => board.undo() },
@@ -1001,7 +1002,7 @@ async function deleteWholeCard() {
     const deleted = await board.deleteCard(card.id)
     if (!deleted) return
     isDeleteDialogOpen.value = false
-    toast.push(`已将「${card.title}」移入回收站。`, {
+    toast.push(`已将「${cardDisplayTitle(card)}」移入回收站。`, {
       tone: 'info',
       timeout: 5000,
       action: { label: '撤销', run: () => board.undo() },
@@ -1218,7 +1219,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.12.0 · Local-first
+              v1.13.0 · Local-first
             </p>
           </div>
 
@@ -1433,7 +1434,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.12.0</span>
+          <span>v1.13.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

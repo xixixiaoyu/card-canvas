@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { History, LoaderCircle, RotateCcw, X } from '@lucide/vue'
 import { db } from '../../db'
+import { cardDisplayTitle } from '../../lib/card-display'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
 import type { Card, CardVersion } from '../../types'
@@ -21,6 +22,9 @@ const panelEl = ref<HTMLElement | null>(null)
 const versions = ref<CardVersion[]>([])
 const loading = ref(false)
 const restoringId = ref<string | null>(null)
+const displayTitle = computed(() =>
+  props.card ? cardDisplayTitle(props.card) : '',
+)
 let restoreFocus: HTMLElement | null = null
 let restoreFocusAfterClose = false
 
@@ -150,7 +154,7 @@ onBeforeUnmount(() => {
                 <p
                   class="mt-1 max-w-[390px] truncate text-[11px] text-stone-500 dark:text-zinc-400"
                 >
-                  {{ card.title }}
+                  {{ displayTitle }}
                 </p>
               </div>
             </div>
@@ -196,7 +200,7 @@ onBeforeUnmount(() => {
                     <h3
                       class="truncate font-serif text-[13px] text-stone-700 dark:text-zinc-200"
                     >
-                      {{ version.title || '未命名卡片' }}
+                      {{ cardDisplayTitle(version) }}
                     </h3>
                     <p
                       class="mt-1 line-clamp-3 text-[10px] leading-5 text-stone-500 dark:text-zinc-400"

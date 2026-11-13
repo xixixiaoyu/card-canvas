@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ArrowRight, Check, ListTodo } from '@lucide/vue'
 import { collectPendingTasks } from '../../lib/atomic-markdown'
+import { cardDisplayTitle } from '../../lib/card-display'
 import { dailyTodoDeferral } from '../../lib/daily-todo'
 import { useBoardStore } from '../../stores/board'
 
@@ -32,7 +33,7 @@ const tasks = computed(() =>
     board.entries.map((entry) => ({
       cardId: entry.card.id,
       itemId: entry.item.id,
-      title: entry.card.title,
+      title: cardDisplayTitle(entry.card),
       content: entry.card.content,
       x: entry.item.x,
       y: entry.item.y,

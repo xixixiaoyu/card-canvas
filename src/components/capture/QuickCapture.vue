@@ -794,8 +794,9 @@ function save() {
       .split('\n')
       .map((line) => line.trim())
       .find(Boolean) ?? ''
-  const resolvedTitle = rawTitle || UNTITLED_CARD_TITLE
-  const needsAutoTitle = !rawTitle && Boolean(firstLine)
+  const editingCard = props.card
+  const resolvedTitle = rawTitle || (editingCard ? '' : UNTITLED_CARD_TITLE)
+  const needsAutoTitle = !editingCard && !rawTitle && Boolean(firstLine)
 
   const uniqueTags = mergeTags(
     tags.value,
@@ -809,7 +810,6 @@ function save() {
   }
   const tagContext = existingBoardTags()
   const attempt = ++saveAttempt
-  const editingCard = props.card
   const placement = buildPlacement()
 
   // Store publishes the card synchronously and persists in the background;

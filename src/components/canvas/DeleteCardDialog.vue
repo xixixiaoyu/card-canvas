@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { Trash2, Unlink, X } from '@lucide/vue'
 import { db } from '../../db'
+import { cardDisplayTitle } from '../../lib/card-display'
 import { useWorkspaceStore } from '../../stores/workspace'
 import type { Card } from '../../types'
 
@@ -24,6 +25,9 @@ let restoreFocus: HTMLElement | null = null
 let restoreFocusAfterClose = false
 
 const placementCount = computed(() => boardIds.value.length)
+const displayTitle = computed(() =>
+  props.card ? cardDisplayTitle(props.card) : '',
+)
 const boardNames = computed(() =>
   boardIds.value
     .map(
@@ -116,7 +120,7 @@ onBeforeUnmount(() => {
                 id="delete-card-title"
                 class="font-serif text-[19px] text-stone-800 dark:text-zinc-100"
               >
-                删除「{{ card.title }}」
+                删除「{{ displayTitle }}」
               </h2>
               <p
                 class="mt-1 text-[11px] leading-5 text-stone-500 dark:text-zinc-400"
