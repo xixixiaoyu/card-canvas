@@ -54,6 +54,21 @@ export const useAttachmentStore = defineStore('attachments', () => {
     return initialization
   }
 
+  function rememberForCard(cardId: string, nextAttachments: CardAttachment[]) {
+    if (!nextAttachments.length) return
+
+    const next = nextAttachments.map((attachment) =>
+      plainRecord({ ...attachment, cardId, isDeleted: undefined }),
+    )
+    const merged = new Map(
+      attachments.value.map((attachment) => [attachment.id, attachment]),
+    )
+    for (const attachment of next) merged.set(attachment.id, attachment)
+    attachments.value = [...merged.values()].sort(
+      (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+    )
+  }
+
   async function replaceForCard(
     cardId: string,
     nextAttachments: CardAttachment[],
@@ -66,13 +81,7 @@ export const useAttachmentStore = defineStore('attachments', () => {
       if (next.length) await db.attachments.bulkPut(next)
     })
 
-    const merged = new Map(
-      attachments.value.map((attachment) => [attachment.id, attachment]),
-    )
-    for (const attachment of next) merged.set(attachment.id, attachment)
-    attachments.value = [...merged.values()].sort(
-      (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
-    )
+    rememberForCard(cardId, next)
     broadcastWorkspaceChange('all')
   }
 
@@ -133,6 +142,7 @@ export const useAttachmentStore = defineStore('attachments', () => {
     forCard,
     refresh,
     initialize,
+    rememberForCard,
     replaceForCard,
     deleteForCards,
     startSync,

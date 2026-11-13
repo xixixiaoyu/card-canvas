@@ -10,7 +10,13 @@ import { normalizeTags } from '../lib/tags'
 import { parseAtomicMarkdown, toggleTaskLine } from '../lib/atomic-markdown'
 import { DAILY_TODO_TAG, isDailyTodoCard } from '../lib/daily-todo'
 import { SYNC_META_KEYS } from '../lib/sync/types'
-import type { BoardItem, Card, CardVersion, Connection } from '../types'
+import type {
+  BoardItem,
+  Card,
+  CardAttachment,
+  CardVersion,
+  Connection,
+} from '../types'
 import { plainRecord } from '../lib/plain-record'
 import { useToastStore } from './toast'
 
@@ -597,7 +603,12 @@ export const useBoardStore = defineStore('board', () => {
     input: CaptureCardInput,
     boardId: string,
     position: PlaceCardPosition,
-  ): Promise<{ card: Card; item: BoardItem }> {
+    inputAttachments: CardAttachment[] = [],
+  ): Promise<{
+    card: Card
+    item: BoardItem
+    attachments: CardAttachment[]
+  }> {
     if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) {
       throw new Error('Invalid placement position')
     }
@@ -613,6 +624,13 @@ export const useBoardStore = defineStore('board', () => {
     }
     const cardSnapshot = plainRecord(card)
     const itemSnapshot = plainRecord(item)
+    const attachmentSnapshots = inputAttachments.map((attachment) =>
+      plainRecord({
+        ...attachment,
+        cardId: card.id,
+        isDeleted: undefined,
+      }),
+    )
 
     replaceLocalCard(card)
     replaceLocalItem(item)
@@ -620,10 +638,19 @@ export const useBoardStore = defineStore('board', () => {
     markLanding(item.id)
 
     try {
-      await db.transaction('rw', db.cards, db.boardItems, async () => {
-        await db.cards.put(cardSnapshot)
-        await db.boardItems.put(itemSnapshot)
-      })
+      await db.transaction(
+        'rw',
+        db.cards,
+        db.boardItems,
+        db.attachments,
+        async () => {
+          await db.cards.put(cardSnapshot)
+          await db.boardItems.put(itemSnapshot)
+          if (attachmentSnapshots.length) {
+            await db.attachments.bulkPut(attachmentSnapshots)
+          }
+        },
+      )
       broadcastWorkspaceChange('all')
     } catch (cause) {
       removeLocalCard(card.id)
@@ -637,20 +664,40 @@ export const useBoardStore = defineStore('board', () => {
     record({
       label: '速记上板',
       undo: async () => {
-        await db.transaction('rw', db.cards, db.boardItems, async () => {
-          await db.cards.delete(card.id)
-          await db.boardItems.delete(item.id)
-        })
+        await db.transaction(
+          'rw',
+          db.cards,
+          db.boardItems,
+          db.attachments,
+          async () => {
+            await db.cards.delete(card.id)
+            await db.boardItems.delete(item.id)
+            if (attachmentSnapshots.length) {
+              await db.attachments.bulkDelete(
+                attachmentSnapshots.map((attachment) => attachment.id),
+              )
+            }
+          },
+        )
         removeLocalCard(card.id)
         removeLocalItem(item.id)
         removeSelectedItem(item.id)
         broadcastWorkspaceChange('all')
       },
       redo: async () => {
-        await db.transaction('rw', db.cards, db.boardItems, async () => {
-          await db.cards.put(cardSnapshot)
-          await db.boardItems.put(itemSnapshot)
-        })
+        await db.transaction(
+          'rw',
+          db.cards,
+          db.boardItems,
+          db.attachments,
+          async () => {
+            await db.cards.put(cardSnapshot)
+            await db.boardItems.put(itemSnapshot)
+            if (attachmentSnapshots.length) {
+              await db.attachments.bulkPut(attachmentSnapshots)
+            }
+          },
+        )
         replaceLocalCard(cardSnapshot)
         replaceLocalItem(itemSnapshot)
         selectItem(itemSnapshot.id)
@@ -658,7 +705,7 @@ export const useBoardStore = defineStore('board', () => {
       },
     })
 
-    return { card, item }
+    return { card, item, attachments: attachmentSnapshots }
   }
 
   async function updateCard(

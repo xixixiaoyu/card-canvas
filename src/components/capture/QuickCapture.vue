@@ -32,7 +32,10 @@ import {
   removeAttachmentReference,
   stripAttachmentReferences,
 } from '../../lib/atomic-markdown'
-import { prepareImageAttachment } from '../../lib/attachments'
+import {
+  MAX_ATTACHMENTS_PER_CARD,
+  prepareImageAttachment,
+} from '../../lib/attachments'
 import { inferTags, inferTitle } from '../../lib/ai/deepseek'
 import {
   mergeTags,
@@ -58,7 +61,6 @@ import { useToastStore } from '../../stores/toast'
 import type { Card, CardAttachment } from '../../types'
 
 const UNTITLED_CARD_TITLE = '未命名卡片'
-const MAX_ATTACHMENTS_PER_CARD = 8
 
 const props = defineProps<{
   open: boolean
@@ -864,16 +866,14 @@ function save() {
   }
 
   void board
-    .captureAndPlace(draft, props.boardId || 'board-main', placement)
-    .then(async ({ card }) => {
-      if (savedAttachments.length) {
-        try {
-          await attachmentStore.replaceForCard(card.id, savedAttachments)
-        } catch (cause) {
-          await board.deleteCard(card.id).catch(() => {})
-          throw cause
-        }
-      }
+    .captureAndPlace(
+      draft,
+      props.boardId || 'board-main',
+      placement,
+      savedAttachments,
+    )
+    .then(async ({ card, attachments: saved }) => {
+      attachmentStore.rememberForCard(card.id, saved)
       const enriched =
         needsAutoTitle && ai.autoTitleEnabled
           ? await autoTitleCapturedCard(card, textContent)

@@ -29,7 +29,11 @@ import MobileUtilityMenu from './components/ui/MobileUtilityMenu.vue'
 import ToastStack from './components/ui/ToastStack.vue'
 import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
-import { collectPendingTasks } from './lib/atomic-markdown'
+import { attachmentMarkdown, collectPendingTasks } from './lib/atomic-markdown'
+import {
+  MAX_ATTACHMENTS_PER_CARD,
+  prepareImageAttachment,
+} from './lib/attachments'
 import { getItemRect } from './lib/card-metrics'
 import { chooseCapturePlacement } from './lib/capture-placement'
 import { cardHasTag } from './lib/galaxy'
@@ -42,6 +46,12 @@ import {
   formatDailyTodoTitle,
   isDailyTodoCard,
 } from './lib/daily-todo'
+import {
+  buildPastedCardDraft,
+  MAX_PASTED_TEXT_LENGTH,
+  normalizeClipboardText,
+  plainTextFromClipboardHtml,
+} from './lib/paste-to-card'
 import { useAuthStore } from './stores/auth'
 import { useAIStore } from './stores/ai'
 import { useAttachmentStore } from './stores/attachments'
@@ -49,7 +59,7 @@ import { useBoardStore } from './stores/board'
 import { useSyncStore } from './stores/sync'
 import { useToastStore } from './stores/toast'
 import { useWorkspaceStore } from './stores/workspace'
-import type { Card } from './types'
+import type { Card, CardAttachment } from './types'
 
 const ActionLens = defineAsyncComponent(
   () => import('./components/canvas/ActionLens.vue'),
@@ -551,9 +561,8 @@ function openCapture() {
   isCaptureOpen.value = true
 }
 
-function buildDeferredTaskPlacement() {
+function buildCanvasPlacement(height = 300) {
   const width = 420
-  const height = 300
   const activeCamera = camera.value
   const rect = activeCamera?.getContainerRect() ?? null
 
@@ -593,7 +602,10 @@ function buildDeferredTaskPlacement() {
     center,
     width,
     height,
-    selected: null,
+    selected:
+      board.selectedItemId && board.selectedItem
+        ? getItemRect(board.selectedItem)
+        : null,
     existing: board.items.map((item) => getItemRect(item)),
   })
   return { ...placement, width }
@@ -610,7 +622,7 @@ async function handleDeferDailyTask(task: {
     sourceLineIndex: task.lineIndex,
     targetTitle: task.targetTitle,
     targetBoardId: workspace.activeBoardId,
-    position: buildDeferredTaskPlacement(),
+    position: buildCanvasPlacement(),
   })
   if (!result) {
     toast.push('任务顺延失败，原任务未改动。', { tone: 'error' })
@@ -627,6 +639,184 @@ async function handleDeferDailyTask(task: {
       action: { label: '撤销', run: () => board.undo() },
     },
   )
+}
+
+function hasBlockingOverlay() {
+  return (
+    isShortcutOpen.value ||
+    isSpotlightOpen.value ||
+    isCaptureOpen.value ||
+    isActionTrayOpen.value ||
+    isAISettingsOpen.value ||
+    isConnectionRadarOpen.value ||
+    isShareStudioOpen.value ||
+    isBoardPickerOpen.value ||
+    isDeleteDialogOpen.value ||
+    isTrashOpen.value ||
+    isCardHistoryOpen.value ||
+    Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'))
+  )
+}
+
+function canHandleCanvasPaste(event: ClipboardEvent) {
+  if (event.defaultPrevented || sync.phase === 'locked' || !board.isHydrated) {
+    return false
+  }
+  if (hasBlockingOverlay()) return false
+  if (isEditableTarget(event.target) || hasTextSelection()) return false
+
+  const active = document.activeElement
+  return !(
+    active instanceof Element &&
+    active.closest(
+      'button, a[href], input, textarea, select, [contenteditable], [role="textbox"]',
+    )
+  )
+}
+
+function clipboardText(data: DataTransfer) {
+  const plain = normalizeClipboardText(data.getData('text/plain'))
+  if (plain) return plain
+  return plainTextFromClipboardHtml(data.getData('text/html'))
+}
+
+function clipboardImageFiles(data: DataTransfer) {
+  const files = [...data.items]
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+
+  return files.length
+    ? files
+    : [...data.files].filter((file) => file.type.startsWith('image/'))
+}
+
+async function preparePastedImages(files: File[]) {
+  const accepted = files.slice(0, MAX_ATTACHMENTS_PER_CARD)
+  const attachments: CardAttachment[] = []
+  let firstError: string | null =
+    accepted.length < files.length
+      ? `每张卡片最多保留 ${MAX_ATTACHMENTS_PER_CARD} 张图片`
+      : null
+
+  for (const file of accepted) {
+    try {
+      const safeFile = file.name
+        ? file
+        : new File([file], '粘贴的图片.png', { type: file.type })
+      const prepared = await prepareImageAttachment(safeFile)
+      const now = Date.now()
+      attachments.push({
+        id: `attachment-${crypto.randomUUID()}`,
+        cardId: '',
+        ...prepared,
+        createdAt: now,
+        updatedAt: now,
+      })
+    } catch (cause) {
+      firstError ??=
+        cause instanceof Error ? cause.message : '图片处理失败，请重试。'
+    }
+  }
+
+  return { attachments, firstError }
+}
+
+function estimatePastedCardHeight(
+  content: string,
+  pastedAttachments: CardAttachment[],
+) {
+  const contentLines = content
+    .trim()
+    .split('\n')
+    .reduce(
+      (total, line) => total + Math.max(1, Math.ceil(line.length / 23)),
+      0,
+    )
+  const attachmentHeight = pastedAttachments.reduce(
+    (total, attachment) =>
+      total +
+      Math.min(
+        320,
+        352 * (attachment.height / Math.max(1, attachment.width)) + 18,
+      ),
+    0,
+  )
+  return Math.min(
+    820,
+    Math.max(300, 250 + contentLines * 29 + attachmentHeight),
+  )
+}
+
+async function capturePastedClipboard(rawText: string, imageFiles: File[]) {
+  if (rawText.length > MAX_PASTED_TEXT_LENGTH) {
+    toast.push('粘贴内容超过 5 万字，请分几次粘贴。', {
+      tone: 'error',
+      timeout: 5000,
+    })
+    return
+  }
+
+  const { attachments: pastedAttachments, firstError } =
+    await preparePastedImages(imageFiles)
+  const textDraft = buildPastedCardDraft(rawText)
+  if (!textDraft && !pastedAttachments.length) {
+    toast.push(firstError ?? '这次没有可粘贴的文字或图片。', {
+      tone: 'error',
+      timeout: 5000,
+    })
+    return
+  }
+
+  const imageContent = pastedAttachments
+    .map((attachment) => attachmentMarkdown(attachment.id, attachment.fileName))
+    .join('\n')
+  const content = [textDraft?.content, imageContent]
+    .filter((part): part is string => Boolean(part))
+    .join('\n\n')
+  const draft = {
+    title: textDraft?.title ?? '粘贴的图片',
+    content,
+    tags: textDraft?.tags ?? [],
+  }
+
+  try {
+    const result = await board.captureAndPlace(
+      draft,
+      workspace.activeBoardId,
+      buildCanvasPlacement(
+        estimatePastedCardHeight(content, pastedAttachments),
+      ),
+      pastedAttachments,
+    )
+    attachments.rememberForCard(result.card.id, result.attachments)
+    toast.push(textDraft ? '已粘贴为卡片。' : '图片已粘贴为卡片。', {
+      tone: 'success',
+      timeout: 5000,
+      action: { label: '撤销', run: () => board.undo() },
+    })
+  } catch (cause) {
+    console.error('[card-canvas] Unable to paste into a card', cause)
+    toast.push('粘贴为卡片失败，内容未改动。', { tone: 'error' })
+    return
+  }
+
+  if (firstError) {
+    toast.push(firstError, { tone: 'error', timeout: 5000 })
+  }
+}
+
+function handleCanvasPaste(event: ClipboardEvent) {
+  if (!canHandleCanvasPaste(event)) return
+  const data = event.clipboardData
+  if (!data) return
+
+  const text = clipboardText(data)
+  const images = clipboardImageFiles(data)
+  if (!text && !images.length) return
+
+  event.preventDefault()
+  void capturePastedClipboard(text, images)
 }
 
 function openTodayTodo() {
@@ -929,6 +1119,7 @@ onMounted(() => {
     await auth.initialize()
   })()
   window.addEventListener('keydown', handleGlobalKeydown)
+  window.addEventListener('paste', handleCanvasPaste)
 
   // Best-effort durable storage: browsers may ignore or deny the request.
   if (navigator.storage?.persist) {
@@ -943,6 +1134,7 @@ onBeforeUnmount(() => {
   attachments.stopSync()
   workspace.stopSync()
   window.removeEventListener('keydown', handleGlobalKeydown)
+  window.removeEventListener('paste', handleCanvasPaste)
   if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer)
 })
 </script>
@@ -1026,7 +1218,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.11.0 · Local-first
+              v1.12.0 · Local-first
             </p>
           </div>
 
@@ -1241,7 +1433,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.11.0</span>
+          <span>v1.12.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">
@@ -1259,6 +1451,8 @@ onBeforeUnmount(() => {
           <span>⌘F atlas</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
           <span>⌘K to capture</span>
+          <span class="text-stone-300 dark:text-zinc-700">·</span>
+          <span>⌘V paste card</span>
         </div>
       </footer>
     </template>

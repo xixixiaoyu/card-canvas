@@ -36,6 +36,7 @@ const groups: ShortcutGroup[] = [
     icon: PenLine,
     items: [
       { keys: ['⌘', 'K'], label: '速记并直接上板' },
+      { keys: ['⌘', 'V'], label: '把剪贴板文字或图片粘贴为卡片' },
       { keys: ['⇧', 'N'], label: '备用速记入口' },
       { keys: ['⌘', '↵'], label: '保存速记' },
     ],
@@ -170,7 +171,7 @@ onBeforeUnmount(detachInteraction)
                 <p
                   class="font-mono text-[9px] uppercase tracking-[0.18em] text-stone-400 dark:text-zinc-500"
                 >
-                  Shortcut Map · v1.11.0
+                  Shortcut Map · v1.12.0
                 </p>
                 <h2
                   :id="titleId"

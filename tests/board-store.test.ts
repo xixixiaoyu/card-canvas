@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db } from '../src/db'
 import { useBoardStore } from '../src/stores/board'
 import { useToastStore } from '../src/stores/toast'
+import type { CardAttachment } from '../src/types'
 
 async function freshBoard() {
   setActivePinia(createPinia())
@@ -85,6 +86,51 @@ describe('board store', () => {
     expect(board.items).toHaveLength(4)
     expect(await db.cards.get(card.id)).toBeDefined()
     expect(await db.boardItems.get(item.id)).toBeDefined()
+  })
+
+  it('captures pasted image attachments in the same undoable card action', async () => {
+    const board = await freshBoard()
+    const now = Date.now()
+    const attachment: CardAttachment = {
+      id: 'attachment-pasted',
+      cardId: '',
+      fileName: 'pasted.webp',
+      mimeType: 'image/webp',
+      size: 4,
+      width: 1,
+      height: 1,
+      dataUrl: 'data:image/webp;base64,AA==',
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    const { card, item, attachments } = await board.captureAndPlace(
+      {
+        title: '粘贴的图片',
+        content: '![pasted.webp](attachment://attachment-pasted)',
+        tags: [],
+      },
+      'board-main',
+      { x: 24, y: 36 },
+      [attachment],
+    )
+
+    expect(attachments).toHaveLength(1)
+    expect(await db.attachments.get(attachment.id)).toMatchObject({
+      cardId: card.id,
+      fileName: 'pasted.webp',
+    })
+
+    await board.undo()
+    expect(await db.cards.get(card.id)).toBeUndefined()
+    expect(await db.boardItems.get(item.id)).toBeUndefined()
+    expect(await db.attachments.get(attachment.id)).toBeUndefined()
+
+    await board.redo()
+    expect(await db.cards.get(card.id)).toBeDefined()
+    expect(await db.attachments.get(attachment.id)).toMatchObject({
+      cardId: card.id,
+    })
   })
 
   it('places a card as a projection', async () => {
