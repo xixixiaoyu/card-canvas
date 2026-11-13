@@ -251,6 +251,7 @@ test('editing an existing card never auto-tags after tags are cleared', async ({
   await card.locator('h2').click()
   await card.getByRole('button', { name: '编辑卡片' }).click()
   const dialog = page.locator('[data-quick-capture]')
+  await expect(dialog.getByLabel('卡片正文')).toBeFocused()
   const removeTags = dialog.getByRole('button', { name: /移除标签/ })
   const initialTagCount = await removeTags.count()
   expect(initialTagCount).toBeGreaterThan(0)

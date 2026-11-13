@@ -6,7 +6,9 @@ async function editContent(page: Page, index: number, content: string) {
   await card.getByRole('button', { name: '编辑卡片' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
-  await page.getByLabel('卡片正文').fill(content)
+  const contentField = page.getByLabel('卡片正文')
+  await expect(contentField).toBeFocused()
+  await contentField.fill(content)
   await page.keyboard.press('Control+Enter')
   await expect(dialog).toBeHidden()
   return card

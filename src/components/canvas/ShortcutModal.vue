@@ -171,7 +171,7 @@ onBeforeUnmount(detachInteraction)
                 <p
                   class="font-mono text-[9px] uppercase tracking-[0.18em] text-stone-400 dark:text-zinc-500"
                 >
-                  Shortcut Map · v1.13.0
+                  Shortcut Map · v1.13.1
                 </p>
                 <h2
                   :id="titleId"

@@ -289,11 +289,14 @@ export const useSyncStore = defineStore('sync', () => {
     await withSyncTrackingSuppressed(async () => {
       await db.transaction(
         'rw',
-        db.boards,
-        db.cards,
-        db.boardItems,
-        db.connections,
-        db.syncOutbox,
+        [
+          db.boards,
+          db.cards,
+          db.attachments,
+          db.boardItems,
+          db.connections,
+          db.syncOutbox,
+        ],
         async () => {
           for (const row of rows) {
             if (!(await shouldApplyRemote(table, row))) continue
