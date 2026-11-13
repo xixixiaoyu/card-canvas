@@ -592,6 +592,138 @@ describe('board store', () => {
     expect((await db.cards.get(exclusive.id))?.isDeleted).toBeUndefined()
   })
 
+  it('defers one unfinished daily task into a new target card atomically', async () => {
+    const board = await freshBoard()
+    const source = await board.captureAndPlace(
+      {
+        title: '2026-11-11',
+        content: '- [ ] 未完成 A\n- [x] 已完成 B',
+        tags: ['待办/今日'],
+      },
+      'board-main',
+      { x: 40, y: 40 },
+    )
+
+    const result = await board.deferDailyTask({
+      sourceCardId: source.card.id,
+      sourceLineIndex: 0,
+      targetTitle: '2026-11-12',
+      targetBoardId: 'board-main',
+      position: { x: 520, y: 40 },
+    })
+
+    expect(result).toMatchObject({ duplicate: false })
+    expect((await db.cards.get(source.card.id))?.content).toBe('- [x] 已完成 B')
+    const target = await db.cards.get(result!.targetCardId)
+    expect(target).toMatchObject({
+      title: '2026-11-12',
+      content: '- [ ] 未完成 A',
+      tags: ['待办/今日'],
+    })
+    expect(await db.boardItems.get(result!.targetItemId)).toMatchObject({
+      cardId: result!.targetCardId,
+      boardId: 'board-main',
+      x: 520,
+      y: 40,
+    })
+
+    await board.undo()
+    expect((await db.cards.get(source.card.id))?.content).toBe(
+      '- [ ] 未完成 A\n- [x] 已完成 B',
+    )
+    expect(await db.cards.get(result!.targetCardId)).toBeUndefined()
+    expect(await db.boardItems.get(result!.targetItemId)).toBeUndefined()
+
+    await board.redo()
+    expect((await db.cards.get(result!.targetCardId))?.content).toBe(
+      '- [ ] 未完成 A',
+    )
+  })
+
+  it('deduplicates a deferred daily task already present in the target card', async () => {
+    const board = await freshBoard()
+    const source = await board.captureAndPlace(
+      {
+        title: '2026-11-11',
+        content: '- [ ] 重复任务',
+        tags: ['待办/今日'],
+      },
+      'board-main',
+      { x: 40, y: 40 },
+    )
+    await board.captureAndPlace(
+      {
+        title: '2026-11-12',
+        content: '- [ ] 重复任务\n- [ ] 今日任务',
+        tags: ['待办/今日'],
+      },
+      'board-main',
+      { x: 520, y: 40 },
+    )
+
+    const result = await board.deferDailyTask({
+      sourceCardId: source.card.id,
+      sourceLineIndex: 0,
+      targetTitle: '2026-11-12',
+      targetBoardId: 'board-main',
+      position: { x: 0, y: 0 },
+    })
+
+    expect(result?.duplicate).toBe(true)
+    expect((await db.cards.get(source.card.id))?.content).toBe('')
+    expect((await db.cards.get(result!.targetCardId))?.content).toBe(
+      '- [ ] 重复任务\n- [ ] 今日任务',
+    )
+  })
+
+  it('appends one task into an existing target daily card and restores both cards', async () => {
+    const board = await freshBoard()
+    const source = await board.captureAndPlace(
+      {
+        title: '2026-11-11',
+        content: '- [ ] 未完成 A\r\n- [x] 已完成 B',
+        tags: ['待办/今日'],
+      },
+      'board-main',
+      { x: 40, y: 40 },
+    )
+    const target = await board.captureAndPlace(
+      {
+        title: '2026-11-12',
+        content: '- [ ] 已有任务\r\n- [ ] 更早任务',
+        tags: ['待办/今日'],
+      },
+      'board-main',
+      { x: 520, y: 40 },
+    )
+
+    const result = await board.deferDailyTask({
+      sourceCardId: source.card.id,
+      sourceLineIndex: 0,
+      targetTitle: '2026-11-12',
+      targetBoardId: 'board-main',
+      position: { x: 0, y: 0 },
+    })
+
+    expect(result).toMatchObject({
+      targetCardId: target.card.id,
+      targetItemId: target.item.id,
+      duplicate: false,
+    })
+    expect((await db.cards.get(source.card.id))?.content).toBe('- [x] 已完成 B')
+    expect((await db.cards.get(target.card.id))?.content).toBe(
+      '- [ ] 已有任务\r\n- [ ] 更早任务\r\n- [ ] 未完成 A',
+    )
+
+    await board.undo()
+    expect((await db.cards.get(source.card.id))?.content).toBe(
+      '- [ ] 未完成 A\r\n- [x] 已完成 B',
+    )
+    expect((await db.cards.get(target.card.id))?.content).toBe(
+      '- [ ] 已有任务\r\n- [ ] 更早任务',
+    )
+  })
+
   it('restores trashed cards to the current board and permanently purges them', async () => {
     const board = await freshBoard()
     const card = board.cards[0]!

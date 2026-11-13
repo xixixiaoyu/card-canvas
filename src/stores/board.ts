@@ -7,7 +7,8 @@ import {
   subscribeWorkspaceChange,
 } from '../lib/tab-sync'
 import { normalizeTags } from '../lib/tags'
-import { toggleTaskLine } from '../lib/atomic-markdown'
+import { parseAtomicMarkdown, toggleTaskLine } from '../lib/atomic-markdown'
+import { DAILY_TODO_TAG, isDailyTodoCard } from '../lib/daily-todo'
 import { SYNC_META_KEYS } from '../lib/sync/types'
 import type { BoardItem, Card, CardVersion, Connection } from '../types'
 import { plainRecord } from '../lib/plain-record'
@@ -37,6 +38,20 @@ export interface PlaceCardPosition {
   x: number
   y: number
   width?: number
+}
+
+export interface DeferDailyTaskInput {
+  sourceCardId: string
+  sourceLineIndex: number
+  targetTitle: string
+  targetBoardId: string
+  position: PlaceCardPosition
+}
+
+export interface DeferDailyTaskResult {
+  targetCardId: string
+  targetItemId: string
+  duplicate: boolean
 }
 
 export interface HistoryEntry {
@@ -716,6 +731,150 @@ export const useBoardStore = defineStore('board', () => {
     )
 
     return Boolean(updated)
+  }
+
+  async function deferDailyTask(
+    input: DeferDailyTaskInput,
+  ): Promise<DeferDailyTaskResult | null> {
+    if (input.targetBoardId !== activeBoardId.value) return null
+
+    const source = cards.value.find((card) => card.id === input.sourceCardId)
+    if (!source) return null
+
+    const sourceLines = source.content.split(/\r?\n/)
+    const sourceLine = sourceLines[input.sourceLineIndex]
+    if (typeof sourceLine !== 'string') return null
+
+    const sourceTask = parseAtomicMarkdown(source.content)
+      .flatMap((block) => (block.type === 'list' ? block.items : []))
+      .find(
+        (item) =>
+          item.lineIndex === input.sourceLineIndex &&
+          item.type === 'task' &&
+          !item.checked,
+      )
+    if (!sourceTask) return null
+
+    const targetEntry = entries.value.find((entry) =>
+      isDailyTodoCard(entry.card, input.targetTitle),
+    )
+    const duplicate = targetEntry
+      ? parseAtomicMarkdown(targetEntry.card.content)
+          .flatMap((block) => (block.type === 'list' ? block.items : []))
+          .some(
+            (item) =>
+              item.type === 'task' &&
+              item.text.trim().toLocaleLowerCase() ===
+                sourceTask.text.trim().toLocaleLowerCase(),
+          )
+      : false
+
+    const now = Date.now()
+    const sourceBefore = plainRecord(source)
+    const targetBefore = targetEntry ? plainRecord(targetEntry.card) : null
+    const nextSourceLines = [...sourceLines]
+    nextSourceLines.splice(input.sourceLineIndex, 1)
+    const sourceNewline = source.content.includes('\r\n') ? '\r\n' : '\n'
+    const sourceAfter: Card = {
+      ...sourceBefore,
+      content: nextSourceLines.join(sourceNewline),
+      updatedAt: now,
+    }
+
+    const targetLine = sourceLine.trim()
+    const targetNewline = targetBefore?.content.includes('\r\n') ? '\r\n' : '\n'
+    const createdTarget = !targetBefore
+    const targetAfter: Card = targetBefore
+      ? {
+          ...targetBefore,
+          content:
+            duplicate || !targetLine
+              ? targetBefore.content
+              : `${targetBefore.content.trimEnd()}${
+                  targetBefore.content.trim() ? targetNewline : ''
+                }${targetLine}`,
+          updatedAt: duplicate ? targetBefore.updatedAt : now,
+        }
+      : {
+          id: `card-${crypto.randomUUID()}`,
+          title: input.targetTitle,
+          content: targetLine,
+          tags: [DAILY_TODO_TAG],
+          createdAt: now,
+          updatedAt: now,
+        }
+    const targetItem: BoardItem = targetEntry
+      ? plainRecord(targetEntry.item)
+      : {
+          id: `projection-${crypto.randomUUID()}`,
+          cardId: targetAfter.id,
+          boardId: input.targetBoardId,
+          x: input.position.x,
+          y: input.position.y,
+          width: input.position.width ?? DEFAULT_CARD_WIDTH,
+        }
+
+    await snapshotCardVersion(sourceBefore)
+    if (targetBefore && !duplicate) await snapshotCardVersion(targetBefore)
+
+    replaceLocalCard(sourceAfter)
+    replaceLocalCard(targetAfter)
+    if (createdTarget) replaceLocalItem(targetItem)
+
+    try {
+      await db.transaction('rw', [db.cards, db.boardItems], async () => {
+        await db.cards.bulkPut([sourceAfter, targetAfter])
+        if (createdTarget) await db.boardItems.put(targetItem)
+      })
+      broadcastWorkspaceChange('all')
+    } catch (cause) {
+      replaceLocalCard(sourceBefore)
+      if (targetBefore) replaceLocalCard(targetBefore)
+      else removeLocalCard(targetAfter.id)
+      if (createdTarget) removeLocalItem(targetItem.id)
+
+      console.error('[card-canvas] Unable to defer daily task', cause)
+      return null
+    }
+
+    pulseItem(targetItem.id)
+
+    record({
+      label: createdTarget ? '顺延任务并创建待办卡' : '顺延任务',
+      undo: async () => {
+        await db.transaction('rw', [db.cards, db.boardItems], async () => {
+          await db.cards.put(sourceBefore)
+          if (targetBefore) await db.cards.put(targetBefore)
+          else {
+            await db.cards.delete(targetAfter.id)
+            await db.boardItems.delete(targetItem.id)
+          }
+        })
+        replaceLocalCard(sourceBefore)
+        if (targetBefore) replaceLocalCard(targetBefore)
+        else {
+          removeLocalCard(targetAfter.id)
+          removeLocalItem(targetItem.id)
+        }
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.transaction('rw', [db.cards, db.boardItems], async () => {
+          await db.cards.bulkPut([sourceAfter, targetAfter])
+          if (createdTarget) await db.boardItems.put(targetItem)
+        })
+        replaceLocalCard(sourceAfter)
+        replaceLocalCard(targetAfter)
+        if (createdTarget) replaceLocalItem(targetItem)
+        broadcastWorkspaceChange('all')
+      },
+    })
+
+    return {
+      targetCardId: targetAfter.id,
+      targetItemId: targetItem.id,
+      duplicate,
+    }
   }
 
   // --- projections ---------------------------------------------------------
@@ -1954,6 +2113,7 @@ export const useBoardStore = defineStore('board', () => {
     captureCard,
     updateCard,
     toggleCardTask,
+    deferDailyTask,
     placeCard,
     addCardToBoard,
     captureAndPlace,

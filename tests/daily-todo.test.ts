@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DAILY_TODO_TAG,
+  dailyTodoDeferral,
   formatDailyTodoTitle,
   isDailyTodoCard,
   trimTrailingEmptyDailyTask,
@@ -43,5 +44,19 @@ describe('daily todo cards', () => {
     expect(trimTrailingEmptyDailyTask('- [ ] A\n- [x] B')).toBe(
       '- [ ] A\n- [x] B',
     )
+  })
+
+  it('offers today or tomorrow as the next daily card', () => {
+    const today = new Date(2026, 10, 13, 10, 0)
+    expect(dailyTodoDeferral(card(), today)).toEqual({
+      label: '移至今天',
+      targetTitle: '2026-11-13',
+    })
+    expect(dailyTodoDeferral(card({ title: '2026-11-13' }), today)).toEqual({
+      label: '移至明天',
+      targetTitle: '2026-11-14',
+    })
+    expect(dailyTodoDeferral(card({ title: '2026-11-14' }), today)).toBeNull()
+    expect(dailyTodoDeferral(card({ tags: [] }), today)).toBeNull()
   })
 })

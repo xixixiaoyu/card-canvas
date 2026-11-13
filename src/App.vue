@@ -31,12 +31,17 @@ import { useTheme } from './composables/useTheme'
 import type { CanvasCamera } from './composables/useCanvas'
 import { collectPendingTasks } from './lib/atomic-markdown'
 import { getItemRect } from './lib/card-metrics'
+import { chooseCapturePlacement } from './lib/capture-placement'
 import { cardHasTag } from './lib/galaxy'
 import { arrangeCards, arrangeConnectedClusters } from './lib/card-layout'
 import type { SpotlightTarget } from './lib/global-search'
 import { buildMarkdown, copyTextToClipboard } from './lib/markdownExport'
 import { DEMO_FOCUS_ITEM_ID } from './lib/demo-data'
-import { formatDailyTodoTitle, isDailyTodoCard } from './lib/daily-todo'
+import {
+  dailyTodoDeferral,
+  formatDailyTodoTitle,
+  isDailyTodoCard,
+} from './lib/daily-todo'
 import { useAuthStore } from './stores/auth'
 import { useAIStore } from './stores/ai'
 import { useAttachmentStore } from './stores/attachments'
@@ -144,6 +149,26 @@ const pendingActionCount = computed(
       })),
     ).length,
 )
+
+const carryoverTaskCount = computed(() => {
+  const todayTitle = formatDailyTodoTitle()
+  const carryoverSources = board.entries
+    .filter((entry) => {
+      const deferral = dailyTodoDeferral(entry.card)
+      return (
+        entry.card.title < todayTitle && deferral?.targetTitle === todayTitle
+      )
+    })
+    .map((entry) => ({
+      cardId: entry.card.id,
+      itemId: entry.item.id,
+      title: entry.card.title,
+      content: entry.card.content,
+      x: entry.item.x,
+      y: entry.item.y,
+    }))
+  return collectPendingTasks(carryoverSources).length
+})
 
 const databaseLabel = computed(() => {
   if (board.status === 'ready') return 'Dexie ready'
@@ -524,6 +549,84 @@ function openCapture() {
   captureTemplate.value = null
   editingCard.value = null
   isCaptureOpen.value = true
+}
+
+function buildDeferredTaskPlacement() {
+  const width = 420
+  const height = 300
+  const activeCamera = camera.value
+  const rect = activeCamera?.getContainerRect() ?? null
+
+  if (!activeCamera || !rect) {
+    const existing = board.items.map((item) => getItemRect(item))
+    return {
+      x: existing.length
+        ? Math.max(...existing.map((item) => item.x + item.width)) + 120
+        : 0,
+      y: existing.length ? Math.min(...existing.map((item) => item.y)) : -150,
+      width,
+    }
+  }
+
+  const topLeft = activeCamera.screenToWorld(
+    { x: rect.left, y: rect.top },
+    rect,
+  )
+  const bottomRight = activeCamera.screenToWorld(
+    { x: rect.left + rect.width, y: rect.top + rect.height },
+    rect,
+  )
+  const center = activeCamera.screenToWorld(
+    {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    },
+    rect,
+  )
+  const placement = chooseCapturePlacement({
+    viewport: {
+      left: topLeft.x,
+      top: topLeft.y + 88,
+      right: bottomRight.x,
+      bottom: bottomRight.y - 96,
+    },
+    center,
+    width,
+    height,
+    selected: null,
+    existing: board.items.map((item) => getItemRect(item)),
+  })
+  return { ...placement, width }
+}
+
+async function handleDeferDailyTask(task: {
+  cardId: string
+  lineIndex: number
+  targetTitle: string
+  text: string
+}) {
+  const result = await board.deferDailyTask({
+    sourceCardId: task.cardId,
+    sourceLineIndex: task.lineIndex,
+    targetTitle: task.targetTitle,
+    targetBoardId: workspace.activeBoardId,
+    position: buildDeferredTaskPlacement(),
+  })
+  if (!result) {
+    toast.push('任务顺延失败，原任务未改动。', { tone: 'error' })
+    return
+  }
+
+  toast.push(
+    result.duplicate
+      ? `${task.targetTitle} 已有这项任务，已移除重复项。`
+      : `已将「${task.text || '未命名待办'}」移至 ${task.targetTitle}。`,
+    {
+      tone: 'success',
+      timeout: 5000,
+      action: { label: '撤销', run: () => board.undo() },
+    },
+  )
 }
 
 function openTodayTodo() {
@@ -923,7 +1026,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.10.1 · Local-first
+              v1.11.0 · Local-first
             </p>
           </div>
 
@@ -1003,11 +1106,28 @@ onBeforeUnmount(() => {
               data-canvas-ui
               data-daily-todo
               class="topbar-cluster-action group"
-              aria-label="创建今日待办卡片"
+              :aria-label="
+                carryoverTaskCount
+                  ? `创建今日待办卡片，${carryoverTaskCount} 个历史待办待延续`
+                  : '创建今日待办卡片'
+              "
               title="今日待办"
               @click="openTodayTodo"
             >
-              <CalendarPlus :size="14" :stroke-width="1.7" aria-hidden="true" />
+              <span class="relative flex items-center justify-center">
+                <CalendarPlus
+                  :size="14"
+                  :stroke-width="1.7"
+                  aria-hidden="true"
+                />
+                <span
+                  v-if="carryoverTaskCount"
+                  class="absolute -right-2 -top-2 flex min-w-[0.95rem] items-center justify-center rounded-full border border-white bg-amber-600 px-0.5 font-mono text-[7px] leading-[0.85rem] text-white shadow-sm dark:border-zinc-900 dark:bg-sky-300 dark:text-zinc-900"
+                  aria-hidden="true"
+                >
+                  {{ carryoverTaskCount > 9 ? '9+' : carryoverTaskCount }}
+                </span>
+              </span>
               <span class="hidden lg:inline">今日</span>
             </button>
 
@@ -1018,6 +1138,7 @@ onBeforeUnmount(() => {
               trigger-class="max-[380px]:hidden"
               @focus="handleActionTaskFocus"
               @toggle="board.toggleCardTask($event.cardId, $event.lineIndex)"
+              @defer="handleDeferDailyTask"
             />
             <span class="hidden sm:contents">
               <button
@@ -1120,7 +1241,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.10.1</span>
+          <span>v1.11.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

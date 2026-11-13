@@ -64,3 +64,73 @@ test('one-click daily todo creates a reusable task card for today', async ({
       .getByRole('button', { name: '完成待办：发布版本' }),
   ).toBeVisible()
 })
+
+test('an unfinished historical task moves into today and undoes in one step', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.locator('[data-world-item]')).toHaveCount(3)
+
+  const dates = await page.evaluate(() => {
+    const pad = (value: number) => String(value).padStart(2, '0')
+    const format = (date: Date) =>
+      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    const today = new Date()
+    const previous = new Date(today)
+    previous.setDate(previous.getDate() - 1)
+    return { previous: format(previous), today: format(today) }
+  })
+
+  await page.keyboard.press('Control+k')
+  const capture = page.locator('[data-quick-capture]')
+  await expect(capture).toBeVisible()
+  const titleField = capture.getByLabel('卡片标题')
+  const contentField = capture.getByLabel('卡片正文')
+  await expect(contentField).toBeFocused()
+  await titleField.fill(dates.previous)
+  await expect(titleField).toHaveValue(dates.previous)
+  await contentField.fill('- [ ] 延迟发布')
+  await capture.getByLabel('添加标签').fill('待办/今日')
+  await capture.getByLabel('添加标签').press('Enter')
+  await page.keyboard.press('Control+Enter')
+  await expect(capture).toBeHidden()
+
+  const previousCard = page
+    .locator('[data-world-item]')
+    .filter({ hasText: dates.previous })
+  await expect(
+    previousCard.getByRole('button', { name: '完成待办：延迟发布' }),
+  ).toBeVisible()
+
+  const dailyButton = page.locator('[data-daily-todo]')
+  await expect(dailyButton).toHaveAccessibleName(
+    '创建今日待办卡片，1 个历史待办待延续',
+  )
+  await page.getByRole('button', { name: '行动透镜，1 个待办' }).click()
+
+  const defer = page.locator('[data-action-task-defer]')
+  await expect(defer).toHaveAttribute('aria-label', '移至今天：延迟发布')
+  await defer.click()
+
+  const todayCard = page
+    .locator('[data-world-item]')
+    .filter({ hasText: dates.today })
+  await expect(
+    todayCard.getByRole('button', { name: '完成待办：延迟发布' }),
+  ).toBeVisible()
+  await expect(
+    previousCard.getByRole('button', { name: '完成待办：延迟发布' }),
+  ).toHaveCount(0)
+  await expect(page.locator('[data-world-item]')).toHaveCount(5)
+  await expect(dailyButton).toHaveAccessibleName('创建今日待办卡片')
+
+  const undoNotice = page.getByRole('status').filter({ hasText: '已将' })
+  await undoNotice.getByRole('button', { name: '撤销' }).click()
+  await expect(todayCard).toHaveCount(0)
+  await expect(
+    previousCard.getByRole('button', { name: '完成待办：延迟发布' }),
+  ).toBeVisible()
+  await expect(dailyButton).toHaveAccessibleName(
+    '创建今日待办卡片，1 个历史待办待延续',
+  )
+})

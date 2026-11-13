@@ -22,6 +22,33 @@ export function isDailyTodoCard(card: Card, title = formatDailyTodoTitle()) {
   )
 }
 
+export interface DailyTodoDeferral {
+  label: '移至今天' | '移至明天'
+  targetTitle: string
+}
+
+export function dailyTodoDeferral(
+  card: Card,
+  today = new Date(),
+): DailyTodoDeferral | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(card.title)) return null
+  if (!isDailyTodoCard(card, card.title)) return null
+
+  const todayTitle = formatDailyTodoTitle(today)
+  if (card.title < todayTitle) {
+    return { label: '移至今天', targetTitle: todayTitle }
+  }
+  if (card.title === todayTitle) {
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return {
+      label: '移至明天',
+      targetTitle: formatDailyTodoTitle(tomorrow),
+    }
+  }
+  return null
+}
+
 export function trimTrailingEmptyDailyTask(content: string) {
   return content
     .trim()

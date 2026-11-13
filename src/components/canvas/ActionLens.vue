@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Check, ListTodo } from '@lucide/vue'
+import { ArrowRight, Check, ListTodo } from '@lucide/vue'
 import { collectPendingTasks } from '../../lib/atomic-markdown'
+import { dailyTodoDeferral } from '../../lib/daily-todo'
 import { useBoardStore } from '../../stores/board'
 
 const props = defineProps<{
@@ -13,6 +14,14 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
   focus: [task: { cardId: string; itemId: string }]
   toggle: [task: { cardId: string; lineIndex: number }]
+  defer: [
+    task: {
+      cardId: string
+      lineIndex: number
+      targetTitle: string
+      text: string
+    },
+  ]
 }>()
 
 const board = useBoardStore()
@@ -30,6 +39,17 @@ const tasks = computed(() =>
     })),
   ),
 )
+
+const deferralsByTaskId = computed(() => {
+  const cardsById = new Map(board.cards.map((card) => [card.id, card]))
+  return new Map(
+    tasks.value.flatMap((task) => {
+      const card = cardsById.get(task.cardId)
+      const deferral = card ? dailyTodoDeferral(card) : null
+      return deferral ? [[task.id, deferral] as const] : []
+    }),
+  )
+})
 
 function close() {
   if (props.open) emit('update:open', false)
@@ -60,6 +80,24 @@ function focusTask(task: { cardId: string; itemId: string }) {
 
 function toggleTask(task: { cardId: string; lineIndex: number }) {
   emit('toggle', task)
+}
+
+function deferralForTask(task: { id: string }) {
+  return deferralsByTaskId.value.get(task.id) ?? null
+}
+
+function deferTask(task: {
+  id: string
+  cardId: string
+  lineIndex: number
+  text: string
+}) {
+  const deferral = deferralForTask(task)
+  if (!deferral) return
+  emit('defer', {
+    ...task,
+    targetTitle: deferral.targetTitle,
+  })
 }
 
 onMounted(() => {
@@ -168,6 +206,22 @@ onBeforeUnmount(() => {
               >
                 ↳ {{ task.title }}
               </span>
+            </button>
+
+            <button
+              v-if="deferralForTask(task)"
+              type="button"
+              class="mt-0.5 inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-stone-200/75 bg-white/45 px-2 text-[9px] font-medium text-stone-500 opacity-100 transition-[background-color,border-color,color,opacity] hover:border-amber-700/25 hover:bg-amber-50/75 hover:text-amber-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 dark:border-white/10 dark:bg-white/[0.025] dark:text-zinc-500 dark:hover:border-sky-200/20 dark:hover:bg-sky-300/[0.07] dark:hover:text-sky-200"
+              :aria-label="`${deferralForTask(task)!.label}：${task.text || '未命名待办'}`"
+              :title="`${deferralForTask(task)!.label} · 来源 ${task.title}`"
+              data-action-task-defer
+              @pointerdown.stop.prevent
+              @click.stop.prevent="deferTask(task)"
+            >
+              <ArrowRight :size="10" :stroke-width="1.8" aria-hidden="true" />
+              <span>{{
+                deferralForTask(task)!.label.replace('移至', '')
+              }}</span>
             </button>
           </div>
         </div>
