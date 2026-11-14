@@ -226,10 +226,73 @@ export const useSyncStore = defineStore('sync', () => {
     })
   }
 
-  async function pushOutbox(userId: string) {
+  async function acknowledgeServerRevisions(
+    table: SyncTableName,
+    entries: SyncOutboxRecord[],
+    rows: RemoteRow[],
+  ) {
+    if (!rows.length) return
+    const rowsById = new Map(
+      rows.flatMap((row) =>
+        typeof row.id === 'string' ? [[row.id, row] as const] : [],
+      ),
+    )
+
+    await withSyncTrackingSuppressed(async () => {
+      await db.transaction(
+        'rw',
+        [
+          db.boards,
+          db.cards,
+          db.attachments,
+          db.boardItems,
+          db.connections,
+          db.syncOutbox,
+        ],
+        async () => {
+          for (const entry of entries) {
+            const remote = rowsById.get(entry.recordId)
+            if (!remote) continue
+            const current = await db.syncOutbox.get(entry.key)
+            if (current?.updatedAt !== entry.updatedAt) continue
+            const updatedAt = remoteUpdatedAt(remote)
+            if (!updatedAt) continue
+
+            if (table === 'boards') {
+              const local = await db.boards.get(entry.recordId)
+              if (local) await db.boards.put({ ...local, updatedAt })
+            } else if (table === 'cards') {
+              const local = await db.cards.get(entry.recordId)
+              if (local) await db.cards.put({ ...local, updatedAt })
+            } else if (table === 'attachments') {
+              const local = await db.attachments.get(entry.recordId)
+              if (local) await db.attachments.put({ ...local, updatedAt })
+            } else if (table === 'boardItems') {
+              const local = await db.boardItems.get(entry.recordId)
+              if (local) await db.boardItems.put({ ...local, updatedAt })
+            } else {
+              const local = await db.connections.get(entry.recordId)
+              if (local) await db.connections.put({ ...local, updatedAt })
+            }
+          }
+        },
+      )
+    })
+  }
+
+  function isTombstoneEntry(entry: SyncOutboxRecord) {
+    return entry.operation === 'delete' || entry.payload.isDeleted === true
+  }
+
+  async function pushOutbox(
+    userId: string,
+    shouldPush: (entry: SyncOutboxRecord) => boolean = () => true,
+  ) {
     const supabase = await getSupabaseClient()
     if (!supabase) return
-    const entries = await db.syncOutbox.orderBy('updatedAt').toArray()
+    const entries = (await db.syncOutbox.orderBy('updatedAt').toArray()).filter(
+      shouldPush,
+    )
     if (!entries.length) return
 
     for (const table of SYNC_TABLES) {
@@ -239,9 +302,10 @@ export const useSyncStore = defineStore('sync', () => {
       const rows = batch.map((entry) =>
         localRecordToRemote(entry, userId, syncClientId),
       )
-      const { error: pushError } = await supabase
+      const { data: pushedRows, error: pushError } = await supabase
         .from(remoteTableName(table))
         .upsert(rows, { onConflict: 'user_id,id' })
+        .select('id,server_updated_at')
 
       if (pushError) {
         if (table === 'attachments' && isMissingRemoteTable(pushError)) {
@@ -253,6 +317,11 @@ export const useSyncStore = defineStore('sync', () => {
         }
         throw new Error(pushError.message)
       }
+      await acknowledgeServerRevisions(
+        table,
+        batch,
+        (pushedRows ?? []) as RemoteRow[],
+      )
       await removePushedEntries(batch)
       if (table === 'attachments') markAttachmentCloudReady()
     }
@@ -473,9 +542,26 @@ export const useSyncStore = defineStore('sync', () => {
           if (!isCurrentRun()) return
           pendingRemoteDemoCleanupUserId = null
         }
-        await pullRemote(userId, isCurrentRun)
+        let pullError: unknown = null
+        try {
+          await pullRemote(userId, isCurrentRun)
+        } catch (cause) {
+          pullError = cause
+        }
         if (!isCurrentRun()) return
-        await pushOutbox(userId)
+        try {
+          // Tombstones must not be trapped behind a failing pull. Only upload
+          // deletes while the pull is incomplete so stale live edits cannot
+          // overwrite newer remote data.
+          await pushOutbox(userId, pullError ? isTombstoneEntry : undefined)
+        } catch (cause) {
+          if (!pullError) throw cause
+          console.error(
+            '[card-canvas] Unable to flush delete tombstones after pull failure',
+            cause,
+          )
+        }
+        if (pullError) throw pullError
         if (!isCurrentRun()) return
         await refreshPendingCount()
         lastSyncedAt.value = Date.now()
@@ -588,57 +674,79 @@ export const useSyncStore = defineStore('sync', () => {
     }
 
     return (async () => {
-      await db.open()
-      if (!isCurrentStart()) return
-      const ownerId = await readMeta(SYNC_META_KEYS.ownerId)
-      if (!isCurrentStart()) return
-      let pristineClaim = false
-      if (!ownerId) {
-        pristineClaim = await hasPristineLocalWorkspace()
+      try {
+        await db.open()
         if (!isCurrentStart()) return
-        if (pristineClaim) await clearPristineLocalWorkspace()
+        const ownerId = await readMeta(SYNC_META_KEYS.ownerId)
         if (!isCurrentStart()) return
-        await clearPullCursors()
-        if (!isCurrentStart()) return
-        await writeMeta(SYNC_META_KEYS.ownerId, userId)
-      } else if (ownerId !== userId) {
-        phase.value = 'locked'
-        error.value = '本机数据已绑定另一个云端账号，为避免数据混用已暂停同步。'
-        return
-      }
+        let pristineClaim = false
+        if (!ownerId) {
+          pristineClaim = await hasPristineLocalWorkspace()
+          if (!isCurrentStart()) return
+          if (pristineClaim) await clearPristineLocalWorkspace()
+          if (!isCurrentStart()) return
+          await clearPullCursors()
+          if (!isCurrentStart()) return
+          await writeMeta(SYNC_META_KEYS.ownerId, userId)
+        } else if (ownerId !== userId) {
+          phase.value = 'locked'
+          error.value =
+            '本机数据已绑定另一个云端账号，为避免数据混用已暂停同步。'
+          return
+        }
 
-      const removedLocalDemo = await removeLegacyDemoData()
-      if (!isCurrentStart()) return
-      if (removedLocalDemo) {
-        broadcastWorkspaceChange('all')
-        await useBoardStore().refresh()
+        const removedLocalDemo = await removeLegacyDemoData()
         if (!isCurrentStart()) return
-      }
-      if (!ownerId && !pristineClaim) await queueFullWorkspaceSnapshot()
-      if (!isCurrentStart()) return
-
-      pendingRemoteDemoCleanupUserId = userId
-      unsubscribeOutbox = subscribeSyncOutbox(scheduleSync)
-      document.addEventListener('visibilitychange', handleVisibilityChange)
-      window.addEventListener('online', handleOnline)
-      window.addEventListener('offline', handleOffline)
-      visibilityAttached = true
-      onlineAttached = true
-      heartbeatTimer = setInterval(() => void synchronize(), HEARTBEAT_MS)
-
-      await refreshPendingCount()
-      if (!isCurrentStart()) return
-      await subscribeRealtime(userId)
-      if (!isCurrentStart()) return
-      await synchronize()
-      if (!isCurrentStart()) return
-
-      if (pristineClaim && (await db.boards.count()) === 0) {
-        await useWorkspaceStore().loadBoards()
+        if (removedLocalDemo) {
+          broadcastWorkspaceChange('all')
+          await useBoardStore().refresh()
+          if (!isCurrentStart()) return
+        }
+        if (!ownerId && !pristineClaim) await queueFullWorkspaceSnapshot()
         if (!isCurrentStart()) return
-        await useBoardStore().refresh()
+
+        pendingRemoteDemoCleanupUserId = userId
+        unsubscribeOutbox = subscribeSyncOutbox(scheduleSync)
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        window.addEventListener('online', handleOnline)
+        window.addEventListener('offline', handleOffline)
+        visibilityAttached = true
+        onlineAttached = true
+        heartbeatTimer = setInterval(() => void synchronize(), HEARTBEAT_MS)
+
+        await refreshPendingCount()
+        if (!isCurrentStart()) return
+        await subscribeRealtime(userId)
         if (!isCurrentStart()) return
         await synchronize()
+        if (!isCurrentStart()) return
+
+        if (pristineClaim && (await db.boards.count()) === 0) {
+          await useWorkspaceStore().loadBoards()
+          if (!isCurrentStart()) return
+          await useBoardStore().refresh()
+          if (!isCurrentStart()) return
+          await synchronize()
+        }
+      } catch (cause) {
+        if (!isCurrentStart()) return
+        error.value = errorMessage(cause)
+        phase.value =
+          typeof navigator !== 'undefined' && !navigator.onLine
+            ? 'offline'
+            : 'error'
+        clearRetryTimer()
+        retryTimer = setTimeout(() => {
+          retryTimer = null
+          if (activeUserId !== userId) return
+          stop()
+          void Promise.resolve(start(userId)).catch((retryCause: unknown) => {
+            console.error(
+              '[card-canvas] Unable to restart synchronization',
+              retryCause,
+            )
+          })
+        }, SYNC_RETRY_MS)
       }
     })()
   }

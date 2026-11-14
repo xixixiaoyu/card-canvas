@@ -32,6 +32,44 @@ export interface BackupCounts {
   attachments: number
 }
 
+export interface BackupImportCounts extends BackupCounts {
+  skipped: BackupCounts
+}
+
+export type BackupImportMode = 'merge' | 'overwrite'
+
+const EMPTY_COUNTS: BackupCounts = {
+  cards: 0,
+  boardItems: 0,
+  connections: 0,
+  boards: 0,
+  cardVersions: 0,
+  attachments: 0,
+}
+
+interface TimedRecord {
+  updatedAt?: number
+}
+
+function newerImport(
+  incoming: TimedRecord,
+  existing: TimedRecord | undefined,
+  mode: BackupImportMode,
+) {
+  if (!existing || mode === 'overwrite') return true
+  return (incoming.updatedAt ?? 0) > (existing.updatedAt ?? 0)
+}
+
+function importCard(
+  incoming: Card,
+  existing: Card | undefined,
+  mode: BackupImportMode,
+) {
+  if (!existing || mode === 'overwrite') return true
+  if (existing.isDeleted && !incoming.isDeleted) return false
+  return incoming.updatedAt > existing.updatedAt
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -60,7 +98,11 @@ function parseCard(value: unknown): Card {
       ? normalizeTags(value.tags.filter(isString))
       : [],
     createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : now,
-    updatedAt: isFiniteNumber(value.updatedAt) ? value.updatedAt : now,
+    updatedAt: isFiniteNumber(value.updatedAt)
+      ? value.updatedAt
+      : isFiniteNumber(value.createdAt)
+        ? value.createdAt
+        : 0,
     isDeleted: value.isDeleted === true ? true : undefined,
     highlights: Array.isArray(value.highlights)
       ? (value.highlights as Card['highlights'])
@@ -100,7 +142,11 @@ function parseBoard(value: unknown): Board {
     id: value.id,
     name: value.name.trim() || '未命名白板',
     createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : now,
-    updatedAt: isFiniteNumber(value.updatedAt) ? value.updatedAt : now,
+    updatedAt: isFiniteNumber(value.updatedAt)
+      ? value.updatedAt
+      : isFiniteNumber(value.createdAt)
+        ? value.createdAt
+        : 0,
   }
 }
 
@@ -227,11 +273,15 @@ export function backupFileName(date = new Date()) {
   return `card-canvas-backup-${stamp}.json`
 }
 
-/** Validate and merge a backup file. Existing ids are overwritten. */
+/**
+ * Validate and safely merge a backup. Newer records win, and an existing local
+ * tombstone is never resurrected by an older live copy.
+ */
 export async function importBackupText(
   text: string,
   fallbackBoardId?: string,
-): Promise<BackupCounts> {
+  mode: BackupImportMode = 'merge',
+): Promise<BackupImportCounts> {
   let raw: unknown
 
   try {
@@ -264,6 +314,7 @@ export async function importBackupText(
   const cardVersions = (raw.cardVersions ?? []).map(parseCardVersion)
   const attachments = (raw.attachments ?? []).map(parseAttachment)
   let importedBoardItems = boardItems
+  const skipped = { ...EMPTY_COUNTS }
 
   await db.transaction(
     'rw',
@@ -276,15 +327,107 @@ export async function importBackupText(
       db.attachments,
     ],
     async () => {
-      if (cards.length) await db.cards.bulkPut(cards)
+      const existingBoards = await db.boards.bulkGet(
+        boards.map((board) => board.id),
+      )
+      const boardsById = new Map(
+        existingBoards.flatMap((board) =>
+          board ? [[board.id, board] as const] : [],
+        ),
+      )
+      const acceptedBoards = boards.filter((board) =>
+        newerImport(board, boardsById.get(board.id), mode),
+      )
+      skipped.boards += boards.length - acceptedBoards.length
+      if (acceptedBoards.length) await db.boards.bulkPut(acceptedBoards)
+
+      const existingCards = await db.cards.bulkGet(cards.map((card) => card.id))
+      const cardsById = new Map(
+        existingCards.flatMap((card) =>
+          card ? [[card.id, card] as const] : [],
+        ),
+      )
+      const acceptedCards = cards.filter((card) =>
+        importCard(card, cardsById.get(card.id), mode),
+      )
+      skipped.cards += cards.length - acceptedCards.length
+      if (acceptedCards.length) await db.cards.bulkPut(acceptedCards)
+
+      const storedCards = await db.cards.toArray()
+      const storedCardsById = new Map(
+        storedCards.map((card) => [card.id, card]),
+      )
+      const liveCardIds = new Set(
+        storedCards.filter((card) => !card.isDeleted).map((card) => card.id),
+      )
+
+      const existingItems = await db.boardItems.bulkGet(
+        boardItems.map((item) => item.id),
+      )
+      const itemsById = new Map(
+        existingItems.flatMap((item) =>
+          item ? [[item.id, item] as const] : [],
+        ),
+      )
+      const acceptedItems = boardItems.filter(
+        (item) =>
+          liveCardIds.has(item.cardId) &&
+          newerImport(item, itemsById.get(item.id), mode),
+      )
+      skipped.boardItems += boardItems.length - acceptedItems.length
+
+      const existingConnections = await db.connections.bulkGet(
+        connections.map((connection) => connection.id),
+      )
+      const connectionsById = new Map(
+        existingConnections.flatMap((connection) =>
+          connection ? [[connection.id, connection] as const] : [],
+        ),
+      )
+      const acceptedConnections = connections.filter(
+        (connection) =>
+          liveCardIds.has(connection.fromCardId) &&
+          liveCardIds.has(connection.toCardId) &&
+          newerImport(connection, connectionsById.get(connection.id), mode),
+      )
+      skipped.connections += connections.length - acceptedConnections.length
+
+      const existingVersions = await db.cardVersions.bulkGet(
+        cardVersions.map((version) => version.id),
+      )
+      const versionsById = new Set(
+        existingVersions.flatMap((version) => (version ? [version.id] : [])),
+      )
+      const acceptedVersions = cardVersions.filter(
+        (version) =>
+          storedCardsById.has(version.cardId) &&
+          (mode === 'overwrite' || !versionsById.has(version.id)),
+      )
+      skipped.cardVersions += cardVersions.length - acceptedVersions.length
+
+      const existingAttachments = await db.attachments.bulkGet(
+        attachments.map((attachment) => attachment.id),
+      )
+      const attachmentsById = new Map(
+        existingAttachments.flatMap((attachment) =>
+          attachment ? [[attachment.id, attachment] as const] : [],
+        ),
+      )
+      const acceptedAttachments = attachments.filter(
+        (attachment) =>
+          storedCardsById.has(attachment.cardId) &&
+          newerImport(attachment, attachmentsById.get(attachment.id), mode),
+      )
+      skipped.attachments += attachments.length - acceptedAttachments.length
+
       const allItems = await db.boardItems.toArray()
       const projectedCardIds = new Set(
-        [...allItems, ...boardItems].map((item) => item.cardId),
+        [...allItems, ...acceptedItems].map((item) => item.cardId),
       )
       const fallbackItems: BoardItem[] = []
 
       if (fallbackBoardId) {
-        const targetItems = [...allItems, ...boardItems].filter(
+        const targetItems = [...allItems, ...acceptedItems].filter(
           (item) => item.boardId === fallbackBoardId,
         )
         const baseX = targetItems.length
@@ -298,7 +441,7 @@ export async function importBackupText(
           ? Math.min(...targetItems.map((item) => item.y))
           : -150
 
-        for (const card of cards) {
+        for (const card of acceptedCards) {
           if (card.isDeleted || projectedCardIds.has(card.id)) continue
           projectedCardIds.add(card.id)
           fallbackItems.push({
@@ -313,31 +456,39 @@ export async function importBackupText(
         }
       }
 
-      importedBoardItems = [...boardItems, ...fallbackItems]
+      importedBoardItems = [...acceptedItems, ...fallbackItems]
       if (importedBoardItems.length) {
         await db.boardItems.bulkPut(importedBoardItems)
       }
-      if (connections.length) await db.connections.bulkPut(connections)
-      if (boards.length) await db.boards.bulkPut(boards)
-      if (cardVersions.length) {
-        await db.cardVersions.bulkPut(cardVersions)
+      if (acceptedConnections.length) {
+        await db.connections.bulkPut(acceptedConnections)
       }
-      if (attachments.length) await db.attachments.bulkPut(attachments)
+      if (acceptedVersions.length) {
+        await db.cardVersions.bulkPut(acceptedVersions)
+      }
+      if (acceptedAttachments.length) {
+        await db.attachments.bulkPut(acceptedAttachments)
+      }
     },
   )
 
   return {
-    cards: cards.length,
+    cards: cards.length - skipped.cards,
     boardItems: importedBoardItems.length,
-    connections: connections.length,
-    boards: boards.length,
-    cardVersions: cardVersions.length,
-    attachments: attachments.length,
+    connections: connections.length - skipped.connections,
+    boards: boards.length - skipped.boards,
+    cardVersions: cardVersions.length - skipped.cardVersions,
+    attachments: attachments.length - skipped.attachments,
+    skipped,
   }
 }
 
-export async function importBackupFile(file: File, fallbackBoardId?: string) {
-  return importBackupText(await file.text(), fallbackBoardId)
+export async function importBackupFile(
+  file: File,
+  fallbackBoardId?: string,
+  mode: BackupImportMode = 'merge',
+) {
+  return importBackupText(await file.text(), fallbackBoardId, mode)
 }
 
 /** Trigger a browser download for a backup snapshot. */

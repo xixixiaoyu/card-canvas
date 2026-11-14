@@ -49,12 +49,13 @@ describe('Supabase record mapping', () => {
         operation: 'upsert',
         updatedAt: 2000,
         payload: {
-          title: '已删除',
-          content: '',
-          tags: [],
+          title: '不应上传的标题',
+          content: '不应上传的正文',
+          tags: ['敏感标签'],
           createdAt: 1000,
           updatedAt: 2000,
           isDeleted: true,
+          highlights: [{ order: '01', label: '隐私', text: '内容' }],
         },
       },
       'user-a',
@@ -63,6 +64,10 @@ describe('Supabase record mapping', () => {
 
     expect(remote).toMatchObject({
       id: 'card-deleted',
+      title: '',
+      content: '',
+      tags: [],
+      highlights: null,
       updated_at: 2000,
       is_deleted: true,
     })
@@ -150,11 +155,28 @@ describe('Supabase record mapping', () => {
     })
   })
 
-  it('keeps local deletes when remote revisions tie', () => {
+  it('keeps every queued local mutation until the server acknowledges it', () => {
     expect(shouldAcceptRemoteRevision(2000, 2000)).toBe(false)
     expect(shouldAcceptRemoteRevision(2000, undefined, 2000)).toBe(false)
-    expect(shouldAcceptRemoteRevision(2001, 2000, 2000)).toBe(true)
-    expect(shouldAcceptRemoteRevision(2000, undefined, undefined)).toBe(true)
+    expect(shouldAcceptRemoteRevision(5000, 1000, 1000)).toBe(false)
+    expect(shouldAcceptRemoteRevision(2001, 2000, 2000)).toBe(false)
+    expect(shouldAcceptRemoteRevision(2000, 1999, undefined)).toBe(true)
+  })
+
+  it('prefers the server revision time over a skewed client timestamp', () => {
+    expect(
+      remoteRecordToLocal('cards', {
+        id: 'card-server-time',
+        title: '服务端时间',
+        content: '',
+        tags: [],
+        created_at: 1000,
+        updated_at: 99_000,
+        server_updated_at: '2026-11-14T08:00:00.000Z',
+      }),
+    ).toMatchObject({
+      updatedAt: Date.parse('2026-11-14T08:00:00.000Z'),
+    })
   })
 
   it('advances pull cursors with server timestamps instead of client time', () => {

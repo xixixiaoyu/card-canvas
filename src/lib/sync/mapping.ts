@@ -47,11 +47,12 @@ export function localRecordToRemote(
   clientId: string,
 ) {
   const source = entry.payload
+  const deleted = entry.operation === 'delete' || source.isDeleted === true
   const common = {
     id: entry.recordId,
     user_id: userId,
     updated_at: entry.updatedAt,
-    is_deleted: entry.operation === 'delete' || source.isDeleted === true,
+    is_deleted: deleted,
     sync_client_id: clientId,
   }
 
@@ -59,18 +60,24 @@ export function localRecordToRemote(
     case 'boards':
       return {
         ...common,
-        name: stringOr(source.name, '未命名白板'),
+        name: deleted ? '' : stringOr(source.name, '未命名白板'),
         created_at: numberOr(source.createdAt, entry.updatedAt),
       }
     case 'cards':
       return {
         ...common,
-        title: stringOr(source.title),
-        content: stringOr(source.content),
-        tags: Array.isArray(source.tags)
-          ? source.tags.filter((tag): tag is string => typeof tag === 'string')
-          : [],
-        highlights: Array.isArray(source.highlights) ? source.highlights : null,
+        title: deleted ? '' : stringOr(source.title),
+        content: deleted ? '' : stringOr(source.content),
+        tags:
+          !deleted && Array.isArray(source.tags)
+            ? source.tags.filter(
+                (tag): tag is string => typeof tag === 'string',
+              )
+            : [],
+        highlights:
+          !deleted && Array.isArray(source.highlights)
+            ? source.highlights
+            : null,
         created_at: numberOr(source.createdAt, entry.updatedAt),
       }
     case 'attachments':
@@ -101,7 +108,8 @@ export function localRecordToRemote(
         board_id: stringOr(source.boardId),
         from_card_id: stringOr(source.fromCardId),
         to_card_id: stringOr(source.toCardId),
-        label: typeof source.label === 'string' ? source.label : null,
+        label:
+          !deleted && typeof source.label === 'string' ? source.label : null,
       }
   }
 }
@@ -110,7 +118,7 @@ export function remoteRecordToLocal(
   table: SyncTableName,
   row: RemoteRow,
 ): Board | Card | CardAttachment | BoardItem | Connection {
-  const updatedAt = numberOr(row.updated_at, Date.now())
+  const updatedAt = remoteUpdatedAt(row)
 
   switch (table) {
     case 'boards':
@@ -181,6 +189,10 @@ export function isRemoteTombstone(row: RemoteRow) {
 }
 
 export function remoteUpdatedAt(row: RemoteRow) {
+  if (typeof row.server_updated_at === 'string') {
+    const serverTime = Date.parse(row.server_updated_at)
+    if (Number.isFinite(serverTime)) return serverTime
+  }
   return numberOr(row.updated_at)
 }
 
@@ -228,15 +240,16 @@ export function parsePullCursor(value: string | null): PullCursor | null {
 }
 
 /**
- * Local state wins timestamp ties. This prevents an already-observed remote
- * row from undoing a local soft delete before its outbox entry is uploaded.
+ * Any local mutation still waiting in the outbox wins until it is uploaded.
+ * The server then assigns the authoritative revision time, so a skewed device
+ * clock cannot permanently dominate a later remote revision.
  */
 export function shouldAcceptRemoteRevision(
   remoteTime: number,
   localTime?: number,
   queuedTime?: number,
 ) {
-  if (queuedTime !== undefined && queuedTime >= remoteTime) return false
+  if (queuedTime !== undefined) return false
   if (localTime !== undefined && localTime >= remoteTime) return false
   return true
 }

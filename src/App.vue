@@ -8,6 +8,7 @@ import {
   ref,
   watch,
 } from 'vue'
+import { registerSW } from 'virtual:pwa-register'
 import {
   CalendarPlus,
   Layers2,
@@ -132,6 +133,8 @@ let booting = true
 let teleportToken = 0
 let teleportRunning = false
 let copyFeedbackTimer: ReturnType<typeof setTimeout> | null = null
+let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | null = null
+let updatePromptShown = false
 
 const camera = computed<CanvasCamera | null>(
   () => stageRef.value?.camera ?? null,
@@ -1121,6 +1124,26 @@ onMounted(() => {
   })()
   window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('paste', handleCanvasPaste)
+  updateServiceWorker = registerSW({
+    immediate: true,
+    onNeedRefresh() {
+      if (updatePromptShown) return
+      updatePromptShown = true
+      toast.push('Card Canvas 新版本已准备好。', {
+        tone: 'info',
+        timeout: 0,
+        action: {
+          label: '立即更新',
+          run: async () => {
+            await updateServiceWorker?.(true)
+          },
+        },
+      })
+    },
+    onRegisterError(error) {
+      console.error('[card-canvas] PWA registration failed', error)
+    },
+  })
 
   // Best-effort durable storage: browsers may ignore or deny the request.
   if (navigator.storage?.persist) {
@@ -1219,7 +1242,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.13.1 · Local-first
+              v1.14.0 · Local-first
             </p>
           </div>
 
@@ -1434,7 +1457,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.13.1</span>
+          <span>v1.14.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

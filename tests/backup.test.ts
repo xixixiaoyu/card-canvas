@@ -46,6 +46,14 @@ describe('workspace backup', () => {
       boards: 0,
       cardVersions: 0,
       attachments: 0,
+      skipped: {
+        cards: 0,
+        boardItems: 0,
+        connections: 0,
+        boards: 0,
+        cardVersions: 0,
+        attachments: 0,
+      },
     })
     expect(await db.cards.count()).toBe(3)
     expect(await db.boardItems.count()).toBe(3)
@@ -58,9 +66,16 @@ describe('workspace backup', () => {
     const backup = await createBackup()
     expect(backup.connections).toHaveLength(1)
     expect(backup.connections[0].label).toBeUndefined()
+    expect(backup.connections[0].boardId).toBe('board-main')
+    expect(await db.cards.get(backup.connections[0].fromCardId)).toBeDefined()
+    expect(await db.cards.get(backup.connections[0].toCardId)).toBeDefined()
 
     await db.connections.clear()
-    await importBackupText(JSON.stringify(backup))
+    const counts = await importBackupText(JSON.stringify(backup))
+    expect(counts).toMatchObject({
+      connections: 1,
+      skipped: { connections: 0 },
+    })
     expect(await db.connections.count()).toBe(1)
   })
 
@@ -143,6 +158,72 @@ describe('workspace backup', () => {
     expect(counts.cards).toBe(1)
     expect(card?.tags).toEqual(['Design', '研究'])
     expect(item).toMatchObject({ x: 12, y: 34, cardId: 'card-imported' })
+  })
+
+  it('keeps newer local data when importing an older backup', async () => {
+    await seed()
+    const current = await db.cards.get('card-demo-001')
+    expect(current).toBeDefined()
+    await db.cards.put({
+      ...current!,
+      title: '当前较新版本',
+      updatedAt: 10_000,
+    })
+
+    const counts = await importBackupText(
+      JSON.stringify({
+        app: 'card-canvas',
+        version: 3,
+        cards: [
+          {
+            ...current!,
+            title: '旧备份版本',
+            updatedAt: 1000,
+          },
+        ],
+        boardItems: [],
+      }),
+    )
+
+    expect(counts.cards).toBe(0)
+    expect(counts.skipped.cards).toBe(1)
+    expect(await db.cards.get(current!.id)).toMatchObject({
+      title: '当前较新版本',
+      updatedAt: 10_000,
+    })
+  })
+
+  it('never resurrects a locally deleted card from a live backup', async () => {
+    await seed()
+    const deleted = {
+      ...(await db.cards.get('card-demo-001'))!,
+      isDeleted: true,
+      updatedAt: 1000,
+    }
+    await db.cards.put(deleted)
+
+    const counts = await importBackupText(
+      JSON.stringify({
+        app: 'card-canvas',
+        version: 3,
+        cards: [
+          {
+            ...deleted,
+            isDeleted: undefined,
+            title: '不应复活',
+            updatedAt: 99_999,
+          },
+        ],
+        boardItems: [],
+      }),
+    )
+
+    expect(counts.cards).toBe(0)
+    expect(counts.skipped.cards).toBe(1)
+    expect(await db.cards.get(deleted.id)).toMatchObject({
+      title: deleted.title,
+      isDeleted: true,
+    })
   })
 
   it('places legacy cards without projections on the requested board', async () => {

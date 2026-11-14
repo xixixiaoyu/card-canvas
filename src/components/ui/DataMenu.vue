@@ -80,6 +80,7 @@ async function handleImportFile(event: Event) {
   importing.value = true
 
   try {
+    const safetyBackup = await downloadBackup()
     const counts = await importBackupFile(file, workspace.activeBoardId)
     const previousBoardId = workspace.activeBoardId
     await workspace.loadBoards()
@@ -88,14 +89,18 @@ async function handleImportFile(event: Event) {
     }
     board.clearHistory()
     broadcastWorkspaceChange('all')
-    const imageSummary = counts.attachments
-      ? `、${counts.attachments} 张图片`
+    const skippedCount = Object.values(counts.skipped).reduce(
+      (total, count) => total + count,
+      0,
+    )
+    const skippedSummary = skippedCount
+      ? `，跳过 ${skippedCount} 条较旧或冲突记录`
       : ''
     toast.push(
-      `已导入 ${counts.cards} 张卡片${imageSummary}、${counts.boardItems} 个投影。`,
+      `已安全合并 ${counts.cards} 张卡片、${counts.boardItems} 个投影${skippedSummary}。导入前已备份 ${safetyBackup.cards} 张卡片。`,
       {
         tone: 'success',
-        timeout: 4000,
+        timeout: 6000,
       },
     )
     close()
@@ -178,7 +183,7 @@ onBeforeUnmount(() => {
             @click="pickImportFile"
           >
             <Upload :size="13" :stroke-width="1.7" aria-hidden="true" />
-            {{ importing ? '正在导入…' : '导入工作区备份' }}
+            {{ importing ? '正在安全合并…' : '安全合并工作区备份' }}
           </button>
 
           <button
@@ -204,7 +209,7 @@ onBeforeUnmount(() => {
         <p
           class="border-t border-stone-200/70 px-3.5 py-2 font-mono text-[8px] uppercase tracking-[0.14em] text-stone-400 dark:border-white/[0.08] dark:text-zinc-600"
         >
-          Cards · Wires · Boards · v1.13.1
+          Cards · Wires · Boards · v1.14.0
         </p>
       </div>
     </Transition>
