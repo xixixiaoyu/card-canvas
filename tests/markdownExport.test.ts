@@ -64,7 +64,7 @@ describe('markdown synthesis', () => {
     ])
   })
 
-  it('serializes title, tags, body, highlights and selected links', () => {
+  it('serializes title, body, highlights and selected links without tags', () => {
     const markdown = buildMarkdown(
       [entry(defence, 100, 100), entry(boundary, 600, 100)],
       [
@@ -79,7 +79,7 @@ describe('markdown synthesis', () => {
     )
 
     expect(markdown).toContain('### 防御的回路')
-    expect(markdown).toContain('#心理学/防御机制')
+    expect(markdown).not.toContain('#心理学/防御机制')
     expect(markdown).toContain('防御是声音的短暂代偿。')
     expect(markdown).toContain('- 01 **识别**：先分清我的感受')
     expect(markdown).toContain('> ↳ 关联 [边界不是墙]：共享防御机制')

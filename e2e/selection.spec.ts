@@ -120,7 +120,7 @@ test('marquee selects, unions, collapses and clears', async ({ page }) => {
   await expect(page.locator('.selection-toolbar')).toHaveCount(0)
 })
 
-test('single selected card exposes Markdown copy in its action row', async ({
+test('single card exposes content copy without selecting or including tags', async ({
   page,
   context,
 }) => {
@@ -129,20 +129,22 @@ test('single selected card exposes Markdown copy in its action row', async ({
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
 
   const card = page.locator('[data-world-item]').first()
-  await card.locator('h2').click()
-  await expect(card).toHaveClass(/is-selected/)
-  await expect(page.locator('.selection-toolbar')).toHaveCount(0)
+  await card.hover()
+  await expect(card).not.toHaveClass(/is-selected/)
 
-  const copy = card.getByRole('button', { name: '复制卡片为 Markdown' })
+  const copy = card.getByRole('button', { name: '复制卡片内容' })
   await expect(copy).toBeVisible()
   await copy.click()
 
-  await expect(page.getByText('已复制 1 张卡片大纲到剪贴板。')).toBeVisible()
+  await expect(page.getByText('已复制卡片内容。')).toBeVisible()
   await expect(
-    card.getByRole('button', { name: '已复制 Markdown' }),
+    card.getByRole('button', { name: '已复制卡片内容' }),
   ).toBeVisible()
   const markdown = await page.evaluate(() => navigator.clipboard.readText())
   expect(markdown).toContain('### 声音的支点，与防御的回声')
+  expect(markdown).toContain('咽音不是把声音推得更响')
+  expect(markdown).not.toContain('#声乐/咽音')
+  expect(markdown).not.toContain('#心理学/防御机制')
 })
 
 test('marquee is scale-independent and yields to space/middle pan', async ({
@@ -210,15 +212,17 @@ test('selection cluster copies a connected Markdown synthesis', async ({
   )
 
   await expect(page.locator('.selection-toolbar')).toContainText('3 SELECTED')
-  const copy = page.getByRole('button', { name: '复制 Markdown' })
+  const copy = page
+    .locator('.selection-toolbar')
+    .getByRole('button', { name: '复制卡片内容' })
   await expect(copy).toBeVisible()
   await copy.click()
 
-  await expect(page.getByText('已复制 3 张卡片大纲到剪贴板。')).toBeVisible()
+  await expect(page.getByText('已复制 3 张卡片内容。')).toBeVisible()
   const markdown = await page.evaluate(() => navigator.clipboard.readText())
   expect(markdown).toContain('### 声音的支点，与防御的回声')
   expect(markdown).toContain('### 边界不是墙，是可移动的膜')
-  expect(markdown).toContain('#心理学/防御机制')
+  expect(markdown).not.toContain('#心理学/防御机制')
   expect(markdown).toContain('> ↳ 关联 [边界不是墙，是可移动的膜]')
   expect(markdown).toContain('---')
 })

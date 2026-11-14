@@ -87,9 +87,6 @@ const TrashModal = defineAsyncComponent(
 const ConnectionRadar = defineAsyncComponent(
   () => import('./components/ai/ConnectionRadar.vue'),
 )
-const ShareStudio = defineAsyncComponent(
-  () => import('./components/share/ShareStudio.vue'),
-)
 const QuickCapture = defineAsyncComponent(
   () => import('./components/capture/QuickCapture.vue'),
 )
@@ -113,13 +110,11 @@ const isShortcutOpen = ref(false)
 const isActionTrayOpen = ref(false)
 const isAISettingsOpen = ref(false)
 const isConnectionRadarOpen = ref(false)
-const isShareStudioOpen = ref(false)
 const isBoardPickerOpen = ref(false)
 const isDeleteDialogOpen = ref(false)
 const isTrashOpen = ref(false)
 const isCardHistoryOpen = ref(false)
 const radarCard = ref<Card | null>(null)
-const shareCard = ref<Card | null>(null)
 const boardPickerCard = ref<Card | null>(null)
 const deleteDialogCard = ref<Card | null>(null)
 const historyCard = ref<Card | null>(null)
@@ -223,7 +218,6 @@ watch(
   (boardId, previous) => {
     stageReady.value = false
     isConnectionRadarOpen.value = false
-    isShareStudioOpen.value = false
     isBoardPickerOpen.value = false
     isDeleteDialogOpen.value = false
     isTrashOpen.value = false
@@ -438,7 +432,7 @@ async function handleCopyCardMarkdown(itemId: string) {
     return
   }
 
-  toast.push('已复制 1 张卡片大纲到剪贴板。', {
+  toast.push('已复制卡片内容。', {
     tone: 'success',
     timeout: 2800,
   })
@@ -559,7 +553,6 @@ async function handleArrangeCards(
 function openCapture() {
   isActionTrayOpen.value = false
   isConnectionRadarOpen.value = false
-  isShareStudioOpen.value = false
   captureTemplate.value = null
   editingCard.value = null
   isCaptureOpen.value = true
@@ -653,7 +646,6 @@ function hasBlockingOverlay() {
     isActionTrayOpen.value ||
     isAISettingsOpen.value ||
     isConnectionRadarOpen.value ||
-    isShareStudioOpen.value ||
     isBoardPickerOpen.value ||
     isDeleteDialogOpen.value ||
     isTrashOpen.value ||
@@ -854,8 +846,7 @@ function openSpotlight() {
     isCaptureOpen.value ||
     isShortcutOpen.value ||
     isActionTrayOpen.value ||
-    isConnectionRadarOpen.value ||
-    isShareStudioOpen.value
+    isConnectionRadarOpen.value
   ) {
     return
   }
@@ -868,8 +859,7 @@ function openShortcuts() {
     isCaptureOpen.value ||
     isSpotlightOpen.value ||
     isActionTrayOpen.value ||
-    isConnectionRadarOpen.value ||
-    isShareStudioOpen.value
+    isConnectionRadarOpen.value
   ) {
     return
   }
@@ -901,20 +891,9 @@ function hasTextSelection() {
 
 function openEdit(card: Card) {
   isConnectionRadarOpen.value = false
-  isShareStudioOpen.value = false
   captureTemplate.value = null
   editingCard.value = card
   isCaptureOpen.value = true
-}
-
-function openShareStudio(card: Card) {
-  shareCard.value = card
-  radarCard.value = null
-  isConnectionRadarOpen.value = false
-  isActionTrayOpen.value = false
-  isCaptureOpen.value = false
-  editingCard.value = null
-  isShareStudioOpen.value = true
 }
 
 function openBoardPicker(card: Card) {
@@ -924,8 +903,6 @@ function openBoardPicker(card: Card) {
 
 function openConnectionRadar(card: Card) {
   radarCard.value = card
-  shareCard.value = null
-  isShareStudioOpen.value = false
   isActionTrayOpen.value = false
   isCaptureOpen.value = false
   editingCard.value = null
@@ -1052,7 +1029,6 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     isCaptureOpen.value ||
     isActionTrayOpen.value ||
     isConnectionRadarOpen.value ||
-    isShareStudioOpen.value ||
     isBoardPickerOpen.value ||
     isDeleteDialogOpen.value ||
     isTrashOpen.value ||
@@ -1190,10 +1166,6 @@ onBeforeUnmount(() => {
       :is-highlighted="board.pulseItemId === entry.item.id"
       :is-dimmed="isCardOutsideGalaxy(entry.card)"
       :active-filter-tag="board.activeFilterTag"
-      :copyable="
-        board.selectedItemIds.size === 1 &&
-        board.selectedItemIds.has(entry.item.id)
-      "
       :copied="copiedCardId === entry.card.id"
       :data-canvas-focus="entry.item.id === DEMO_FOCUS_ITEM_ID ? '' : undefined"
       :get-drag-group="getDragGroup"
@@ -1205,7 +1177,6 @@ onBeforeUnmount(() => {
       @edit="openEdit(entry.card)"
       @delete="handleDelete(entry.card)"
       @copy-markdown="handleCopyCardMarkdown(entry.item.id)"
-      @share="openShareStudio(entry.card)"
       @add-to-board="openBoardPicker(entry.card)"
       @find-connections="openConnectionRadar(entry.card)"
       @toggle-task="board.toggleCardTask(entry.card.id, $event)"
@@ -1242,7 +1213,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.14.0 · Local-first
+              v1.15.0 · Local-first
             </p>
           </div>
 
@@ -1457,7 +1428,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.14.0</span>
+          <span>v1.15.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">
@@ -1560,7 +1531,6 @@ onBeforeUnmount(() => {
     :card="radarCard"
     @open-settings="openAISettingsFromRadar"
   />
-  <ShareStudio v-model:open="isShareStudioOpen" :card="shareCard" />
   <BoardPlacementPicker
     v-model:open="isBoardPickerOpen"
     :card="boardPickerCard"

@@ -253,7 +253,7 @@ async function copyMarkdown() {
     return
   }
 
-  toast.push(`已复制 ${entries.length} 张卡片大纲到剪贴板。`, {
+  toast.push(`已复制 ${entries.length} 张卡片内容。`, {
     tone: 'success',
     timeout: 2800,
   })
@@ -307,14 +307,14 @@ async function copyMarkdown() {
       <button
         type="button"
         class="selection-copy"
-        :aria-label="copied ? '已复制 Markdown' : '复制 Markdown'"
+        :aria-label="copied ? '已复制卡片内容' : '复制卡片内容'"
         @click.stop="copyMarkdown"
       >
         <span class="selection-copy-icon" aria-hidden="true">
           <Check v-if="copied" :size="13" :stroke-width="2" />
           <Copy v-else :size="13" :stroke-width="1.8" />
         </span>
-        <span>{{ copied ? '已复制' : '复制 Markdown' }}</span>
+        <span>{{ copied ? '已复制' : '复制内容' }}</span>
       </button>
       <span class="selection-divider" aria-hidden="true" />
       <button

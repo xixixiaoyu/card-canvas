@@ -31,10 +31,6 @@ export function sortEntriesForReading(entries: MarkdownEntry[]) {
   return rows.flatMap((row) => [...row].sort((a, b) => a.item.x - b.item.x))
 }
 
-function tagsLine(card: Card) {
-  return card.tags.map((tag) => `#${tag}`).join(' ')
-}
-
 function cardBlock(
   entry: MarkdownEntry,
   selectedIds: Set<string>,
@@ -46,7 +42,6 @@ function cardBlock(
   const explicitTitle = card.title.trim()
   const sections: string[] = explicitTitle ? [`### ${explicitTitle}`] : []
 
-  if (card.tags.length) sections.push(tagsLine(card))
   if (card.content.trim()) sections.push(card.content.trim())
 
   if (card.highlights?.length) {

@@ -14,7 +14,6 @@ import {
   Layers3,
   Link2,
   Pencil,
-  Share2,
   Sparkles,
   Trash2,
 } from '@lucide/vue'
@@ -38,7 +37,6 @@ const props = withDefaults(
     isDimmed?: boolean
     activeFilterTag?: string | null
     getDragGroup?: () => BoardItem[]
-    copyable?: boolean
     copied?: boolean
   }>(),
   {
@@ -49,7 +47,6 @@ const props = withDefaults(
     isDimmed: false,
     activeFilterTag: null,
     getDragGroup: undefined,
-    copyable: false,
     copied: false,
   },
 )
@@ -63,7 +60,6 @@ const emit = defineEmits<{
   edit: []
   delete: []
   copyMarkdown: []
-  share: []
   addToBoard: []
   findConnections: []
   toggleTask: [lineIndex: number]
@@ -235,16 +231,13 @@ function tagTone(index: number) {
             <div class="flex shrink-0 items-center gap-0.5">
               <div class="card-actions flex items-center gap-0">
                 <button
-                  v-if="copyable"
                   type="button"
                   class="card-action card-action--copy"
                   :class="{ 'is-copied': copied }"
                   data-card-interactive
                   data-card-copy
-                  :aria-label="
-                    copied ? '已复制 Markdown' : '复制卡片为 Markdown'
-                  "
-                  :title="copied ? '已复制' : '复制 Markdown'"
+                  :aria-label="copied ? '已复制卡片内容' : '复制卡片内容'"
+                  :title="copied ? '已复制' : '复制卡片内容'"
                   @pointerdown.stop
                   @click.stop="emit('copyMarkdown')"
                 >
@@ -260,18 +253,6 @@ function tagTone(index: number) {
                     :stroke-width="1.7"
                     aria-hidden="true"
                   />
-                </button>
-                <button
-                  type="button"
-                  class="card-action card-action--share"
-                  data-card-interactive
-                  data-card-share
-                  aria-label="分享卡片图片"
-                  title="分享图片"
-                  @pointerdown.stop
-                  @click.stop="emit('share')"
-                >
-                  <Share2 :size="13" :stroke-width="1.7" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -673,11 +654,6 @@ function tagTone(index: number) {
   color: rgb(190 18 60);
 }
 
-.card-action--share:hover {
-  background: rgba(224, 231, 255, 0.78);
-  color: rgb(67 56, 202);
-}
-
 .card-action--radar:hover {
   background: rgba(254, 243, 199, 0.78);
   color: rgb(146 64, 14);
@@ -705,11 +681,6 @@ function tagTone(index: number) {
 .dark .card-action--copy:hover {
   background: rgba(56, 189, 248, 0.1);
   color: rgb(186, 230, 253);
-}
-
-.dark .card-action--share:hover {
-  background: rgba(199, 210, 254, 0.1);
-  color: rgb(199, 210, 254);
 }
 
 .dark .card-action--radar:hover {
