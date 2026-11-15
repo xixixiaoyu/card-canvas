@@ -4,6 +4,7 @@ import {
   dailyTodoDeferral,
   formatDailyTodoTitle,
   isDailyTodoCard,
+  isEmptyDailyTodoCard,
   trimTrailingEmptyDailyTask,
 } from '../src/lib/daily-todo'
 import type { Card } from '../src/types'
@@ -43,6 +44,28 @@ describe('daily todo cards', () => {
     expect(trimTrailingEmptyDailyTask('- [ ] ')).toBe('')
     expect(trimTrailingEmptyDailyTask('- [ ] A\n- [x] B')).toBe(
       '- [ ] A\n- [x] B',
+    )
+  })
+
+  it('recognises only a clean, system-shaped empty daily card', () => {
+    expect(isEmptyDailyTodoCard(card({ content: '   ' }))).toBe(true)
+    expect(isEmptyDailyTodoCard(card({ content: '手动备注' }))).toBe(false)
+    expect(
+      isEmptyDailyTodoCard(card({ tags: [DAILY_TODO_TAG, '额外标签'] })),
+    ).toBe(false)
+    expect(
+      isEmptyDailyTodoCard(
+        card({
+          content: '',
+          highlights: [{ order: '01', label: '重点', text: '内容' }],
+        }),
+      ),
+    ).toBe(false)
+    expect(isEmptyDailyTodoCard(card({ title: '周记', content: '' }))).toBe(
+      false,
+    )
+    expect(isEmptyDailyTodoCard(card({ content: '', isDeleted: true }))).toBe(
+      false,
     )
   })
 

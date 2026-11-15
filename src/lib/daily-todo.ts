@@ -22,6 +22,16 @@ export function isDailyTodoCard(card: Card, title = formatDailyTodoTitle()) {
   )
 }
 
+export function isEmptyDailyTodoCard(card: Card) {
+  return (
+    /^\d{4}-\d{2}-\d{2}$/u.test(card.title) &&
+    card.tags.length === 1 &&
+    isDailyTodoCard(card, card.title) &&
+    !card.content.trim() &&
+    !card.highlights?.length
+  )
+}
+
 export interface DailyTodoDeferral {
   label: '移至今天' | '移至明天'
   targetTitle: string

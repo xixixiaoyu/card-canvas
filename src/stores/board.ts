@@ -8,7 +8,11 @@ import {
 } from '../lib/tab-sync'
 import { normalizeTags } from '../lib/tags'
 import { parseAtomicMarkdown, toggleTaskLine } from '../lib/atomic-markdown'
-import { DAILY_TODO_TAG, isDailyTodoCard } from '../lib/daily-todo'
+import {
+  DAILY_TODO_TAG,
+  isDailyTodoCard,
+  isEmptyDailyTodoCard,
+} from '../lib/daily-todo'
 import { SYNC_META_KEYS } from '../lib/sync/types'
 import type {
   BoardItem,
@@ -60,6 +64,7 @@ export interface DeferDailyTaskResult {
   targetCardId: string
   targetItemId: string
   duplicate: boolean
+  sourceCleanup: 'deleted' | 'removed-from-board' | null
 }
 
 export interface HistoryEntry {
@@ -814,6 +819,12 @@ export const useBoardStore = defineStore('board', () => {
 
     const source = cards.value.find((card) => card.id === input.sourceCardId)
     if (!source) return null
+    const sourceEntry = entries.value.find(
+      (entry) =>
+        entry.item.cardId === source.id &&
+        entry.item.boardId === input.targetBoardId,
+    )
+    if (!sourceEntry) return null
 
     const sourceLines = source.content.split(/\r?\n/)
     const sourceLine = sourceLines[input.sourceLineIndex]
@@ -855,6 +866,62 @@ export const useBoardStore = defineStore('board', () => {
       updatedAt: now,
     }
 
+    const [
+      sourceProjections,
+      sourceConnectionsFrom,
+      sourceConnectionsTo,
+      activeAttachmentCount,
+    ] = await Promise.all([
+      db.boardItems.where('cardId').equals(source.id).toArray(),
+      db.connections.where('fromCardId').equals(source.id).toArray(),
+      db.connections.where('toCardId').equals(source.id).toArray(),
+      db.attachments
+        .where('cardId')
+        .equals(source.id)
+        .filter((attachment) => !attachment.isDeleted)
+        .count(),
+    ])
+    const sourceHasConnections =
+      sourceConnectionsFrom.length > 0 || sourceConnectionsTo.length > 0
+    const otherSourceProjections = sourceProjections.filter(
+      (item) => item.id !== sourceEntry.item.id,
+    )
+    const sourceHasCurrentBoardDuplicate = otherSourceProjections.some(
+      (item) => item.boardId === input.targetBoardId,
+    )
+    const sourceHasOtherBoardProjection = otherSourceProjections.some(
+      (item) => item.boardId !== input.targetBoardId,
+    )
+    const canCleanupSource =
+      isEmptyDailyTodoCard(sourceAfter) &&
+      !sourceEntry.item.zoneId &&
+      !sourceHasConnections &&
+      activeAttachmentCount === 0 &&
+      !sourceHasCurrentBoardDuplicate
+    const sourceCleanup: DeferDailyTaskResult['sourceCleanup'] =
+      canCleanupSource
+        ? sourceHasOtherBoardProjection
+          ? 'removed-from-board'
+          : 'deleted'
+        : null
+    const cleanupItemsById = new Map<string, BoardItem>()
+    if (sourceCleanup === 'deleted') {
+      for (const item of sourceProjections) {
+        cleanupItemsById.set(item.id, item)
+      }
+      cleanupItemsById.set(sourceEntry.item.id, sourceEntry.item)
+    } else if (sourceCleanup === 'removed-from-board') {
+      cleanupItemsById.set(sourceEntry.item.id, sourceEntry.item)
+    }
+    const cleanupItemSnapshots = [...cleanupItemsById.values()].map((item) =>
+      plainRecord(item),
+    )
+    const cleanupItemIds = cleanupItemSnapshots.map((item) => item.id)
+    const sourceAfterStored: Card =
+      sourceCleanup === 'deleted'
+        ? { ...sourceAfter, isDeleted: true }
+        : sourceAfter
+
     const targetLine = sourceLine.trim()
     const targetNewline = targetBefore?.content.includes('\r\n') ? '\r\n' : '\n'
     const createdTarget = !targetBefore
@@ -891,18 +958,26 @@ export const useBoardStore = defineStore('board', () => {
     await snapshotCardVersion(sourceBefore)
     if (targetBefore && !duplicate) await snapshotCardVersion(targetBefore)
 
-    replaceLocalCard(sourceAfter)
+    if (sourceCleanup === 'deleted') removeLocalCard(source.id)
+    else replaceLocalCard(sourceAfter)
     replaceLocalCard(targetAfter)
+    for (const itemId of cleanupItemIds) removeLocalItem(itemId)
     if (createdTarget) replaceLocalItem(targetItem)
+    if (cleanupItemIds.length) pruneSelectedItems()
 
     try {
       await db.transaction('rw', [db.cards, db.boardItems], async () => {
-        await db.cards.bulkPut([sourceAfter, targetAfter])
+        await db.cards.bulkPut([sourceAfterStored, targetAfter])
+        if (cleanupItemIds.length) {
+          await db.boardItems.bulkDelete(cleanupItemIds)
+        }
         if (createdTarget) await db.boardItems.put(targetItem)
       })
       broadcastWorkspaceChange('all')
     } catch (cause) {
       replaceLocalCard(sourceBefore)
+      for (const item of cleanupItemSnapshots) replaceLocalItem(item)
+      if (cleanupItemSnapshots.length) pruneSelectedItems()
       if (targetBefore) replaceLocalCard(targetBefore)
       else removeLocalCard(targetAfter.id)
       if (createdTarget) removeLocalItem(targetItem.id)
@@ -914,10 +989,15 @@ export const useBoardStore = defineStore('board', () => {
     pulseItem(targetItem.id)
 
     record({
-      label: createdTarget ? '顺延任务并创建待办卡' : '顺延任务',
+      label: `${createdTarget ? '顺延任务、创建待办卡' : '顺延任务'}${
+        sourceCleanup ? '并清理空待办卡' : ''
+      }`,
       undo: async () => {
         await db.transaction('rw', [db.cards, db.boardItems], async () => {
           await db.cards.put(sourceBefore)
+          if (cleanupItemSnapshots.length) {
+            await db.boardItems.bulkPut(cleanupItemSnapshots)
+          }
           if (targetBefore) await db.cards.put(targetBefore)
           else {
             await db.cards.delete(targetAfter.id)
@@ -925,6 +1005,8 @@ export const useBoardStore = defineStore('board', () => {
           }
         })
         replaceLocalCard(sourceBefore)
+        for (const item of cleanupItemSnapshots) replaceLocalItem(item)
+        if (cleanupItemSnapshots.length) pruneSelectedItems()
         if (targetBefore) replaceLocalCard(targetBefore)
         else {
           removeLocalCard(targetAfter.id)
@@ -934,12 +1016,18 @@ export const useBoardStore = defineStore('board', () => {
       },
       redo: async () => {
         await db.transaction('rw', [db.cards, db.boardItems], async () => {
-          await db.cards.bulkPut([sourceAfter, targetAfter])
+          await db.cards.bulkPut([sourceAfterStored, targetAfter])
+          if (cleanupItemIds.length) {
+            await db.boardItems.bulkDelete(cleanupItemIds)
+          }
           if (createdTarget) await db.boardItems.put(targetItem)
         })
-        replaceLocalCard(sourceAfter)
+        if (sourceCleanup === 'deleted') removeLocalCard(source.id)
+        else replaceLocalCard(sourceAfter)
         replaceLocalCard(targetAfter)
+        for (const itemId of cleanupItemIds) removeLocalItem(itemId)
         if (createdTarget) replaceLocalItem(targetItem)
+        if (cleanupItemIds.length) pruneSelectedItems()
         broadcastWorkspaceChange('all')
       },
     })
@@ -948,6 +1036,7 @@ export const useBoardStore = defineStore('board', () => {
       targetCardId: targetAfter.id,
       targetItemId: targetItem.id,
       duplicate,
+      sourceCleanup,
     }
   }
 

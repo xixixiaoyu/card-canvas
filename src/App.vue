@@ -615,6 +615,8 @@ async function handleDeferDailyTask(task: {
   targetTitle: string
   text: string
 }) {
+  const sourceTitle =
+    board.cards.find((card) => card.id === task.cardId)?.title ?? '空待办卡'
   const result = await board.deferDailyTask({
     sourceCardId: task.cardId,
     sourceLineIndex: task.lineIndex,
@@ -626,17 +628,20 @@ async function handleDeferDailyTask(task: {
     toast.push('任务顺延失败，原任务未改动。', { tone: 'error' })
     return
   }
-
-  toast.push(
-    result.duplicate
-      ? `${task.targetTitle} 已有这项任务，已移除重复项。`
-      : `已将「${task.text || '未命名待办'}」移至 ${task.targetTitle}。`,
-    {
-      tone: 'success',
-      timeout: 5000,
-      action: { label: '撤销', run: () => board.undo() },
-    },
-  )
+  const movedMessage = result.duplicate
+    ? `${task.targetTitle} 已有这项任务，已移除重复项`
+    : `已将「${task.text || '未命名待办'}」移至 ${task.targetTitle}`
+  const cleanupMessage =
+    result.sourceCleanup === 'deleted'
+      ? `，并自动清理空待办卡 ${sourceTitle}。`
+      : result.sourceCleanup === 'removed-from-board'
+        ? `，并从当前白板移除空待办卡 ${sourceTitle}。`
+        : '。'
+  toast.push(`${movedMessage}${cleanupMessage}`, {
+    tone: 'success',
+    timeout: 5000,
+    action: { label: '撤销', run: () => board.undo() },
+  })
 }
 
 function hasBlockingOverlay() {
@@ -1217,7 +1222,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.17.0 · Local-first
+              v1.18.0 · Local-first
             </p>
           </div>
 
@@ -1432,7 +1437,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.17.0</span>
+          <span>v1.18.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

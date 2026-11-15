@@ -686,6 +686,162 @@ describe('board store', () => {
     )
   })
 
+  it('removes the last empty daily card as part of the same undo step', async () => {
+    const board = await freshBoard()
+    const source = await board.captureAndPlace(
+      {
+        title: '2026-11-14',
+        content: '- [ ] 最后一项',
+        tags: ['待办/今日'],
+      },
+      'board-main',
+      { x: 40, y: 40 },
+    )
+
+    const result = await board.deferDailyTask({
+      sourceCardId: source.card.id,
+      sourceLineIndex: 0,
+      targetTitle: '2026-11-15',
+      targetBoardId: 'board-main',
+      position: { x: 520, y: 40 },
+    })
+
+    expect(result?.sourceCleanup).toBe('deleted')
+    expect(await db.cards.get(source.card.id)).toMatchObject({
+      content: '',
+      isDeleted: true,
+    })
+    expect(await db.boardItems.get(source.item.id)).toBeUndefined()
+    expect(board.items.some((item) => item.cardId === source.card.id)).toBe(
+      false,
+    )
+    expect(board.undoLabel).toBe('顺延任务、创建待办卡并清理空待办卡')
+
+    await board.undo()
+    expect(await db.cards.get(source.card.id)).toMatchObject({
+      content: '- [ ] 最后一项',
+    })
+    expect((await db.cards.get(source.card.id))?.isDeleted).toBeUndefined()
+    expect(await db.boardItems.get(source.item.id)).toMatchObject({
+      cardId: source.card.id,
+      x: source.item.x,
+      y: source.item.y,
+    })
+    expect(board.items.some((item) => item.cardId === source.card.id)).toBe(
+      true,
+    )
+
+    await board.redo()
+    expect((await db.cards.get(source.card.id))?.isDeleted).toBe(true)
+    expect(await db.boardItems.get(source.item.id)).toBeUndefined()
+  })
+
+  it('only removes the current projection when an empty daily card is reused', async () => {
+    const board = await freshBoard()
+    const source = await board.captureAndPlace(
+      {
+        title: '2026-11-14',
+        content: '- [ ] 跨板任务',
+        tags: ['待办/今日'],
+      },
+      'board-main',
+      { x: 40, y: 40 },
+    )
+    const otherProjection = await board.addCardToBoard(
+      source.card.id,
+      'board-secondary',
+    )
+    expect(otherProjection).not.toBeNull()
+    board.clearHistory()
+
+    const result = await board.deferDailyTask({
+      sourceCardId: source.card.id,
+      sourceLineIndex: 0,
+      targetTitle: '2026-11-15',
+      targetBoardId: 'board-main',
+      position: { x: 520, y: 40 },
+    })
+
+    expect(result?.sourceCleanup).toBe('removed-from-board')
+    expect(await db.cards.get(source.card.id)).toMatchObject({
+      content: '',
+    })
+    expect((await db.cards.get(source.card.id))?.isDeleted).toBeUndefined()
+    expect(await db.boardItems.get(source.item.id)).toBeUndefined()
+    expect(await db.boardItems.get(otherProjection!.id)).toBeDefined()
+
+    await board.undo()
+    expect(await db.cards.get(source.card.id)).toMatchObject({
+      content: '- [ ] 跨板任务',
+    })
+    expect(await db.boardItems.get(source.item.id)).toBeDefined()
+  })
+
+  it('keeps an empty daily card that has user connections or attachments', async () => {
+    const board = await freshBoard()
+    const source = await board.captureAndPlace(
+      {
+        title: '2026-11-14',
+        content: '- [ ] 有关联的任务',
+        tags: ['待办/今日'],
+      },
+      'board-main',
+      { x: 40, y: 40 },
+    )
+    const connector = board.cards.find((card) => card.id !== source.card.id)!
+    await board.createConnection(source.card.id, connector.id)
+    board.clearHistory()
+
+    const connectedResult = await board.deferDailyTask({
+      sourceCardId: source.card.id,
+      sourceLineIndex: 0,
+      targetTitle: '2026-11-15',
+      targetBoardId: 'board-main',
+      position: { x: 520, y: 40 },
+    })
+
+    expect(connectedResult?.sourceCleanup).toBeNull()
+    expect(await db.boardItems.get(source.item.id)).toBeDefined()
+    expect((await db.cards.get(source.card.id))?.isDeleted).toBeUndefined()
+
+    const attachmentSource = await board.captureAndPlace(
+      {
+        title: '2026-11-13',
+        content: '- [ ] 有附件的任务',
+        tags: ['待办/今日'],
+      },
+      'board-main',
+      { x: 40, y: 420 },
+    )
+    const now = Date.now()
+    await db.attachments.put({
+      id: 'attachment-daily',
+      cardId: attachmentSource.card.id,
+      fileName: 'proof.png',
+      mimeType: 'image/png',
+      size: 1,
+      width: 1,
+      height: 1,
+      dataUrl: 'data:image/png;base64,AA==',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const attachedResult = await board.deferDailyTask({
+      sourceCardId: attachmentSource.card.id,
+      sourceLineIndex: 0,
+      targetTitle: '2026-11-15',
+      targetBoardId: 'board-main',
+      position: { x: 520, y: 420 },
+    })
+
+    expect(attachedResult?.sourceCleanup).toBeNull()
+    expect(await db.boardItems.get(attachmentSource.item.id)).toBeDefined()
+    expect(
+      (await db.cards.get(attachmentSource.card.id))?.isDeleted,
+    ).toBeUndefined()
+  })
+
   it('deduplicates a deferred daily task already present in the target card', async () => {
     const board = await freshBoard()
     const source = await board.captureAndPlace(

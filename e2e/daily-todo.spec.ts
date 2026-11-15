@@ -112,6 +112,9 @@ test('an unfinished historical task moves into today and undoes in one step', as
   await expect(defer).toHaveAttribute('aria-label', '移至今天：延迟发布')
   await defer.click()
 
+  const undoNotice = page.locator('[role="status"]', { hasText: '自动清理' })
+  await expect(undoNotice).toContainText(dates.previous)
+
   const todayCard = page
     .locator('[data-world-item]')
     .filter({ hasText: dates.today })
@@ -121,15 +124,17 @@ test('an unfinished historical task moves into today and undoes in one step', as
   await expect(
     previousCard.getByRole('button', { name: '完成待办：延迟发布' }),
   ).toHaveCount(0)
-  await expect(page.locator('[data-world-item]')).toHaveCount(5)
+  await expect(previousCard).toHaveCount(0)
+  await expect(page.locator('[data-world-item]')).toHaveCount(4)
   await expect(dailyButton).toHaveAccessibleName('创建今日待办卡片')
 
-  const undoNotice = page.getByRole('status').filter({ hasText: '已将' })
   await undoNotice.getByRole('button', { name: '撤销' }).click()
   await expect(todayCard).toHaveCount(0)
+  await expect(previousCard).toHaveCount(1)
   await expect(
     previousCard.getByRole('button', { name: '完成待办：延迟发布' }),
   ).toBeVisible()
+  await expect(page.locator('[data-world-item]')).toHaveCount(4)
   await expect(dailyButton).toHaveAccessibleName(
     '创建今日待办卡片，1 个历史待办待延续',
   )
