@@ -1,6 +1,7 @@
 import type {
   Board,
   BoardItem,
+  BoardZone,
   Card,
   CardAttachment,
   Connection,
@@ -8,6 +9,7 @@ import type {
 
 interface LocalWorkspaceSnapshot {
   boards: Pick<Board, 'id' | 'name'>[]
+  boardZones?: Pick<BoardZone, 'id'>[]
   cards: Pick<Card, 'id'>[]
   attachments: Pick<CardAttachment, 'id'>[]
   boardItems: Pick<BoardItem, 'id'>[]
@@ -31,6 +33,7 @@ export function isPristineLocalWorkspace(
 
   return (
     hasOnlyDefaultBoard &&
+    (snapshot.boardZones ?? []).length === 0 &&
     snapshot.cards.length === 0 &&
     snapshot.attachments.length === 0 &&
     snapshot.boardItems.length === 0 &&

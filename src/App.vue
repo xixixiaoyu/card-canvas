@@ -22,6 +22,7 @@ import {
 } from '@lucide/vue'
 import CanvasStage from './components/canvas/CanvasStage.vue'
 import CardNode from './components/canvas/CardNode.vue'
+import BoardZone from './components/canvas/BoardZone.vue'
 import EmptyBoardState from './components/canvas/EmptyBoardState.vue'
 import CloudAccount from './components/auth/CloudAccount.vue'
 import BoardSwitcher from './components/board/BoardSwitcher.vue'
@@ -1155,6 +1156,8 @@ onBeforeUnmount(() => {
     <h1 class="sr-only">Card Canvas 无限白板</h1>
     <p class="sr-only" aria-live="polite">{{ selectionAnnouncement }}</p>
 
+    <BoardZone v-for="zone in board.zones" :key="zone.id" :zone="zone" />
+
     <CardNode
       v-for="entry in board.entries"
       :key="entry.item.id"
@@ -1213,7 +1216,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.15.0 · Local-first
+              v1.16.0 · Local-first
             </p>
           </div>
 
@@ -1428,7 +1431,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.15.0</span>
+          <span>v1.16.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

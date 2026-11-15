@@ -13,6 +13,23 @@ create table if not exists public.boards (
   primary key (user_id, id)
 );
 
+create table if not exists public.board_zones (
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  id text not null,
+  board_id text not null,
+  title text not null default '未命名区域',
+  color text not null default 'amber',
+  created_at bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  updated_at bigint not null default (extract(epoch from now()) * 1000)::bigint,
+  server_updated_at timestamptz not null default now(),
+  is_deleted boolean not null default false,
+  sync_client_id text not null default '',
+  primary key (user_id, id),
+  foreign key (user_id, board_id)
+    references public.boards (user_id, id)
+    on delete cascade
+);
+
 create table if not exists public.cards (
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   id text not null,
@@ -58,6 +75,7 @@ create table if not exists public.board_items (
   y double precision not null default 0,
   width double precision,
   color text,
+  zone_id text,
   created_at bigint not null default (extract(epoch from now()) * 1000)::bigint,
   updated_at bigint not null default (extract(epoch from now()) * 1000)::bigint,
   server_updated_at timestamptz not null default now(),
@@ -65,6 +83,10 @@ create table if not exists public.board_items (
   sync_client_id text not null default '',
   primary key (user_id, id)
 );
+
+-- Upgrade databases created before persistent board zones.
+alter table public.board_items
+  add column if not exists zone_id text;
 
 create table if not exists public.connections (
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
@@ -83,6 +105,10 @@ create table if not exists public.connections (
 
 create index if not exists boards_user_updated_idx
   on public.boards (user_id, updated_at);
+create index if not exists board_zones_user_board_idx
+  on public.board_zones (user_id, board_id);
+create index if not exists board_zones_user_updated_idx
+  on public.board_zones (user_id, updated_at);
 create index if not exists cards_user_updated_idx
   on public.cards (user_id, updated_at);
 create index if not exists attachments_user_card_idx
@@ -100,6 +126,8 @@ create index if not exists connections_user_updated_idx
 
 create index if not exists boards_user_server_updated_idx
   on public.boards (user_id, server_updated_at);
+create index if not exists board_zones_user_server_updated_idx
+  on public.board_zones (user_id, server_updated_at);
 create index if not exists cards_user_server_updated_idx
   on public.cards (user_id, server_updated_at);
 create index if not exists attachments_user_server_updated_idx
@@ -111,6 +139,8 @@ create index if not exists connections_user_server_updated_idx
 
 create index if not exists boards_user_server_cursor_idx
   on public.boards (user_id, server_updated_at, id);
+create index if not exists board_zones_user_server_cursor_idx
+  on public.board_zones (user_id, server_updated_at, id);
 create index if not exists cards_user_server_cursor_idx
   on public.cards (user_id, server_updated_at, id);
 create index if not exists attachments_user_server_cursor_idx
@@ -121,6 +151,7 @@ create index if not exists connections_user_server_cursor_idx
   on public.connections (user_id, server_updated_at, id);
 
 alter table public.boards replica identity full;
+alter table public.board_zones replica identity full;
 alter table public.cards replica identity full;
 alter table public.attachments replica identity full;
 alter table public.board_items replica identity full;
@@ -139,6 +170,11 @@ $$;
 drop trigger if exists boards_set_server_updated_at on public.boards;
 create trigger boards_set_server_updated_at
 before insert or update on public.boards
+for each row execute function public.set_server_updated_at();
+
+drop trigger if exists board_zones_set_server_updated_at on public.board_zones;
+create trigger board_zones_set_server_updated_at
+before insert or update on public.board_zones
 for each row execute function public.set_server_updated_at();
 
 drop trigger if exists cards_set_server_updated_at on public.cards;
@@ -162,6 +198,7 @@ before insert or update on public.connections
 for each row execute function public.set_server_updated_at();
 
 alter table public.boards enable row level security;
+alter table public.board_zones enable row level security;
 alter table public.cards enable row level security;
 alter table public.attachments enable row level security;
 alter table public.board_items enable row level security;
@@ -189,6 +226,31 @@ with check ((select auth.uid()) = user_id);
 drop policy if exists "boards_delete_own" on public.boards;
 create policy "boards_delete_own"
 on public.boards for delete
+to authenticated
+using ((select auth.uid()) = user_id);
+
+drop policy if exists "board_zones_select_own" on public.board_zones;
+create policy "board_zones_select_own"
+on public.board_zones for select
+to authenticated
+using ((select auth.uid()) = user_id);
+
+drop policy if exists "board_zones_insert_own" on public.board_zones;
+create policy "board_zones_insert_own"
+on public.board_zones for insert
+to authenticated
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "board_zones_update_own" on public.board_zones;
+create policy "board_zones_update_own"
+on public.board_zones for update
+to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists "board_zones_delete_own" on public.board_zones;
+create policy "board_zones_delete_own"
+on public.board_zones for delete
 to authenticated
 using ((select auth.uid()) = user_id);
 
@@ -292,11 +354,11 @@ to authenticated
 using ((select auth.uid()) = user_id);
 
 grant select, insert, update, delete
-on public.boards, public.cards, public.attachments, public.board_items, public.connections
+on public.boards, public.board_zones, public.cards, public.attachments, public.board_items, public.connections
 to authenticated;
 
 revoke all
-on public.boards, public.cards, public.attachments, public.board_items, public.connections
+on public.boards, public.board_zones, public.cards, public.attachments, public.board_items, public.connections
 from anon;
 
 do $$
@@ -305,6 +367,7 @@ declare
 begin
   foreach table_name in array array[
     'boards',
+    'board_zones',
     'cards',
     'attachments',
     'board_items',

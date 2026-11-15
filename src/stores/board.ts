@@ -12,6 +12,8 @@ import { DAILY_TODO_TAG, isDailyTodoCard } from '../lib/daily-todo'
 import { SYNC_META_KEYS } from '../lib/sync/types'
 import type {
   BoardItem,
+  BoardZone,
+  BoardZoneColor,
   Card,
   CardAttachment,
   CardVersion,
@@ -74,6 +76,12 @@ export interface ClearBoardResult {
   historyId: string
 }
 
+export interface CreateBoardZoneInput {
+  title: string
+  color: BoardZoneColor
+  itemIds: string[]
+}
+
 const DEFAULT_CARD_WIDTH = 420
 const HISTORY_LIMIT = 50
 const CARD_VERSION_LIMIT = 8
@@ -101,6 +109,7 @@ export const useBoardStore = defineStore('board', () => {
   const cards = ref<Card[]>([])
   const items = ref<BoardItem[]>([])
   const connections = ref<Connection[]>([])
+  const zones = ref<BoardZone[]>([])
   const selectedItemIds = ref<Set<string>>(new Set())
   const selectedConnectionId = ref<string | null>(null)
   const landingItemId = ref<string | null>(null)
@@ -227,6 +236,18 @@ export const useBoardStore = defineStore('board', () => {
     )
   }
 
+  function replaceLocalZone(zone: BoardZone) {
+    const index = zones.value.findIndex((entry) => entry.id === zone.id)
+    zones.value =
+      index === -1
+        ? [zone, ...zones.value]
+        : zones.value.map((entry) => (entry.id === zone.id ? zone : entry))
+  }
+
+  function removeLocalZone(zoneId: string) {
+    zones.value = zones.value.filter((zone) => zone.id !== zoneId)
+  }
+
   function isSameCardPair(
     first: Connection,
     fromCardId: string,
@@ -350,11 +371,13 @@ export const useBoardStore = defineStore('board', () => {
   // --- bootstrap -----------------------------------------------------------
 
   async function readBoard(boardId: string) {
-    const [storedCards, storedItems, storedConnections] = await Promise.all([
-      db.cards.toArray(),
-      db.boardItems.where('boardId').equals(boardId).toArray(),
-      db.connections.where('boardId').equals(boardId).toArray(),
-    ])
+    const [storedCards, storedItems, storedConnections, storedZones] =
+      await Promise.all([
+        db.cards.toArray(),
+        db.boardItems.where('boardId').equals(boardId).toArray(),
+        db.connections.where('boardId').equals(boardId).toArray(),
+        db.boardZones.where('boardId').equals(boardId).toArray(),
+      ])
     const cards = storedCards
       .filter((card) => !card.isDeleted)
       .map(normalizeCard)
@@ -366,6 +389,9 @@ export const useBoardStore = defineStore('board', () => {
         .filter((item) => cardIds.has(item.cardId))
         .sort((a, b) => a.id.localeCompare(b.id)),
       connections: storedConnections.sort((a, b) => a.id.localeCompare(b.id)),
+      zones: storedZones
+        .filter((zone) => !zone.isDeleted)
+        .sort((a, b) => a.id.localeCompare(b.id)),
     }
   }
 
@@ -466,6 +492,7 @@ export const useBoardStore = defineStore('board', () => {
       cards.value = snapshot.cards
       items.value = snapshot.items.sort((a, b) => a.id.localeCompare(b.id))
       connections.value = snapshot.connections
+      zones.value = snapshot.zones
       selectedItemIds.value = new Set()
       selectedConnectionId.value = null
       activeFilterTag.value = null
@@ -922,6 +949,245 @@ export const useBoardStore = defineStore('board', () => {
       targetItemId: targetItem.id,
       duplicate,
     }
+  }
+
+  // --- board zones ---------------------------------------------------------
+
+  async function createZone(
+    input: CreateBoardZoneInput,
+  ): Promise<BoardZone | null> {
+    const boardId = activeBoardId.value
+    if (!boardId) return null
+
+    const requestedIds = new Set(input.itemIds)
+    const memberItems = items.value.filter((item) => requestedIds.has(item.id))
+    if (memberItems.length < 2) return null
+
+    const now = Date.now()
+    const zone: BoardZone = {
+      id: `zone-${crypto.randomUUID()}`,
+      boardId,
+      title: input.title.trim() || '未命名区域',
+      color: input.color,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const itemSnapshots = memberItems.map((item) => plainRecord(item))
+    const detachedZoneIds = new Set(
+      memberItems.flatMap((item) => (item.zoneId ? [item.zoneId] : [])),
+    )
+    const emptiedZones = zones.value
+      .filter(
+        (entry) =>
+          detachedZoneIds.has(entry.id) &&
+          !items.value.some(
+            (item) => item.zoneId === entry.id && !requestedIds.has(item.id),
+          ),
+      )
+      .map((entry) => plainRecord(entry))
+    const itemsAfter = memberItems.map((item) =>
+      plainRecord({ ...item, zoneId: zone.id, updatedAt: now }),
+    )
+
+    for (const emptiedZone of emptiedZones) removeLocalZone(emptiedZone.id)
+    replaceLocalZone(zone)
+    for (const item of itemsAfter) replaceLocalItem(item)
+
+    try {
+      await db.transaction('rw', db.boardZones, db.boardItems, async () => {
+        if (emptiedZones.length) {
+          await db.boardZones.bulkDelete(
+            emptiedZones.map((emptiedZone) => emptiedZone.id),
+          )
+        }
+        await db.boardZones.put(zone)
+        await db.boardItems.bulkPut(itemsAfter)
+      })
+      broadcastWorkspaceChange('all')
+    } catch (cause) {
+      removeLocalZone(zone.id)
+      for (const emptiedZone of emptiedZones) replaceLocalZone(emptiedZone)
+      for (const item of itemSnapshots) replaceLocalItem(item)
+      console.error('[card-canvas] Unable to create board zone', cause)
+      notifyFailure('创建区域失败，已恢复。')
+      return null
+    }
+
+    record({
+      label: `创建区域「${zone.title}」`,
+      undo: async () => {
+        await db.transaction('rw', db.boardZones, db.boardItems, async () => {
+          await db.boardZones.delete(zone.id)
+          if (emptiedZones.length) {
+            await db.boardZones.bulkPut(emptiedZones)
+          }
+          await db.boardItems.bulkPut(itemSnapshots)
+        })
+        removeLocalZone(zone.id)
+        for (const emptiedZone of emptiedZones) replaceLocalZone(emptiedZone)
+        for (const item of itemSnapshots) replaceLocalItem(item)
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.transaction('rw', db.boardZones, db.boardItems, async () => {
+          await db.boardZones.put(zone)
+          if (emptiedZones.length) {
+            await db.boardZones.bulkDelete(
+              emptiedZones.map((emptiedZone) => emptiedZone.id),
+            )
+          }
+          await db.boardItems.bulkPut(itemsAfter)
+        })
+        for (const emptiedZone of emptiedZones) removeLocalZone(emptiedZone.id)
+        replaceLocalZone(zone)
+        for (const item of itemsAfter) replaceLocalItem(item)
+        broadcastWorkspaceChange('all')
+      },
+    })
+
+    return zone
+  }
+
+  async function renameZone(zoneId: string, title: string) {
+    const zone = zones.value.find((entry) => entry.id === zoneId)
+    if (!zone) return false
+
+    const before = plainRecord(zone)
+    const after = plainRecord({
+      ...zone,
+      title: title.trim() || '未命名区域',
+      updatedAt: Date.now(),
+    })
+
+    replaceLocalZone(after)
+    try {
+      await db.boardZones.put(after)
+      broadcastWorkspaceChange('all')
+    } catch (cause) {
+      replaceLocalZone(before)
+      console.error('[card-canvas] Unable to rename board zone', cause)
+      notifyFailure('重命名区域失败，已恢复。')
+      return false
+    }
+
+    record({
+      label: '重命名区域',
+      undo: async () => {
+        await db.boardZones.put(before)
+        replaceLocalZone(before)
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.boardZones.put(after)
+        replaceLocalZone(after)
+        broadcastWorkspaceChange('all')
+      },
+    })
+    return true
+  }
+
+  async function moveZone(zoneId: string, deltaX: number, deltaY: number) {
+    if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return false
+    if (deltaX === 0 && deltaY === 0) return false
+    const zone = zones.value.find((entry) => entry.id === zoneId)
+    if (!zone) return false
+
+    const memberItems = items.value.filter((item) => item.zoneId === zoneId)
+    if (!memberItems.length) return false
+    const before = memberItems.map((item) => plainRecord(item))
+    const now = Date.now()
+    const after = memberItems.map((item) =>
+      plainRecord({
+        ...item,
+        x: item.x + deltaX,
+        y: item.y + deltaY,
+        updatedAt: now,
+      }),
+    )
+
+    for (const item of after) replaceLocalItem(item)
+
+    try {
+      await db.transaction('rw', db.boardItems, async () => {
+        await db.boardItems.bulkPut(after)
+      })
+      broadcastWorkspaceChange('all')
+    } catch (cause) {
+      for (const item of before) replaceLocalItem(item)
+      console.error('[card-canvas] Unable to move board zone', cause)
+      notifyFailure('移动区域失败，已恢复。')
+      return false
+    }
+
+    record({
+      label: `移动区域「${zone.title}」`,
+      undo: async () => {
+        await db.boardItems.bulkPut(before)
+        for (const item of before) replaceLocalItem(item)
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.boardItems.bulkPut(after)
+        for (const item of after) replaceLocalItem(item)
+        broadcastWorkspaceChange('all')
+      },
+    })
+    return true
+  }
+
+  async function dissolveZone(zoneId: string) {
+    const zone = zones.value.find((entry) => entry.id === zoneId)
+    if (!zone) return false
+
+    const memberItems = items.value.filter((item) => item.zoneId === zoneId)
+    const beforeItems = memberItems.map((item) => plainRecord(item))
+    const now = Date.now()
+    const afterItems = memberItems.map((item) => {
+      const next = plainRecord({ ...item, updatedAt: now })
+      delete next.zoneId
+      return next
+    })
+    const zoneSnapshot = plainRecord(zone)
+
+    removeLocalZone(zone.id)
+    for (const item of afterItems) replaceLocalItem(item)
+
+    try {
+      await db.transaction('rw', db.boardZones, db.boardItems, async () => {
+        await db.boardZones.delete(zone.id)
+        if (afterItems.length) await db.boardItems.bulkPut(afterItems)
+      })
+      broadcastWorkspaceChange('all')
+    } catch (cause) {
+      replaceLocalZone(zoneSnapshot)
+      for (const item of beforeItems) replaceLocalItem(item)
+      console.error('[card-canvas] Unable to dissolve board zone', cause)
+      notifyFailure('解散区域失败，已恢复。')
+      return false
+    }
+
+    record({
+      label: `解散区域「${zone.title}」`,
+      undo: async () => {
+        await db.transaction('rw', db.boardZones, db.boardItems, async () => {
+          await db.boardZones.put(zoneSnapshot)
+          if (beforeItems.length) await db.boardItems.bulkPut(beforeItems)
+        })
+        replaceLocalZone(zoneSnapshot)
+        for (const item of beforeItems) replaceLocalItem(item)
+        broadcastWorkspaceChange('all')
+      },
+      redo: async () => {
+        await db.transaction('rw', db.boardZones, db.boardItems, async () => {
+          await db.boardZones.delete(zone.id)
+          if (afterItems.length) await db.boardItems.bulkPut(afterItems)
+        })
+        removeLocalZone(zone.id)
+        for (const item of afterItems) replaceLocalItem(item)
+        broadcastWorkspaceChange('all')
+      },
+    })
+    return true
   }
 
   // --- projections ---------------------------------------------------------
@@ -1483,6 +1749,7 @@ export const useBoardStore = defineStore('board', () => {
       connections: Connection[]
       cards: Card[]
       deletedCards: Card[]
+      zones: BoardZone[]
     } | null = null
 
     try {
@@ -1491,12 +1758,17 @@ export const useBoardStore = defineStore('board', () => {
         db.cards,
         db.boardItems,
         db.connections,
+        db.boardZones,
         async () => {
           const boardItems = await db.boardItems
             .where('boardId')
             .equals(boardId)
             .toArray()
           const boardConnections = await db.connections
+            .where('boardId')
+            .equals(boardId)
+            .toArray()
+          const boardZones = await db.boardZones
             .where('boardId')
             .equals(boardId)
             .toArray()
@@ -1517,6 +1789,7 @@ export const useBoardStore = defineStore('board', () => {
           if (
             !boardItems.length &&
             !boardConnections.length &&
+            !boardZones.length &&
             !storedCards.length
           ) {
             return null
@@ -1540,6 +1813,9 @@ export const useBoardStore = defineStore('board', () => {
               boardConnections.map((connection) => connection.id),
             )
           }
+          if (boardZones.length) {
+            await db.boardZones.bulkDelete(boardZones.map((zone) => zone.id))
+          }
 
           return {
             items: boardItems.map((item) => plainRecord(item)),
@@ -1548,6 +1824,7 @@ export const useBoardStore = defineStore('board', () => {
             ),
             cards: storedCards.map((card) => plainRecord(card)),
             deletedCards,
+            zones: boardZones.map((zone) => plainRecord(zone)),
           }
         },
       )
@@ -1573,6 +1850,7 @@ export const useBoardStore = defineStore('board', () => {
       connections.value = connections.value.filter(
         (connection) => !removedConnectionIds.has(connection.id),
       )
+      zones.value = []
       clearSelection()
       clearFilterTag()
       pulseItemId.value = null
@@ -1589,6 +1867,7 @@ export const useBoardStore = defineStore('board', () => {
           db.cards,
           db.boardItems,
           db.connections,
+          db.boardZones,
           async () => {
             if (snapshots.cards.length) {
               await db.cards.bulkPut(snapshots.cards)
@@ -1599,6 +1878,9 @@ export const useBoardStore = defineStore('board', () => {
             if (snapshots.connections.length) {
               await db.connections.bulkPut(snapshots.connections)
             }
+            if (snapshots.zones.length) {
+              await db.boardZones.bulkPut(snapshots.zones)
+            }
           },
         )
 
@@ -1608,6 +1890,7 @@ export const useBoardStore = defineStore('board', () => {
           for (const connection of snapshots.connections) {
             replaceLocalConnection(connection)
           }
+          for (const zone of snapshots.zones) replaceLocalZone(zone)
         }
         broadcastWorkspaceChange('all')
       },
@@ -1617,6 +1900,7 @@ export const useBoardStore = defineStore('board', () => {
           db.cards,
           db.boardItems,
           db.connections,
+          db.boardZones,
           async () => {
             if (snapshots.deletedCards.length) {
               await db.cards.bulkPut(snapshots.deletedCards)
@@ -1629,6 +1913,11 @@ export const useBoardStore = defineStore('board', () => {
             if (snapshots.connections.length) {
               await db.connections.bulkDelete(
                 snapshots.connections.map((connection) => connection.id),
+              )
+            }
+            if (snapshots.zones.length) {
+              await db.boardZones.bulkDelete(
+                snapshots.zones.map((zone) => zone.id),
               )
             }
           },
@@ -2008,9 +2297,10 @@ export const useBoardStore = defineStore('board', () => {
     if (!boardId || status.value !== 'ready') return
 
     try {
-      const [storedCards, storedItems] = await Promise.all([
+      const [storedCards, storedItems, storedZones] = await Promise.all([
         db.cards.toArray(),
         db.boardItems.where('boardId').equals(boardId).toArray(),
+        db.boardZones.where('boardId').equals(boardId).toArray(),
       ])
 
       if (activeBoardId.value !== boardId || status.value !== 'ready') return
@@ -2028,6 +2318,9 @@ export const useBoardStore = defineStore('board', () => {
         .where('boardId')
         .equals(boardId)
         .toArray()
+      zones.value = storedZones
+        .filter((zone) => !zone.isDeleted)
+        .sort((a, b) => a.id.localeCompare(b.id))
 
       pruneSelectedItems()
 
@@ -2124,6 +2417,7 @@ export const useBoardStore = defineStore('board', () => {
     cards,
     items,
     connections,
+    zones,
     entries,
     selectedItemIds,
     selectedItemId,
@@ -2161,6 +2455,10 @@ export const useBoardStore = defineStore('board', () => {
     updateCard,
     toggleCardTask,
     deferDailyTask,
+    createZone,
+    renameZone,
+    moveZone,
+    dissolveZone,
     placeCard,
     addCardToBoard,
     captureAndPlace,

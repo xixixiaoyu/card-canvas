@@ -198,3 +198,18 @@ export async function queueFullWorkspaceSnapshot() {
     )
   }
 }
+
+export async function queueRecordForSync(
+  table: SyncTableName,
+  recordId: string,
+) {
+  const record = await tableFor(table).get(recordId)
+  if (!record) return
+  await queueRecord(
+    table,
+    recordId,
+    'upsert',
+    record,
+    Math.max(record.updatedAt ?? 0, Date.now()),
+  )
+}

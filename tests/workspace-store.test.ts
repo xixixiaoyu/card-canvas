@@ -68,12 +68,21 @@ describe('workspace store', () => {
       fromCardId: 'card-x',
       toCardId: 'card-y',
     })
+    await db.boardZones.put({
+      id: 'zone-temp',
+      boardId: board.id,
+      title: '临时区域',
+      color: 'amber',
+      createdAt: 1,
+      updatedAt: 1,
+    })
 
     expect(await workspace.deleteBoard(board.id)).toBe(true)
     expect(workspace.boards).toHaveLength(1)
     expect(workspace.activeBoardId).toBe('board-main')
     expect(await db.boardItems.get('projection-temp')).toBeUndefined()
     expect(await db.connections.get('connection-temp')).toBeUndefined()
+    expect(await db.boardZones.get('zone-temp')).toBeUndefined()
   })
 
   it('soft-deletes cards that only belonged to the deleted board', async () => {

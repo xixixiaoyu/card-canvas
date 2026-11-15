@@ -149,6 +149,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       db.cards,
       db.boardItems,
       db.connections,
+      db.boardZones,
       async () => {
         const boardItems = await db.boardItems
           .where('boardId')
@@ -159,6 +160,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         ]
 
         await db.boards.delete(boardId)
+        await db.boardZones.where('boardId').equals(boardId).delete()
         await db.boardItems.where('boardId').equals(boardId).delete()
         await db.connections.where('boardId').equals(boardId).delete()
 

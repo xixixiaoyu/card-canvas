@@ -53,8 +53,9 @@ async function handleExport() {
     const imageSummary = counts.attachments
       ? `、${counts.attachments} 张图片`
       : ''
+    const zoneSummary = counts.boardZones ? `、${counts.boardZones} 个区域` : ''
     toast.push(
-      `已导出 ${counts.cards} 张卡片${imageSummary}与 ${counts.connections} 条连线。`,
+      `已导出 ${counts.cards} 张卡片${zoneSummary}${imageSummary}与 ${counts.connections} 条连线。`,
       {
         tone: 'success',
         timeout: 3000,
@@ -97,7 +98,7 @@ async function handleImportFile(event: Event) {
       ? `，跳过 ${skippedCount} 条较旧或冲突记录`
       : ''
     toast.push(
-      `已安全合并 ${counts.cards} 张卡片、${counts.boardItems} 个投影${skippedSummary}。导入前已备份 ${safetyBackup.cards} 张卡片。`,
+      `已安全合并 ${counts.cards} 张卡片、${counts.boardItems} 个投影、${counts.boardZones} 个区域${skippedSummary}。导入前已备份 ${safetyBackup.cards} 张卡片。`,
       {
         tone: 'success',
         timeout: 6000,
@@ -209,7 +210,7 @@ onBeforeUnmount(() => {
         <p
           class="border-t border-stone-200/70 px-3.5 py-2 font-mono text-[8px] uppercase tracking-[0.14em] text-stone-400 dark:border-white/[0.08] dark:text-zinc-600"
         >
-          Cards · Wires · Boards · v1.15.0
+          Cards · Zones · v1.16.0
         </p>
       </div>
     </Transition>

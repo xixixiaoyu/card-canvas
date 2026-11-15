@@ -26,10 +26,11 @@ describe('workspace backup', () => {
     const backup = await createBackup()
 
     expect(backup.app).toBe('card-canvas')
-    expect(backup.version).toBe(3)
+    expect(backup.version).toBe(4)
     expect(backup.cards).toHaveLength(3)
     expect(backup.boardItems).toHaveLength(3)
     expect(backup.connections).toHaveLength(0)
+    expect(backup.boardZones).toHaveLength(0)
     expect(backup.cardVersions).toHaveLength(0)
     expect(backup.attachments).toHaveLength(0)
 
@@ -44,6 +45,7 @@ describe('workspace backup', () => {
       boardItems: 3,
       connections: 0,
       boards: 0,
+      boardZones: 0,
       cardVersions: 0,
       attachments: 0,
       skipped: {
@@ -51,6 +53,7 @@ describe('workspace backup', () => {
         boardItems: 0,
         connections: 0,
         boards: 0,
+        boardZones: 0,
         cardVersions: 0,
         attachments: 0,
       },
@@ -111,7 +114,7 @@ describe('workspace backup', () => {
     })
 
     const backup = await createBackup()
-    expect(backup.version).toBe(3)
+    expect(backup.version).toBe(4)
     expect(backup.attachments).toHaveLength(1)
     await db.attachments.clear()
     const counts = await importBackupText(JSON.stringify(backup))
@@ -158,6 +161,71 @@ describe('workspace backup', () => {
     expect(counts.cards).toBe(1)
     expect(card?.tags).toEqual(['Design', '研究'])
     expect(item).toMatchObject({ x: 12, y: 34, cardId: 'card-imported' })
+  })
+
+  it('includes board zones and repairs item membership without its zone', async () => {
+    const board = await seed()
+    await db.boards.put({
+      id: 'board-main',
+      name: '主白板',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    const zone = await board.createZone({
+      title: '心理学',
+      color: 'sage',
+      itemIds: board.items.slice(0, 2).map((item) => item.id),
+    })
+    expect(zone).not.toBeNull()
+
+    const backup = await createBackup()
+    expect(backup.boardZones).toEqual([
+      expect.objectContaining({
+        id: zone!.id,
+        title: '心理学',
+        color: 'sage',
+      }),
+    ])
+    expect(
+      backup.boardItems.filter((item) => item.zoneId === zone!.id),
+    ).toHaveLength(2)
+
+    await db.boardZones.clear()
+    await db.boardItems.clear()
+    const counts = await importBackupText(JSON.stringify(backup))
+
+    expect(counts.boardZones).toBe(1)
+    expect(await db.boardZones.get(zone!.id)).toMatchObject({
+      title: '心理学',
+      color: 'sage',
+    })
+    expect(
+      (await db.boardItems.toArray()).filter(
+        (item) => item.zoneId === zone!.id,
+      ),
+    ).toHaveLength(2)
+
+    const item = board.items[0]!
+    await importBackupText(
+      JSON.stringify({
+        app: 'card-canvas',
+        version: 4,
+        cards: [],
+        boardZones: [],
+        boardItems: [
+          {
+            ...item,
+            zoneId: 'missing-zone',
+            updatedAt: (item.updatedAt ?? 0) + 10_000,
+          },
+        ],
+      }),
+    )
+
+    expect(await db.boardItems.get(item.id)).toMatchObject({
+      id: item.id,
+    })
+    expect((await db.boardItems.get(item.id))?.zoneId).toBeUndefined()
   })
 
   it('keeps newer local data when importing an older backup', async () => {

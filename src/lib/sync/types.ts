@@ -1,5 +1,6 @@
 export const SYNC_TABLES = [
   'boards',
+  'boardZones',
   'cards',
   'attachments',
   'boardItems',

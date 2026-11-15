@@ -61,6 +61,39 @@ describe('sync outbox tracker', () => {
     })
   })
 
+  it('tracks board zones and membership updates', async () => {
+    await db.boardZones.put({
+      id: 'zone-sync',
+      boardId: 'board-main',
+      title: '区域同步',
+      color: 'sage',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await db.boardItems.put({
+      id: 'projection-zoned',
+      cardId: 'card-a',
+      boardId: 'board-main',
+      x: 0,
+      y: 0,
+      zoneId: 'zone-sync',
+      updatedAt: 1,
+    })
+
+    await vi.waitFor(async () => {
+      expect(await db.syncOutbox.get('boardZones:zone-sync')).toMatchObject({
+        operation: 'upsert',
+        payload: { title: '区域同步' },
+      })
+      expect(
+        await db.syncOutbox.get('boardItems:projection-zoned'),
+      ).toMatchObject({
+        operation: 'upsert',
+        payload: { zoneId: 'zone-sync' },
+      })
+    })
+  })
+
   it('does not retain image binary data in an attachment tombstone', async () => {
     await db.attachments.put({
       id: 'attachment-delete',

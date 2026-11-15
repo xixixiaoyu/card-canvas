@@ -2,6 +2,8 @@ import { db } from '../db'
 import type {
   Board,
   BoardItem,
+  BoardZone,
+  BoardZoneColor,
   Card,
   CardAttachment,
   CardVersion,
@@ -13,12 +15,13 @@ const DEFAULT_CARD_WIDTH = 420
 
 export interface BackupPayload {
   app: 'card-canvas'
-  version: 3
+  version: 4
   exportedAt: string
   cards: Card[]
   boardItems: BoardItem[]
   connections: Connection[]
   boards: Board[]
+  boardZones: BoardZone[]
   cardVersions: CardVersion[]
   attachments: CardAttachment[]
 }
@@ -28,6 +31,7 @@ export interface BackupCounts {
   boardItems: number
   connections: number
   boards: number
+  boardZones: number
   cardVersions: number
   attachments: number
 }
@@ -43,6 +47,7 @@ const EMPTY_COUNTS: BackupCounts = {
   boardItems: 0,
   connections: 0,
   boards: 0,
+  boardZones: 0,
   cardVersions: 0,
   attachments: 0,
 }
@@ -127,7 +132,45 @@ function parseBoardItem(value: unknown): BoardItem {
     y: value.y,
     width: isFiniteNumber(value.width) ? value.width : undefined,
     color: typeof value.color === 'string' ? value.color : undefined,
+    zoneId: isString(value.zoneId) ? value.zoneId : undefined,
     updatedAt: isFiniteNumber(value.updatedAt) ? value.updatedAt : undefined,
+  }
+}
+
+function plainItemWithoutZone(item: BoardItem): BoardItem {
+  const repaired = { ...item }
+  delete repaired.zoneId
+  return repaired
+}
+
+const BOARD_ZONE_COLORS: BoardZoneColor[] = ['amber', 'sage', 'sky', 'rose']
+
+function parseBoardZone(value: unknown): BoardZone {
+  if (!isRecord(value)) throw new Error('备份中的区域格式无效')
+  if (!isString(value.id) || !isString(value.boardId)) {
+    throw new Error('备份中的区域缺少 id')
+  }
+
+  const now = Date.now()
+  const color = BOARD_ZONE_COLORS.includes(value.color as BoardZoneColor)
+    ? (value.color as BoardZoneColor)
+    : 'amber'
+
+  return {
+    id: value.id,
+    boardId: value.boardId,
+    title:
+      typeof value.title === 'string' && value.title.trim()
+        ? value.title.trim()
+        : '未命名区域',
+    color,
+    createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : now,
+    updatedAt: isFiniteNumber(value.updatedAt)
+      ? value.updatedAt
+      : isFiniteNumber(value.createdAt)
+        ? value.createdAt
+        : 0,
+    isDeleted: value.isDeleted === true ? true : undefined,
   }
 }
 
@@ -240,24 +283,33 @@ function parseAttachment(value: unknown): CardAttachment {
 
 /** Build a portable snapshot of every durable table. */
 export async function createBackup(): Promise<BackupPayload> {
-  const [cards, boardItems, connections, boards, cardVersions, attachments] =
-    await Promise.all([
-      db.cards.toArray(),
-      db.boardItems.toArray(),
-      db.connections.toArray(),
-      db.boards.toArray(),
-      db.cardVersions.toArray(),
-      db.attachments.toArray(),
-    ])
+  const [
+    cards,
+    boardItems,
+    connections,
+    boards,
+    boardZones,
+    cardVersions,
+    attachments,
+  ] = await Promise.all([
+    db.cards.toArray(),
+    db.boardItems.toArray(),
+    db.connections.toArray(),
+    db.boards.toArray(),
+    db.boardZones.toArray(),
+    db.cardVersions.toArray(),
+    db.attachments.toArray(),
+  ])
 
   return {
     app: 'card-canvas',
-    version: 3,
+    version: 4,
     exportedAt: new Date().toISOString(),
     cards,
     boardItems,
     connections,
     boards,
+    boardZones,
     cardVersions,
     attachments,
   }
@@ -300,6 +352,9 @@ export async function importBackupText(
   if (raw.boards !== undefined && !Array.isArray(raw.boards)) {
     throw new Error('备份中的 boards 格式无效')
   }
+  if (raw.boardZones !== undefined && !Array.isArray(raw.boardZones)) {
+    throw new Error('备份中的 boardZones 格式无效')
+  }
   if (raw.cardVersions !== undefined && !Array.isArray(raw.cardVersions)) {
     throw new Error('备份中的 cardVersions 格式无效')
   }
@@ -311,6 +366,7 @@ export async function importBackupText(
   const boardItems = raw.boardItems.map(parseBoardItem)
   const connections = (raw.connections ?? []).map(parseConnection)
   const boards = (raw.boards ?? []).map(parseBoard)
+  const boardZones = (raw.boardZones ?? []).map(parseBoardZone)
   const cardVersions = (raw.cardVersions ?? []).map(parseCardVersion)
   const attachments = (raw.attachments ?? []).map(parseAttachment)
   let importedBoardItems = boardItems
@@ -323,6 +379,7 @@ export async function importBackupText(
       db.boardItems,
       db.connections,
       db.boards,
+      db.boardZones,
       db.cardVersions,
       db.attachments,
     ],
@@ -340,6 +397,25 @@ export async function importBackupText(
       )
       skipped.boards += boards.length - acceptedBoards.length
       if (acceptedBoards.length) await db.boards.bulkPut(acceptedBoards)
+
+      const existingZones = await db.boardZones.bulkGet(
+        boardZones.map((zone) => zone.id),
+      )
+      const zonesById = new Map(
+        existingZones.flatMap((zone) =>
+          zone ? [[zone.id, zone] as const] : [],
+        ),
+      )
+      const storedBoards = await db.boards.toArray()
+      const storedBoardIds = new Set(storedBoards.map((board) => board.id))
+      const acceptedZones = boardZones.filter(
+        (zone) =>
+          storedBoardIds.has(zone.boardId) &&
+          !zone.isDeleted &&
+          newerImport(zone, zonesById.get(zone.id), mode),
+      )
+      skipped.boardZones += boardZones.length - acceptedZones.length
+      if (acceptedZones.length) await db.boardZones.bulkPut(acceptedZones)
 
       const existingCards = await db.cards.bulkGet(cards.map((card) => card.id))
       const cardsById = new Map(
@@ -360,6 +436,12 @@ export async function importBackupText(
       const liveCardIds = new Set(
         storedCards.filter((card) => !card.isDeleted).map((card) => card.id),
       )
+      const storedZones = await db.boardZones.toArray()
+      const liveZonesById = new Map(
+        storedZones
+          .filter((zone) => !zone.isDeleted)
+          .map((zone) => [zone.id, zone]),
+      )
 
       const existingItems = await db.boardItems.bulkGet(
         boardItems.map((item) => item.id),
@@ -369,11 +451,21 @@ export async function importBackupText(
           item ? [[item.id, item] as const] : [],
         ),
       )
-      const acceptedItems = boardItems.filter(
-        (item) =>
-          liveCardIds.has(item.cardId) &&
-          newerImport(item, itemsById.get(item.id), mode),
-      )
+      const acceptedItems = boardItems.flatMap((item) => {
+        if (
+          !liveCardIds.has(item.cardId) ||
+          !newerImport(item, itemsById.get(item.id), mode)
+        ) {
+          return []
+        }
+
+        const zone = item.zoneId ? liveZonesById.get(item.zoneId) : undefined
+        if (item.zoneId && zone?.boardId !== item.boardId) {
+          const repaired = plainItemWithoutZone(item)
+          return [repaired]
+        }
+        return [item]
+      })
       skipped.boardItems += boardItems.length - acceptedItems.length
 
       const existingConnections = await db.connections.bulkGet(
@@ -477,6 +569,7 @@ export async function importBackupText(
     boardItems: importedBoardItems.length,
     connections: connections.length - skipped.connections,
     boards: boards.length - skipped.boards,
+    boardZones: boardZones.length - skipped.boardZones,
     cardVersions: cardVersions.length - skipped.cardVersions,
     attachments: attachments.length - skipped.attachments,
     skipped,
@@ -514,6 +607,7 @@ export async function downloadBackup() {
     boardItems: payload.boardItems.length,
     connections: payload.connections.length,
     boards: payload.boards.length,
+    boardZones: payload.boardZones.length,
     cardVersions: payload.cardVersions.length,
     attachments: payload.attachments.length,
   }

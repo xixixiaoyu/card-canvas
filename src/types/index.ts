@@ -38,7 +38,20 @@ export interface BoardItem {
   y: number
   width?: number
   color?: string
+  zoneId?: string
   updatedAt?: number
+}
+
+export type BoardZoneColor = 'amber' | 'sage' | 'sky' | 'rose'
+
+export interface BoardZone {
+  id: string
+  boardId: string
+  title: string
+  color: BoardZoneColor
+  createdAt: number
+  updatedAt: number
+  isDeleted?: boolean
 }
 
 export interface Board {

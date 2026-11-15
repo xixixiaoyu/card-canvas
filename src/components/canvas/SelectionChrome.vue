@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { Check, Copy, Trash2, Unlink, X } from '@lucide/vue'
+import { Check, Copy, Layers3, Trash2, Unlink, X } from '@lucide/vue'
 import { canvasCameraKey } from '../../composables/useCanvas'
 import { getItemRect } from '../../lib/card-metrics'
 import {
@@ -14,6 +14,7 @@ import {
 } from '../../lib/markdownExport'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
+import type { BoardZoneColor } from '../../types'
 
 const camera = inject(canvasCameraKey)
 const board = useBoardStore()
@@ -30,7 +31,25 @@ const deleteDialogOpen = ref(false)
 const deleteBusy = ref(false)
 const deleteTrigger = ref<HTMLButtonElement | null>(null)
 const deleteDialog = ref<HTMLElement | null>(null)
+const zoneDialogOpen = ref(false)
+const zoneBusy = ref(false)
+const zoneTitle = ref('')
+const zoneColor = ref<BoardZoneColor>('amber')
+const zoneInput = ref<HTMLInputElement | null>(null)
+const zoneDialog = ref<HTMLElement | null>(null)
+const zoneTrigger = ref<HTMLButtonElement | null>(null)
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
+
+const zoneColors: Array<{
+  id: BoardZoneColor
+  label: string
+  className: string
+}> = [
+  { id: 'amber', label: '琥珀', className: 'bg-amber-500' },
+  { id: 'sage', label: '鼠尾草', className: 'bg-emerald-600' },
+  { id: 'sky', label: '雾蓝', className: 'bg-sky-600' },
+  { id: 'rose', label: '玫瑰', className: 'bg-rose-500' },
+]
 
 const selectedEntries = computed(() =>
   board.entries.filter((entry) => board.selectedItemIds.has(entry.item.id)),
@@ -116,11 +135,94 @@ function setBackgroundInert(inert: boolean) {
 }
 
 async function openBatchDelete() {
+  if (zoneDialogOpen.value) return
   if (!selectedCardIds.value.length) return
   deleteDialogOpen.value = true
   setBackgroundInert(true)
   await nextTick()
   deleteDialog.value?.focus()
+}
+
+async function openZoneDialog() {
+  if (deleteDialogOpen.value || selectableCount.value < 2) return
+  zoneTitle.value = ''
+  zoneColor.value =
+    zoneColors[board.zones.length % zoneColors.length]?.id ?? 'amber'
+  zoneDialogOpen.value = true
+  setBackgroundInert(true)
+  await nextTick()
+  zoneInput.value?.focus()
+}
+
+async function closeZoneDialog(returnFocus = true) {
+  if (zoneBusy.value) return
+  zoneDialogOpen.value = false
+  setBackgroundInert(false)
+  if (!returnFocus) return
+  await nextTick()
+  zoneTrigger.value?.focus()
+}
+
+function handleZoneDialogKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    void closeZoneDialog()
+    return
+  }
+  if (event.key !== 'Tab' || !zoneDialog.value) return
+
+  const focusable = [
+    ...zoneDialog.value.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled)',
+    ),
+  ]
+  if (!focusable.length) return
+
+  const first = focusable[0]!
+  const last = focusable.at(-1)!
+  const active = document.activeElement
+  if (
+    event.shiftKey &&
+    (active === first || !zoneDialog.value.contains(active))
+  ) {
+    event.preventDefault()
+    last.focus()
+  } else if (
+    !event.shiftKey &&
+    (active === last || !zoneDialog.value.contains(active))
+  ) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+async function createSelectedZone() {
+  if (zoneBusy.value) return
+  const itemIds = selectedEntries.value.map((entry) => entry.item.id)
+  if (itemIds.length < 2) return
+
+  zoneBusy.value = true
+  try {
+    const zone = await board.createZone({
+      title: zoneTitle.value,
+      color: zoneColor.value,
+      itemIds,
+    })
+    if (!zone) {
+      toast.push('创建区域失败，卡片未改动。', { tone: 'error' })
+      return
+    }
+    zoneBusy.value = false
+    void closeZoneDialog(false)
+    board.clearSelection()
+    toast.push(`已创建区域「${zone.title}」。`, {
+      tone: 'success',
+      timeout: 5000,
+      action: { label: '撤销', run: () => board.undo() },
+    })
+  } finally {
+    zoneBusy.value = false
+  }
 }
 
 async function closeBatchDelete(returnFocus = true, force = false) {
@@ -230,6 +332,9 @@ watch(selectableCount, () => {
   if (selectableCount.value <= 1 && deleteDialogOpen.value) {
     void closeBatchDelete(false)
   }
+  if (selectableCount.value <= 1 && zoneDialogOpen.value) {
+    void closeZoneDialog(false)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -303,6 +408,18 @@ async function copyMarkdown() {
           {{ selectableCount }} SELECTED
         </span>
       </span>
+      <span class="selection-divider" aria-hidden="true" />
+      <button
+        ref="zoneTrigger"
+        type="button"
+        class="selection-zone"
+        data-create-zone
+        aria-label="将选中卡片设为区域"
+        @click.stop="openZoneDialog"
+      >
+        <Layers3 :size="13" :stroke-width="1.8" aria-hidden="true" />
+        <span>设为区域</span>
+      </button>
       <span class="selection-divider" aria-hidden="true" />
       <button
         type="button"
@@ -437,6 +554,135 @@ async function copyMarkdown() {
         </section>
       </div>
     </Transition>
+
+    <Transition name="batch-delete">
+      <div
+        v-if="zoneDialogOpen"
+        class="fixed inset-0 z-[92] flex items-center justify-center bg-stone-950/30 px-4 py-6 backdrop-blur-sm dark:bg-black/70"
+        @click.self="closeZoneDialog()"
+      >
+        <section
+          ref="zoneDialog"
+          class="w-full max-w-[400px] overflow-hidden rounded-[24px] border border-stone-200/80 bg-[#fdfbf7]/[0.98] shadow-[0_36px_100px_-30px_rgba(41,37,36,0.5)] outline-none dark:border-white/10 dark:bg-zinc-900/[0.98] dark:shadow-[0_50px_130px_-36px_rgba(0,0,0,0.95)]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="zone-dialog-title"
+          data-zone-dialog
+          tabindex="-1"
+          @keydown="handleZoneDialogKeydown"
+        >
+          <header
+            class="flex items-start justify-between gap-4 border-b border-stone-200/70 px-5 py-4 dark:border-white/[0.08]"
+          >
+            <div class="flex items-start gap-3">
+              <span
+                class="flex h-9 w-9 items-center justify-center rounded-[12px] border border-stone-200/80 bg-white/65 text-stone-600 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
+              >
+                <Layers3 :size="15" :stroke-width="1.6" aria-hidden="true" />
+              </span>
+              <div>
+                <h2
+                  id="zone-dialog-title"
+                  class="font-serif text-[18px] text-stone-800 dark:text-zinc-100"
+                >
+                  创建区域
+                </h2>
+                <p class="mt-1 text-[11px] text-stone-500 dark:text-zinc-400">
+                  为 {{ selectableCount }} 张卡片建立持久空间分组。
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              class="flex h-8 w-8 items-center justify-center rounded-full text-stone-400 hover:bg-stone-200/60 hover:text-stone-700 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-200"
+              aria-label="关闭创建区域"
+              :disabled="zoneBusy"
+              @click="closeZoneDialog()"
+            >
+              <X :size="14" :stroke-width="1.7" aria-hidden="true" />
+            </button>
+          </header>
+
+          <div class="space-y-4 px-5 py-4">
+            <label class="block">
+              <span
+                class="mb-1.5 block text-[10px] text-stone-500 dark:text-zinc-400"
+              >
+                区域名称
+              </span>
+              <input
+                ref="zoneInput"
+                v-model="zoneTitle"
+                type="text"
+                maxlength="40"
+                placeholder="例如：心理学 / 自我和解"
+                class="h-10 w-full rounded-xl border border-stone-200/80 bg-white/70 px-3 text-[12px] text-stone-700 outline-none placeholder:text-stone-400 focus:border-amber-600/35 focus:ring-2 focus:ring-amber-500/15 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:placeholder:text-zinc-600"
+                aria-label="区域名称"
+                @keydown.enter.prevent="createSelectedZone"
+              />
+            </label>
+
+            <div>
+              <span
+                class="mb-2 block text-[10px] text-stone-500 dark:text-zinc-400"
+              >
+                视觉标识
+              </span>
+              <div
+                class="flex items-center gap-2"
+                role="radiogroup"
+                aria-label="区域颜色"
+              >
+                <button
+                  v-for="color in zoneColors"
+                  :key="color.id"
+                  type="button"
+                  class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border text-[9px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/35"
+                  :class="
+                    zoneColor === color.id
+                      ? 'border-stone-400/70 bg-white/80 text-stone-700 dark:border-white/30 dark:bg-white/[0.08] dark:text-zinc-200'
+                      : 'border-stone-200/65 bg-white/35 text-stone-500 hover:bg-white/65 dark:border-white/[0.07] dark:bg-white/[0.02] dark:text-zinc-500'
+                  "
+                  role="radio"
+                  :aria-checked="zoneColor === color.id"
+                  :aria-label="color.label"
+                  @click="zoneColor = color.id"
+                >
+                  <span
+                    class="h-2 w-2 rounded-full"
+                    :class="color.className"
+                    aria-hidden="true"
+                  />
+                  {{ color.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <footer
+            class="flex items-center justify-end gap-2 border-t border-stone-200/70 px-5 py-3.5 dark:border-white/[0.08]"
+          >
+            <button
+              type="button"
+              class="rounded-full px-3 py-1.5 text-[11px] text-stone-500 hover:bg-stone-100/70 hover:text-stone-800 dark:text-zinc-400 dark:hover:bg-white/[0.05] dark:hover:text-zinc-100"
+              :disabled="zoneBusy"
+              @click="closeZoneDialog()"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="rounded-full bg-stone-800 px-3.5 py-1.5 text-[11px] font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-45 dark:bg-zinc-100 dark:text-zinc-900"
+              data-zone-confirm
+              :disabled="zoneBusy || !zoneTitle.trim()"
+              @click="createSelectedZone"
+            >
+              {{ zoneBusy ? '创建中…' : '创建区域' }}
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -549,6 +795,48 @@ async function copyMarkdown() {
     background-color 160ms ease,
     color 160ms ease,
     transform 160ms ease;
+}
+
+.selection-zone {
+  display: inline-flex;
+  height: 2rem;
+  align-items: center;
+  gap: 0.4rem;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  padding: 0 0.75rem;
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: -0.005em;
+  color: rgb(68 64 60);
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.selection-zone:hover {
+  background: rgba(209, 250, 229, 0.62);
+  color: rgb(4 120 87);
+}
+
+.selection-zone:active {
+  transform: scale(0.975);
+}
+
+.selection-zone:focus-visible {
+  outline: 2px solid rgba(16, 185, 129, 0.35);
+  outline-offset: 2px;
+}
+
+.dark .selection-zone {
+  color: rgb(228 228 231);
+}
+
+.dark .selection-zone:hover {
+  background: rgba(110, 231, 183, 0.08);
+  color: rgb(167 243, 208);
 }
 
 .selection-delete {
@@ -672,6 +960,7 @@ async function copyMarkdown() {
 @media (prefers-reduced-motion: reduce) {
   .selection-toolbar,
   .selection-copy,
+  .selection-zone,
   .selection-copy-icon,
   .selection-delete,
   .batch-delete-enter-active,
@@ -679,6 +968,22 @@ async function copyMarkdown() {
   .batch-delete-enter-active section,
   .batch-delete-leave-active section {
     transition: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .selection-zone,
+  .selection-copy,
+  .selection-delete {
+    width: 2rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .selection-zone > span,
+  .selection-copy > span:not(.selection-copy-icon),
+  .selection-delete > span {
+    display: none;
   }
 }
 </style>

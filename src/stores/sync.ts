@@ -27,6 +27,7 @@ import {
 } from '../lib/sync/mapping'
 import {
   queueFullWorkspaceSnapshot,
+  queueRecordForSync,
   subscribeSyncOutbox,
   withSyncTrackingSuppressed,
 } from '../lib/sync/tracker'
@@ -73,6 +74,16 @@ function isMissingRemoteTable(errorLike: unknown) {
   )
 }
 
+function isMissingRemoteColumn(errorLike: unknown, column: string) {
+  if (!errorLike || typeof errorLike !== 'object') return false
+  const error = errorLike as { code?: unknown; message?: unknown }
+  return (
+    (error.code === 'PGRST204' || error.code === '42703') &&
+    typeof error.message === 'string' &&
+    error.message.toLowerCase().includes(column.toLowerCase())
+  )
+}
+
 export const useSyncStore = defineStore('sync', () => {
   const toast = useToastStore()
   const phase = ref<SyncPhase>('idle')
@@ -80,6 +91,7 @@ export const useSyncStore = defineStore('sync', () => {
   const lastSyncedAt = ref<number | null>(null)
   const error = ref<string | null>(null)
   const attachmentCloudMissing = ref(false)
+  const zoneCloudMissing = ref(false)
 
   let activeUserId: string | null = null
   let running: Promise<void> | null = null
@@ -95,6 +107,9 @@ export const useSyncStore = defineStore('sync', () => {
   let onlineAttached = false
   let pendingRemoteDemoCleanupUserId: string | null = null
   let attachmentWarningShown = false
+  let zoneWarningShown = false
+  let zoneTableMissing = false
+  let zoneMembershipColumnMissing = false
 
   const isActive = computed(() => Boolean(activeUserId))
   const isBusy = computed(() => phase.value === 'syncing')
@@ -136,12 +151,75 @@ export const useSyncStore = defineStore('sync', () => {
     attachmentWarningShown = false
   }
 
+  function markZoneCloudMissing(showWarning = true) {
+    zoneTableMissing = true
+    refreshZoneCloudMissing(showWarning)
+  }
+
+  function markZoneMembershipMissing(showWarning = true) {
+    zoneMembershipColumnMissing = true
+    refreshZoneCloudMissing(showWarning)
+  }
+
+  function refreshZoneCloudMissing(showWarning = true) {
+    zoneCloudMissing.value = true
+    if (!showWarning || zoneWarningShown) return
+    zoneWarningShown = true
+    toast.push(
+      '区域已保存在本机；Supabase 区域表尚未安装，跨设备区域同步暂未启用。请执行最新 schema.sql。',
+      { tone: 'info', timeout: 8000 },
+    )
+  }
+
+  function markZoneCloudReady() {
+    zoneTableMissing = false
+    refreshZoneCloudState()
+  }
+
+  function markZoneMembershipReady() {
+    zoneMembershipColumnMissing = false
+    refreshZoneCloudState()
+  }
+
+  function refreshZoneCloudState() {
+    zoneCloudMissing.value = zoneTableMissing || zoneMembershipColumnMissing
+    if (!zoneCloudMissing.value) zoneWarningShown = false
+  }
+
+  async function queueZonedBoardItemsForSync() {
+    const zonedItems = (await db.boardItems.toArray()).filter((item) =>
+      Boolean(item.zoneId),
+    )
+    for (const item of zonedItems) {
+      await queueRecordForSync('boardItems', item.id)
+    }
+  }
+
+  async function probeZoneCloudSchema(
+    supabase: SupabaseClient,
+    userId: string,
+  ) {
+    for (const [table, column] of [
+      ['board_zones', 'id'],
+      ['board_items', 'zone_id'],
+    ] as const) {
+      const { error } = await supabase
+        .from(table)
+        .select(column)
+        .eq('user_id', userId)
+        .limit(1)
+      if (error) return false
+    }
+    return true
+  }
+
   async function clearPristineLocalWorkspace() {
     await withSyncTrackingSuppressed(async () => {
       await db.transaction(
         'rw',
         [
           db.boards,
+          db.boardZones,
           db.cards,
           db.attachments,
           db.boardItems,
@@ -152,6 +230,7 @@ export const useSyncStore = defineStore('sync', () => {
         async () => {
           await Promise.all([
             db.boards.clear(),
+            db.boardZones.clear(),
             db.cards.clear(),
             db.attachments.clear(),
             db.boardItems.clear(),
@@ -172,9 +251,10 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   async function hasPristineLocalWorkspace() {
-    const [boards, cards, attachments, boardItems, connections] =
+    const [boards, boardZones, cards, attachments, boardItems, connections] =
       await Promise.all([
         db.boards.toArray(),
+        db.boardZones.toArray(),
         db.cards.toArray(),
         db.attachments.toArray(),
         db.boardItems.toArray(),
@@ -182,7 +262,7 @@ export const useSyncStore = defineStore('sync', () => {
       ])
 
     return isPristineLocalWorkspace(
-      { boards, cards, attachments, boardItems, connections },
+      { boards, boardZones, cards, attachments, boardItems, connections },
       { id: DEFAULT_BOARD_ID, name: DEFAULT_BOARD_NAME },
     )
   }
@@ -243,6 +323,7 @@ export const useSyncStore = defineStore('sync', () => {
         'rw',
         [
           db.boards,
+          db.boardZones,
           db.cards,
           db.attachments,
           db.boardItems,
@@ -261,6 +342,9 @@ export const useSyncStore = defineStore('sync', () => {
             if (table === 'boards') {
               const local = await db.boards.get(entry.recordId)
               if (local) await db.boards.put({ ...local, updatedAt })
+            } else if (table === 'boardZones') {
+              const local = await db.boardZones.get(entry.recordId)
+              if (local) await db.boardZones.put({ ...local, updatedAt })
             } else if (table === 'cards') {
               const local = await db.cards.get(entry.recordId)
               if (local) await db.cards.put({ ...local, updatedAt })
@@ -302,10 +386,34 @@ export const useSyncStore = defineStore('sync', () => {
       const rows = batch.map((entry) =>
         localRecordToRemote(entry, userId, syncClientId),
       )
-      const { data: pushedRows, error: pushError } = await supabase
+      let { data: pushedRows, error: pushError } = await supabase
         .from(remoteTableName(table))
         .upsert(rows, { onConflict: 'user_id,id' })
         .select('id,server_updated_at')
+      let usedZoneMembershipFallback = false
+
+      if (
+        pushError &&
+        table === 'boardItems' &&
+        isMissingRemoteColumn(pushError, 'zone_id')
+      ) {
+        console.warn(
+          '[card-canvas] board_items.zone_id is not installed; syncing positions without zone membership',
+        )
+        markZoneMembershipMissing()
+        usedZoneMembershipFallback = true
+        const rowsWithoutZone = rows.map((row) => {
+          const copy = { ...row }
+          delete (copy as Record<string, unknown>).zone_id
+          return copy
+        })
+        const retry = await supabase
+          .from(remoteTableName(table))
+          .upsert(rowsWithoutZone, { onConflict: 'user_id,id' })
+          .select('id,server_updated_at')
+        pushedRows = retry.data
+        pushError = retry.error
+      }
 
       if (pushError) {
         if (table === 'attachments' && isMissingRemoteTable(pushError)) {
@@ -313,6 +421,13 @@ export const useSyncStore = defineStore('sync', () => {
             '[card-canvas] Attachment table is not installed; keeping image uploads pending',
           )
           markAttachmentCloudMissing()
+          continue
+        }
+        if (table === 'boardZones' && isMissingRemoteTable(pushError)) {
+          console.warn(
+            '[card-canvas] Zone table is not installed; keeping zone changes pending',
+          )
+          markZoneCloudMissing()
           continue
         }
         throw new Error(pushError.message)
@@ -324,6 +439,10 @@ export const useSyncStore = defineStore('sync', () => {
       )
       await removePushedEntries(batch)
       if (table === 'attachments') markAttachmentCloudReady()
+      if (table === 'boardZones') markZoneCloudReady()
+      if (table === 'boardItems' && !usedZoneMembershipFallback) {
+        markZoneMembershipReady()
+      }
     }
   }
 
@@ -360,6 +479,7 @@ export const useSyncStore = defineStore('sync', () => {
         'rw',
         [
           db.boards,
+          db.boardZones,
           db.cards,
           db.attachments,
           db.boardItems,
@@ -381,6 +501,7 @@ export const useSyncStore = defineStore('sync', () => {
                   ...new Set(boardItems.map((item) => item.cardId)),
                 ]
                 await db.boards.delete(recordId)
+                await db.boardZones.where('boardId').equals(recordId).delete()
                 await db.boardItems.where('boardId').equals(recordId).delete()
                 await db.connections.where('boardId').equals(recordId).delete()
                 cardsToRetombstone.push(
@@ -399,6 +520,8 @@ export const useSyncStore = defineStore('sync', () => {
                     updatedAt: remoteUpdatedAt(row),
                   })
                 }
+              } else if (table === 'boardZones') {
+                await db.boardZones.delete(recordId)
               } else if (table === 'attachments') {
                 await db.attachments.delete(recordId)
               } else if (table === 'boardItems') {
@@ -413,6 +536,8 @@ export const useSyncStore = defineStore('sync', () => {
             const local = remoteRecordToLocal(table, row)
             if (table === 'boards') {
               await db.boards.put(local as never)
+            } else if (table === 'boardZones') {
+              await db.boardZones.put(local as never)
             } else if (table === 'cards') {
               await db.cards.put(local as never)
             } else if (table === 'attachments') {
@@ -477,9 +602,17 @@ export const useSyncStore = defineStore('sync', () => {
               markAttachmentCloudMissing(false)
               break
             }
+            if (table === 'boardZones' && isMissingRemoteTable(pullError)) {
+              console.warn(
+                '[card-canvas] Zone table is not installed; skipping zone download',
+              )
+              markZoneCloudMissing(false)
+              break
+            }
             throw new Error(pullError.message)
           }
           if (table === 'attachments') markAttachmentCloudReady()
+          if (table === 'boardZones') markZoneCloudReady()
 
           const rows = (data ?? []) as RemoteRow[]
           if (!isCurrent()) return changed
@@ -492,6 +625,15 @@ export const useSyncStore = defineStore('sync', () => {
         if (nextCursor) {
           await writeMeta(cursorKey, JSON.stringify(nextCursor))
         }
+      }
+      if (
+        zoneCloudMissing.value &&
+        (await probeZoneCloudSchema(supabase, userId))
+      ) {
+        zoneTableMissing = false
+        zoneMembershipColumnMissing = false
+        refreshZoneCloudState()
+        await queueZonedBoardItemsForSync()
       }
       // Cards are pulled before their board projections. Publishing a partial
       // pass would briefly make them look like orphaned cards to the board UI.
@@ -781,6 +923,10 @@ export const useSyncStore = defineStore('sync', () => {
     pendingRemoteDemoCleanupUserId = null
     attachmentCloudMissing.value = false
     attachmentWarningShown = false
+    zoneCloudMissing.value = false
+    zoneWarningShown = false
+    zoneTableMissing = false
+    zoneMembershipColumnMissing = false
     phase.value = 'idle'
     error.value = null
   }
@@ -791,6 +937,7 @@ export const useSyncStore = defineStore('sync', () => {
     lastSyncedAt,
     error,
     attachmentCloudMissing,
+    zoneCloudMissing,
     isActive,
     isBusy,
     label,

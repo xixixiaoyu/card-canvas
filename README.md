@@ -2,7 +2,7 @@
 
 > 为跨学科探索者打造的轻量原子卡片与 2D 无限白板。
 >
-> **v1.15.0 · Local-First · 可选 AI 与 Supabase**
+> **v1.16.0 · Local-First · 可选 AI 与 Supabase**
 
 Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记录。它把每一个念头压缩成一张可触摸的原子卡片，让卡片在二维空间里自然生长、彼此牵引，并在需要时收敛成一篇可带走的大纲。
 
@@ -35,6 +35,7 @@ Card Canvas 不要求你先建立完美分类，也不把思考塞进聊天记�
 | 卡片纵览    | `⌘F` 打开 Card Atlas，浏览全库并跨白板飞行到目标卡片         |
 | 层级星系    | 点击标签，按 `/` 层级聚合命中，其余卡片暗化                  |
 | 多选与刚体  | 空白框选、Shift 并集、整组平移、单步原子撤销                 |
+| 白板区域    | 多选建区、命名着色、整体移动与解散，卡片仍可独立操作         |
 | 认知蒸馏    | 将选中卡片导出为阅读顺序的 Markdown 大纲                     |
 | 云端同步    | GitHub、邮箱验证码或 Magic Link 登录，断网继续编辑并异步同步 |
 | AI 认知辅助 | 关联雷达、自动标题与层级标签，均在后台非阻塞完成             |
@@ -87,7 +88,7 @@ pnpm preview
 ### 1. 创建 Supabase 项目
 
 1. 在 Supabase 创建项目，区域优先选择 Singapore 或 Tokyo。
-2. 在 SQL Editor 中执行 [supabase/schema.sql](supabase/schema.sql)。该脚本可重复运行；从旧版本升级时会补建图片附件表与 RLS。
+2. 在 SQL Editor 中执行 [supabase/schema.sql](supabase/schema.sql)。该脚本可重复运行；从旧版本升级时会补建图片附件、白板区域表及其 RLS。
 3. 在 Authentication 的 URL Configuration 中把 Site URL 设为生产域名，并把本地 `http://localhost:5199` 与生产域名加入 Redirect URLs。
 4. 从 Project Settings 的 API 页面取得 Project URL 与 publishable key（旧项目也可能显示 anon public key）。
 5. 如需 GitHub 登录，在 GitHub 创建 OAuth App，Callback URL 使用 `https://<project-ref>.supabase.co/auth/v1/callback`，再把 Client ID / Secret 填入 Supabase Authentication → Sign In / Providers → GitHub。
@@ -157,7 +158,8 @@ API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git
 - 同一条记录的冲突顺序使用 `server_updated_at`，不依赖设备时钟；本地仍有未上传修改时先保留 outbox，上传成功后回写服务端时间。
 - 软删除墓碑会同步到其他设备，列表和画布只显示未删除数据。
 - 一台设备第一次登录时，会把现有本地工作区认领给该账号。为避免账号间数据混用，本机已绑定其他用户时会暂停同步。
-- Supabase 四张表均启用 RLS 与 `REPLICA IDENTITY FULL`；复合主键包含 `user_id`，实时订阅和所有读写查询都同时按当前用户过滤。
+- Supabase 六张业务表均启用 RLS 与 `REPLICA IDENTITY FULL`；复合主键包含 `user_id`，实时订阅和所有读写查询都同时按当前用户过滤。
+- 白板区域与卡片归属分别写入 `board_zones` 和 `board_items.zone_id`。若部署尚未执行最新 schema，区域会继续保存在本机并等待补传，卡片、图片、连线和位置同步不受阻塞。
 
 本地与 CI 的 E2E 默认使用 Playwright 自带 Chromium，并开启 fullyParallel：本地 4 workers，CI 2 workers。实测系统 Chrome 在多 worker 下会异常放大等待时间（全量从约 1 分钟退化到 5–6 分钟），因此仅保留 `test:e2e:chrome` 作为单 worker 真浏览器抽查。`.github/workflows/ci.yml` 会依次跑格式检查、lint、typecheck、单测、构建与 E2E。
 
@@ -272,6 +274,16 @@ API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git
 - **浮动工具栏**：选中 2 张以上时，在集群上方（空间不足时下方）出现极简胶囊，并显示虚线外包围框
 - **跟随相机**：相机通过 `viewport` 轻量 ref 暴露变换；只有 SelectionChrome 订阅，不把整张画布拖入逐帧深层响应式
 
+## 白板区域（Board Zones）
+
+- **创建**：选中 2 张或更多卡片，点击浮动工具栏的「设为区域」，输入名称并选择琥珀、鼠尾草、雾蓝或玫瑰色标识
+- **持久成员关系**：区域属于当前白板，卡片通过 `BoardItem.zoneId` 保留归属；不会修改全局卡片内容，也不阻止卡片单独移动、编辑、复制或删除
+- **自动包围**：区域不保存固定矩形，而是根据成员卡片的实际位置与实测高度自动计算边界，成员单独移动后边框会即时贴合
+- **整体移动**：拖动区域标题会刚体移动全部成员，松手时一次事务提交并只产生一条撤销历史
+- **命名与解散**：点击区域标题可直接重命名；解散只移除区域和成员归属，所有卡片保持在原位
+- **数据闭环**：创建、重命名、移动、解散均支持撤销/重做，区域会随白板删除级联清理，并进入 Supabase 同步和 JSON 备份
+- **旧备份兼容**：没有 `boardZones` 字段的旧备份仍可安全导入；若卡片引用了备份中不存在的区域，成员归属会被清理而不会丢弃卡片
+
 ## 多卡刚体拖拽（Rigid Group Drag）
 
 - **Master Source**：pointerdown 落在已选卡片上时，只有这张卡注册 `setPointerCapture` 和 window 监听；它计算唯一的世界位移，所有成员共享，不会出现多张卡片争抢事件
@@ -306,7 +318,7 @@ API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git
 - **HUD `?`**：底部视图胶囊右侧的帮助图标，触屏设备也可直接点按
 - **输入保护**：所有 `input`、`textarea`、`select`、`contenteditable` 中的问号只作为文字输入，不会误触浮层
 - **四组内容**：捕获、漫游、检索聚焦、组织产出；浅色特种纸与深色微光各自有一版材质
-- **版本锚点**：浮层页脚展示 `v1.15.0`，与顶栏、页脚和数据菜单保持一致
+- **版本锚点**：浮层页脚展示 `v1.16.0`，与顶栏、页脚和数据菜单保持一致
 - **空板零状态**：当前白板没有卡片时，视口中央出现「空白也是一块画布」；点击或按 `⌘K` 唤起速记，首张卡片出现后柔和淡出
 
 ## 键盘与无障碍
@@ -323,7 +335,7 @@ API Key 只保存在当前浏览器的 `localStorage`，不会进入 Dexie、Git
 
 - 顶栏白板切换器：新建、重命名、切换、两步确认删除
 - 卡片操作区可把同一张卡加入其他白板；标题、正文和标签共享，位置及连线分板保存
-- `boards` 表为 Dexie v2；删除白板级联删除其 `boardItems` 与 `connections`，卡片实体保留
+- `boards` 表为 Dexie v2；删除白板级联删除其 `boardItems`、`connections` 与 `boardZones`，卡片实体保留
 - 每块白板独立保存视口（`localStorage`），刷新/切板后恢复缩放与平移
 - Spotlight 检索全库卡片并按投影显示；星系聚焦是局部 UI 状态，切板自动清空
 - 卡片实体全局存储，投影属于白板；速记始终落在当前白板
@@ -341,12 +353,12 @@ HUD 的网格按钮提供三种方式：全部卡片按阅读顺序整理、只�
 
 - 速记上板、移动、编辑、删除、建线/删线/Label 均可撤销/重做（内存历史，最多 50 步）
 - 删除为可恢复软删除；回收站保留 30 天，永久删除会同步清理投影、连线与历史版本，并清空云端卡片墓碑中的标题、正文、标签和重点
-- 顶栏数据菜单可导出/安全合并完整 JSON 备份（cards / attachments / boardItems / connections / boards / cardVersions）；较旧备份会跳过，删除墓碑不会被未删除旧版本复活，导入前自动备份当前工作区
+- 顶栏数据菜单可导出/安全合并完整 JSON 备份（cards / attachments / boardItems / connections / boards / boardZones / cardVersions）；较旧备份会跳过，删除墓碑不会被未删除旧版本复活，导入前自动备份当前工作区
 - 启动时申请 `navigator.storage.persist()`；写入失败会回滚并给出可重试 toast
 
 ## 版本与 PWA 元信息
 
-- 版本：`v1.15.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
+- 版本：`v1.16.0`（`package.json`、顶栏、页脚、数据菜单、快捷键浮层统一）
 - `index.html`：`application-name`、`apple-mobile-web-app-*`、`color-scheme`、`format-detection` 与动态 `theme-color`
 - `public/manifest.webmanifest`：standalone 显示、主题色、启动路径与 192/512/maskable PNG 图标
 - `vite-plugin-pwa`：生产构建生成 Service Worker，预缓存应用壳与静态资源；`/api/*` 不进入离线回退
@@ -357,6 +369,7 @@ HUD 的网格按钮提供三种方式：全部卡片按阅读顺序整理、只�
 - 首次启动且 Dexie 为空时自动写入 3 张示例卡片与 3 个空间投影，并创建第一块白板
 - 部分数据损坏（投影指向不存在的卡片）会在启动时清理，避免孤儿记录
 - 速记在一个 Dexie 事务中写入 `cards` + `boardItems`，不会产生“有卡片、没投影”的中间态
+- 区域与成员归属在同一个 Dexie 事务中写入 `boardZones` + `boardItems.zoneId`，不会出现只有区域或只有归属的半完成状态
 - 编辑只更新 `cards`，实体的 `updatedAt` 不被空间操作污染
 - 全量加载在数百张卡片内表现良好；连线为单一 SVG 世界层
 - 拖拽期间不写 Dexie，也不做大范围响应式更新
@@ -371,6 +384,7 @@ src/
 │   │   ├── CanvasStage.vue      # 视口容器、世界层、相机上下文与初始取景
 │   │   ├── CanvasHUD.vue        # 缩放 / 居中悬浮胶囊
 │   │   ├── CardNode.vue         # 世界卡片、拖拽手柄、标签与呼吸光环
+│   │   ├── BoardZone.vue        # 持久区域包围、标题、配色与整体移动
 │   │   ├── SelectionChrome.vue  # 多选包围框、浮动工具栏与 Markdown 复制
 │   │   ├── EmptyBoardState.vue  # 空白白板的一次点击捕获引导
 │   │   ├── ShortcutModal.vue    # ? 快捷键备忘录 / 四组键盘地图
@@ -453,7 +467,7 @@ e2e/                             # Playwright 端到端测试
 ## 质量防线
 
 - **Vitest**：覆盖几何、触控板滚轮分类、框选 AABB、刚体位移、连线拓扑、原子 Markdown、有序列表、任务行替换、原子撤销、白板清空、Markdown 排序、Card Atlas 数据层、关联雷达排序与严格 JSON、AI 客户端、捕获、认证会话与回调错误、账号锁定、云端增量游标、冲突、离线 outbox、白板级联删除与旧 demo 清理。
-- **Playwright**：覆盖捕获、直接粘贴文字/截图、拖拽落点、缩放后平移、双击编辑、`/` 格式命令、今日待办续写、一键整理与撤销、移动端布局、多种登录入口、白板与清空、跨标签历史失效、连线、Card Atlas、层级星系、多选、刚体拖拽、任务勾选、行动透镜、单卡关联雷达、Markdown 导出、快捷键浮层与空板引导。
+- **Playwright**：覆盖捕获、直接粘贴文字/截图、拖拽落点、缩放后平移、双击编辑、`/` 格式命令、今日待办续写、一键整理与撤销、白板区域创建/移动/撤销/解散、移动端布局、多种登录入口、白板与清空、跨标签历史失效、连线、Card Atlas、层级星系、多选、刚体拖拽、任务勾选、行动透镜、单卡关联雷达、Markdown 导出、快捷键浮层与空板引导。
 - **本地 E2E**：Playwright Chromium + 4 workers，fully parallel，全量约 1 分钟；`pnpm test:e2e:serial` 用于单 worker 定位偶发失败。
 - **真浏览器抽查**：`pnpm test:e2e:chrome` 使用系统 Chrome，单 worker，避免多实例等待放大。
 - 每次提交前运行 `format:check` / `lint` / `typecheck` / `test` / `build` / `test:e2e`。
@@ -529,3 +543,5 @@ v1.13.1 修复新设备登录后的图片附件同步中断：远端附件写入
 v1.14.0 加固同步与数据恢复：删除墓碑不再上传标题、正文、标签或重点，避免“永久删除”后云端仍保留敏感内容。同步冲突改用 Supabase 服务端时间回写，待上传的本地修改不会被远端旧版本覆盖；拉取失败时仍会优先上传删除墓碑。备份导入改为安全合并，旧备份不会覆盖新版本或复活本地已删除卡片，并在导入前自动导出当前备份。同步启动异常会进入可重试错误态，PWA 新版本则提供明确的立即更新提示。
 
 v1.15.0 重新收敛卡片操作：复制按钮不再要求先选中卡片，悬停、聚焦或触屏选中即可使用；单卡与多卡复制默认只包含标题、正文、重点和关系，不再附带标签元数据。分享图片工作室及相关依赖、入口和测试完全移除，产品重新聚焦于内容复制、Markdown 迁移和知识整理。
+
+v1.16.0 加入持久白板区域：选中多张卡片后即可创建带名称与配色的视觉分区，区域随成员位置自动包围，可整体拖动、重命名、解散并逐步撤销与重做。区域作为白板级对象进入 Supabase、Realtime、白板删除级联与 JSON 备份；旧备份保持兼容，缺少区域表的云端部署也不会阻塞其他数据同步。

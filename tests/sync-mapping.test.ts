@@ -81,6 +81,7 @@ describe('Supabase record mapping', () => {
       x: 12.5,
       y: -30,
       width: 420,
+      zone_id: 'zone-a',
       updated_at: 9876,
     })
 
@@ -91,7 +92,64 @@ describe('Supabase record mapping', () => {
       x: 12.5,
       y: -30,
       width: 420,
+      zoneId: 'zone-a',
       updatedAt: 9876,
+    })
+  })
+
+  it('maps board zones and their card membership to Supabase columns', () => {
+    const remoteZone = localRecordToRemote(
+      {
+        table: 'boardZones',
+        recordId: 'zone-a',
+        operation: 'upsert',
+        updatedAt: 4200,
+        payload: {
+          boardId: 'board-main',
+          title: '心理学',
+          color: 'sage',
+          createdAt: 4000,
+        },
+      },
+      'user-a',
+      'client-a',
+    )
+    const remoteItem = localRecordToRemote(
+      {
+        table: 'boardItems',
+        recordId: 'projection-a',
+        operation: 'upsert',
+        updatedAt: 4300,
+        payload: {
+          cardId: 'card-a',
+          boardId: 'board-main',
+          x: 12,
+          y: 24,
+          zoneId: 'zone-a',
+        },
+      },
+      'user-a',
+      'client-a',
+    )
+
+    expect(remoteZone).toMatchObject({
+      id: 'zone-a',
+      board_id: 'board-main',
+      title: '心理学',
+      color: 'sage',
+    })
+    expect(remoteItem).toMatchObject({ zone_id: 'zone-a' })
+    expect(
+      remoteRecordToLocal('boardZones', {
+        ...remoteZone,
+        server_updated_at: '2026-11-14T08:00:00.000Z',
+      }),
+    ).toMatchObject({
+      id: 'zone-a',
+      boardId: 'board-main',
+      title: '心理学',
+      color: 'sage',
+      updatedAt: Date.parse('2026-11-14T08:00:00.000Z'),
     })
   })
 

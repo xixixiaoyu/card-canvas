@@ -1,6 +1,7 @@
 import type {
   Board,
   BoardItem,
+  BoardZone,
   Card,
   CardAttachment,
   Connection,
@@ -16,6 +17,7 @@ export type RemoteRow = Record<string, unknown>
 
 const REMOTE_TABLE_NAMES: Record<SyncTableName, string> = {
   boards: 'boards',
+  boardZones: 'board_zones',
   cards: 'cards',
   attachments: 'attachments',
   boardItems: 'board_items',
@@ -63,6 +65,14 @@ export function localRecordToRemote(
         name: deleted ? '' : stringOr(source.name, '未命名白板'),
         created_at: numberOr(source.createdAt, entry.updatedAt),
       }
+    case 'boardZones':
+      return {
+        ...common,
+        board_id: stringOr(source.boardId),
+        title: deleted ? '' : stringOr(source.title, '未命名区域'),
+        color: deleted ? 'amber' : stringOr(source.color, 'amber'),
+        created_at: numberOr(source.createdAt, entry.updatedAt),
+      }
     case 'cards':
       return {
         ...common,
@@ -101,6 +111,10 @@ export function localRecordToRemote(
         y: numberOr(source.y),
         width: optionalNumber(source.width) ?? null,
         color: typeof source.color === 'string' ? source.color : null,
+        zone_id:
+          typeof source.zoneId === 'string' && source.zoneId
+            ? source.zoneId
+            : null,
       }
     case 'connections':
       return {
@@ -117,7 +131,7 @@ export function localRecordToRemote(
 export function remoteRecordToLocal(
   table: SyncTableName,
   row: RemoteRow,
-): Board | Card | CardAttachment | BoardItem | Connection {
+): Board | BoardZone | Card | CardAttachment | BoardItem | Connection {
   const updatedAt = remoteUpdatedAt(row)
 
   switch (table) {
@@ -127,6 +141,18 @@ export function remoteRecordToLocal(
         name: stringOr(row.name, '未命名白板'),
         createdAt: numberOr(row.created_at, updatedAt),
         updatedAt,
+      }
+    case 'boardZones':
+      return {
+        id: stringOr(row.id),
+        boardId: stringOr(row.board_id),
+        title: stringOr(row.title, '未命名区域'),
+        color: ['amber', 'sage', 'sky', 'rose'].includes(stringOr(row.color))
+          ? (stringOr(row.color) as BoardZone['color'])
+          : 'amber',
+        createdAt: numberOr(row.created_at, updatedAt),
+        updatedAt,
+        isDeleted: row.is_deleted === true ? true : undefined,
       }
     case 'cards':
       return {
@@ -166,6 +192,10 @@ export function remoteRecordToLocal(
         y: numberOr(row.y),
         width: optionalNumber(row.width),
         color: typeof row.color === 'string' ? row.color : undefined,
+        zoneId:
+          typeof row.zone_id === 'string' && row.zone_id
+            ? row.zone_id
+            : undefined,
         updatedAt,
       }
     case 'connections':

@@ -37,6 +37,19 @@ describe('workspace claiming', () => {
         {
           boards: [defaultBoard],
           cards: [],
+          boardZones: [{ id: 'zone-local' }],
+          attachments: [],
+          boardItems: [],
+          connections: [],
+        },
+        defaultBoard,
+      ),
+    ).toBe(false)
+    expect(
+      isPristineLocalWorkspace(
+        {
+          boards: [defaultBoard],
+          cards: [],
           attachments: [{ id: 'attachment-local' }],
           boardItems: [],
           connections: [],

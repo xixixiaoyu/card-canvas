@@ -3,6 +3,7 @@ import type { SyncMetaRecord, SyncOutboxRecord } from '../lib/sync/types'
 import type {
   Board,
   BoardItem,
+  BoardZone,
   Card,
   CardAttachment,
   CardVersion,
@@ -24,6 +25,7 @@ export class KnowledgeDatabase extends Dexie {
   syncMeta!: Table<SyncMetaRecord, string>
   cardVersions!: Table<CardVersion, string>
   attachments!: Table<CardAttachment, string>
+  boardZones!: Table<BoardZone, string>
 
   constructor() {
     super('card-canvas')
@@ -53,6 +55,10 @@ export class KnowledgeDatabase extends Dexie {
 
     this.version(5).stores({
       attachments: 'id, cardId, updatedAt, isDeleted',
+    })
+
+    this.version(6).stores({
+      boardZones: 'id, boardId, updatedAt, isDeleted',
     })
   }
 }
