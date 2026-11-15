@@ -65,6 +65,94 @@ test('AI settings validate connectivity and persist the local configuration', as
   expect(stored).toContain('test-ui-key')
 })
 
+test('AI generates a zone name from only the selected cards', async ({
+  page,
+}) => {
+  await seedAIConfig(page)
+  let zonePrompt = ''
+  let requestCount = 0
+  await page.route('**/api/deepseek', async (route) => {
+    requestCount += 1
+    const request = route.request().postDataJSON() as {
+      messages?: Array<{ content?: string }>
+    }
+    zonePrompt = request.messages?.at(-1)?.content ?? ''
+    if (requestCount > 1) {
+      await new Promise((resolve) => setTimeout(resolve, 350))
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '区域名称：身心节律 / 恢复',
+            },
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.goto('/')
+  const cards = page.locator('[data-world-item]')
+  await expect(cards).toHaveCount(3)
+  await cards.nth(0).locator('h2').click()
+  await cards
+    .nth(1)
+    .locator('h2')
+    .click({ modifiers: ['Shift'] })
+  await expect(page.locator('.selection-toolbar')).toContainText('2 SELECTED')
+
+  await page.locator('[data-create-zone]').click()
+  const dialog = page.locator('[data-zone-dialog]')
+  await dialog.locator('[data-zone-ai-title]').click()
+
+  const input = dialog.getByLabel('区域名称')
+  await expect(input).toHaveValue('身心节律 / 恢复')
+  expect(zonePrompt).toContain('归纳一个可以直接用于白板区域分组的名称')
+  expect(zonePrompt.match(/"title":/g)).toHaveLength(2)
+
+  await input.fill('我手动命名')
+  await dialog.locator('[data-zone-ai-title]').click()
+  await expect(dialog.locator('[data-zone-ai-title]')).toHaveAttribute(
+    'aria-busy',
+    'true',
+  )
+  await input.fill('保留手写名称')
+  await expect(input).toHaveValue('保留手写名称')
+  await expect(dialog.locator('[data-zone-ai-title]')).toHaveAttribute(
+    'aria-busy',
+    'false',
+  )
+  await expect(input).toHaveValue('保留手写名称')
+
+  await dialog.locator('[data-zone-confirm]').click()
+  await expect(page.locator('[data-board-zone]')).toContainText('保留手写名称')
+})
+
+test('zone AI naming opens settings when no key is configured', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const cards = page.locator('[data-world-item]')
+  await expect(cards).toHaveCount(3)
+  await cards.nth(0).locator('h2').click()
+  await cards
+    .nth(1)
+    .locator('h2')
+    .click({ modifiers: ['Shift'] })
+
+  await page.locator('[data-create-zone]').click()
+  const zoneDialog = page.locator('[data-zone-dialog]')
+  await zoneDialog.locator('[data-zone-ai-title]').click()
+
+  await expect(zoneDialog).toBeHidden()
+  await expect(page.getByRole('dialog', { name: 'AI 认知辅助' })).toBeVisible()
+  await expect(page.locator('.selection-toolbar')).toContainText('2 SELECTED')
+})
+
 test('single-card radar creates a labelled connection that can be undone', async ({
   page,
 }) => {

@@ -1,7 +1,21 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { Check, Copy, Layers3, Trash2, Unlink, X } from '@lucide/vue'
+import {
+  Check,
+  Copy,
+  Layers3,
+  LoaderCircle,
+  Sparkles,
+  Trash2,
+  Unlink,
+  X,
+} from '@lucide/vue'
 import { canvasCameraKey } from '../../composables/useCanvas'
+import { inferZoneTitle } from '../../lib/ai/deepseek'
+import {
+  buildZoneTitlePrompt,
+  ZONE_TITLE_SYSTEM_PROMPT,
+} from '../../lib/ai/prompts'
 import { getItemRect } from '../../lib/card-metrics'
 import {
   subscribeCardDragBatch,
@@ -12,13 +26,19 @@ import {
   copyTextToClipboard,
   type MarkdownEntry,
 } from '../../lib/markdownExport'
+import { useAIStore } from '../../stores/ai'
 import { useBoardStore } from '../../stores/board'
 import { useToastStore } from '../../stores/toast'
 import type { BoardZoneColor } from '../../types'
 
 const camera = inject(canvasCameraKey)
+const ai = useAIStore()
 const board = useBoardStore()
 const toast = useToastStore()
+
+const emit = defineEmits<{
+  'open-ai-settings': []
+}>()
 
 if (!camera) {
   throw new Error('SelectionChrome must be rendered inside CanvasStage')
@@ -33,12 +53,14 @@ const deleteTrigger = ref<HTMLButtonElement | null>(null)
 const deleteDialog = ref<HTMLElement | null>(null)
 const zoneDialogOpen = ref(false)
 const zoneBusy = ref(false)
+const zoneTitleGenerating = ref(false)
 const zoneTitle = ref('')
 const zoneColor = ref<BoardZoneColor>('amber')
 const zoneInput = ref<HTMLInputElement | null>(null)
 const zoneDialog = ref<HTMLElement | null>(null)
 const zoneTrigger = ref<HTMLButtonElement | null>(null)
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
+let zoneTitleController: AbortController | null = null
 
 const zoneColors: Array<{
   id: BoardZoneColor
@@ -134,6 +156,13 @@ function setBackgroundInert(inert: boolean) {
   else app.removeAttribute('inert')
 }
 
+function abortZoneTitleGeneration() {
+  const controller = zoneTitleController
+  zoneTitleController = null
+  controller?.abort()
+  zoneTitleGenerating.value = false
+}
+
 async function openBatchDelete() {
   if (zoneDialogOpen.value) return
   if (!selectedCardIds.value.length) return
@@ -145,6 +174,7 @@ async function openBatchDelete() {
 
 async function openZoneDialog() {
   if (deleteDialogOpen.value || selectableCount.value < 2) return
+  abortZoneTitleGeneration()
   zoneTitle.value = ''
   zoneColor.value =
     zoneColors[board.zones.length % zoneColors.length]?.id ?? 'amber'
@@ -156,6 +186,7 @@ async function openZoneDialog() {
 
 async function closeZoneDialog(returnFocus = true) {
   if (zoneBusy.value) return
+  abortZoneTitleGeneration()
   zoneDialogOpen.value = false
   setBackgroundInert(false)
   if (!returnFocus) return
@@ -196,11 +227,67 @@ function handleZoneDialogKeydown(event: KeyboardEvent) {
   }
 }
 
+async function generateZoneTitle() {
+  if (zoneBusy.value || zoneTitleGenerating.value) return
+  if (!ai.hasKey) {
+    abortZoneTitleGeneration()
+    zoneDialogOpen.value = false
+    setBackgroundInert(false)
+    emit('open-ai-settings')
+    return
+  }
+
+  const cards = selectedEntries.value.map((entry) => entry.card)
+  if (cards.length < 2) return
+
+  abortZoneTitleGeneration()
+  const sourceTitle = zoneTitle.value
+  const controller = new AbortController()
+  zoneTitleController = controller
+  zoneTitleGenerating.value = true
+
+  try {
+    const generated = await inferZoneTitle(
+      ai.config,
+      buildZoneTitlePrompt(cards),
+      ZONE_TITLE_SYSTEM_PROMPT,
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+    if (zoneTitle.value !== sourceTitle) return
+    if (!generated) {
+      toast.push('AI 没有生成合适的区域名称，请手动填写。', {
+        tone: 'info',
+        timeout: 3200,
+      })
+      return
+    }
+
+    zoneTitle.value = generated
+    toast.push('AI 已生成区域名称，可继续修改后再创建。', {
+      tone: 'success',
+      timeout: 2800,
+    })
+  } catch (cause) {
+    if (controller.signal.aborted) return
+    toast.push(
+      cause instanceof Error ? cause.message : '区域名称生成暂时不可用。',
+      { tone: 'error', timeout: 4200 },
+    )
+  } finally {
+    if (zoneTitleController === controller) {
+      zoneTitleController = null
+      zoneTitleGenerating.value = false
+    }
+  }
+}
+
 async function createSelectedZone() {
-  if (zoneBusy.value) return
+  if (zoneBusy.value || !zoneTitle.value.trim()) return
   const itemIds = selectedEntries.value.map((entry) => entry.item.id)
   if (itemIds.length < 2) return
 
+  abortZoneTitleGeneration()
   zoneBusy.value = true
   try {
     const zone = await board.createZone({
@@ -340,6 +427,7 @@ watch(selectableCount, () => {
 onBeforeUnmount(() => {
   disposePosition()
   disposeEnd()
+  abortZoneTitleGeneration()
   if (copiedTimer) clearTimeout(copiedTimer)
   setBackgroundInert(false)
 })
@@ -604,11 +692,40 @@ async function copyMarkdown() {
           </header>
 
           <div class="space-y-4 px-5 py-4">
-            <label class="block">
-              <span
-                class="mb-1.5 block text-[10px] text-stone-500 dark:text-zinc-400"
-              >
-                区域名称
+            <div>
+              <span class="mb-1.5 flex items-center justify-between gap-3">
+                <span class="text-[10px] text-stone-500 dark:text-zinc-400">
+                  区域名称
+                </span>
+                <button
+                  type="button"
+                  class="inline-flex h-6 items-center gap-1 rounded-full border border-amber-700/15 bg-amber-500/[0.065] px-2 text-[9px] text-amber-800 transition-[background-color,border-color,opacity] hover:border-amber-700/25 hover:bg-amber-500/[0.11] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30 disabled:cursor-wait disabled:opacity-50 dark:border-amber-200/15 dark:bg-amber-200/[0.045] dark:text-amber-200/90 dark:hover:border-amber-200/25 dark:hover:bg-amber-200/[0.075]"
+                  :disabled="zoneBusy || zoneTitleGenerating"
+                  :aria-busy="zoneTitleGenerating"
+                  :title="
+                    ai.hasKey
+                      ? '根据选中的卡片生成区域名称'
+                      : '请先在 AI 设置中填写 API Key'
+                  "
+                  aria-label="AI 为选区命名"
+                  data-zone-ai-title
+                  @click="generateZoneTitle"
+                >
+                  <LoaderCircle
+                    v-if="zoneTitleGenerating"
+                    :size="10"
+                    :stroke-width="1.8"
+                    class="animate-spin"
+                    aria-hidden="true"
+                  />
+                  <Sparkles
+                    v-else
+                    :size="10"
+                    :stroke-width="1.7"
+                    aria-hidden="true"
+                  />
+                  {{ zoneTitleGenerating ? '生成中…' : 'AI 生成' }}
+                </button>
               </span>
               <input
                 ref="zoneInput"
@@ -620,7 +737,7 @@ async function copyMarkdown() {
                 aria-label="区域名称"
                 @keydown.enter.prevent="createSelectedZone"
               />
-            </label>
+            </div>
 
             <div>
               <span

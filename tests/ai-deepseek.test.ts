@@ -4,6 +4,7 @@ import {
   chatCompletion,
   inferTitle,
   inferTags,
+  inferZoneTitle,
 } from '../src/lib/ai/deepseek'
 import { DEFAULT_AI_CONFIG } from '../src/lib/ai/config'
 
@@ -152,6 +153,27 @@ describe('DeepSeek client', () => {
 
     await expect(inferTitle(config, 'prompt', 'system')).resolves.toBe(
       '允许脆弱成为和解的入口',
+    )
+  })
+
+  it('parses a generated zone title from a normal response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: '区域名称：身心节律 / 恢复',
+              },
+            },
+          ],
+        }),
+      ),
+    )
+
+    await expect(inferZoneTitle(config, 'prompt', 'system')).resolves.toBe(
+      '身心节律 / 恢复',
     )
   })
 

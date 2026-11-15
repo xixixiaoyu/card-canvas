@@ -3,8 +3,10 @@ import {
   buildConnectionRadarPrompt,
   buildTagPrompt,
   buildTitlePrompt,
+  buildZoneTitlePrompt,
   parseConnectionLabel,
   parseGeneratedTitle,
+  parseGeneratedZoneTitle,
   parseRadarSuggestions,
   parseTagSuggestions,
 } from '../src/lib/ai/prompts'
@@ -49,6 +51,32 @@ describe('AI prompts and model output cleaning', () => {
       '不要懂事与重新被看见',
     )
     expect(parseGeneratedTitle('一'.repeat(50))).toHaveLength(28)
+  })
+
+  it('builds a bounded zone prompt and cleans generated zone titles', () => {
+    const cards = Array.from({ length: 30 }, (_, index) => ({
+      ...cardA,
+      id: `card-${index}`,
+      title: `卡片 ${index}`,
+      content: '共同讨论身心节律与恢复。'.repeat(80),
+      tags: Array.from(
+        { length: 50 },
+        (_, tagIndex) => `标签${tagIndex}/${'很长'.repeat(100)}`,
+      ),
+    }))
+    const prompt = buildZoneTitlePrompt(cards)
+
+    expect(prompt).toContain('归纳一个可以直接用于白板区域分组的名称')
+    expect(prompt).toContain('"title":"卡片 0"')
+    expect(prompt).toContain('另有 6 张卡片未展开')
+    expect(prompt.length).toBeLessThan(20_000)
+    expect(parseGeneratedZoneTitle('区域名称：**身心节律 / 恢复**')).toBe(
+      '身心节律 / 恢复',
+    )
+    expect(
+      parseGeneratedZoneTitle('“允许脆弱成为和解的入口”\n解释不应该保留'),
+    ).toBe('允许脆弱成为和解的入口')
+    expect(parseGeneratedZoneTitle('一'.repeat(50))).toHaveLength(24)
   })
 
   it('cleans and limits labels and tag suggestions', () => {

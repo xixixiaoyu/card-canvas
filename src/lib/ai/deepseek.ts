@@ -4,7 +4,11 @@ import type {
   AIErrorCode,
   AIMessage,
 } from '../../types/ai'
-import { parseGeneratedTitle, parseTagSuggestions } from './prompts'
+import {
+  parseGeneratedTitle,
+  parseGeneratedZoneTitle,
+  parseTagSuggestions,
+} from './prompts'
 
 interface DeepSeekChoice {
   message?: { content?: unknown; reasoning_content?: unknown }
@@ -311,4 +315,21 @@ export async function inferTitle(
     { maxTokens: 80, temperature: 0.2, timeoutMs: 15_000, signal },
   )
   return parseGeneratedTitle(raw)
+}
+
+export async function inferZoneTitle(
+  config: AIConfig,
+  prompt: string,
+  systemPrompt: string,
+  signal?: AbortSignal,
+) {
+  const raw = await chatCompletion(
+    config,
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt },
+    ],
+    { maxTokens: 80, temperature: 0.15, timeoutMs: 15_000, signal },
+  )
+  return parseGeneratedZoneTitle(raw)
 }

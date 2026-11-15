@@ -23,6 +23,7 @@ const emit = defineEmits<{
   search: []
   arrange: [mode: 'reading' | 'selected' | 'clusters']
   shortcuts: []
+  'open-ai-settings': []
 }>()
 
 const props = withDefaults(
@@ -281,7 +282,7 @@ defineExpose({
       <slot />
     </div>
 
-    <SelectionChrome />
+    <SelectionChrome @open-ai-settings="emit('open-ai-settings')" />
 
     <div class="pointer-events-none absolute inset-0 z-20">
       <slot name="overlay" />
