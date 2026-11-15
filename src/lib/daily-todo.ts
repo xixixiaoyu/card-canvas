@@ -1,4 +1,5 @@
 import type { Card } from '../types'
+import { parseAtomicMarkdown } from './atomic-markdown'
 
 export const DAILY_TODO_TAG = '待办/今日'
 export const DAILY_TODO_CONTENT = '- [ ] '
@@ -15,18 +16,26 @@ export function isDailyTodoCard(card: Card, title = formatDailyTodoTitle()) {
   return (
     !card.isDeleted &&
     card.title === title &&
-    card.tags.some(
-      (tag) =>
-        tag.trim().toLocaleLowerCase() === DAILY_TODO_TAG.toLocaleLowerCase(),
+    /^\d{4}-\d{2}-\d{2}$/u.test(card.title) &&
+    parseAtomicMarkdown(card.content).some(
+      (block) =>
+        block.type === 'list' &&
+        block.items.some((item) => item.type === 'task'),
     )
   )
 }
 
 export function isEmptyDailyTodoCard(card: Card) {
+  const hasNoTags = card.tags.length === 0
+  const hasOnlyLegacyDailyTag =
+    card.tags.length === 1 &&
+    card.tags[0]?.trim().toLocaleLowerCase() ===
+      DAILY_TODO_TAG.toLocaleLowerCase()
+
   return (
     /^\d{4}-\d{2}-\d{2}$/u.test(card.title) &&
-    card.tags.length === 1 &&
-    isDailyTodoCard(card, card.title) &&
+    !card.isDeleted &&
+    (hasNoTags || hasOnlyLegacyDailyTag) &&
     !card.content.trim() &&
     !card.highlights?.length
   )

@@ -146,6 +146,17 @@ const selectionAnnouncement = computed(() => {
   return card ? `已选中：${cardDisplayTitle(card)}` : '已选中卡片'
 })
 
+const moveAnnouncement = ref('')
+let moveAnnouncementToken = 0
+
+function announceMove(message: string) {
+  const token = ++moveAnnouncementToken
+  moveAnnouncement.value = ''
+  void nextTick(() => {
+    if (token === moveAnnouncementToken) moveAnnouncement.value = message
+  })
+}
+
 const pendingActionCount = computed(
   () =>
     collectPendingTasks(
@@ -449,17 +460,41 @@ function getDragGroup() {
   return board.selectedItems
 }
 
-function handlePositionCommit(
+async function handlePositionCommit(
   itemId: string,
   position: { x: number; y: number },
 ) {
-  return board.commitItemPosition(itemId, position.x, position.y)
+  const moved = await board.commitItemPosition(itemId, position.x, position.y)
+  if (!moved) return
+
+  const item = board.items.find((entry) => entry.id === itemId)
+  const card = board.cards.find((entry) => entry.id === item?.cardId)
+  announceMove(
+    `「${card ? cardDisplayTitle(card) : '卡片'}」已移动到 ${Math.round(position.x)}，${Math.round(position.y)}。`,
+  )
 }
 
-function handleGroupCommit(
+async function handleGroupCommit(
   positions: Parameters<typeof board.commitItemPositions>[0],
 ) {
-  return board.commitItemPositions(positions)
+  const moved = await board.commitItemPositions(positions)
+  if (moved) announceMove(`已将 ${positions.length} 张卡片移动到新位置。`)
+}
+
+async function handleNudge(
+  itemId: string,
+  card: Card,
+  delta: { x: number; y: number },
+) {
+  const item = board.items.find((entry) => entry.id === itemId)
+  if (!item) return
+
+  const moved = await board.nudgeItem(itemId, delta.x, delta.y)
+  if (moved) {
+    announceMove(
+      `「${cardDisplayTitle(card)}」已移动到 ${Math.round(item.x + delta.x)}，${Math.round(item.y + delta.y)}。`,
+    )
+  }
 }
 
 async function handleArrangeCards(
@@ -1161,6 +1196,9 @@ onBeforeUnmount(() => {
   >
     <h1 class="sr-only">Card Canvas 无限白板</h1>
     <p class="sr-only" aria-live="polite">{{ selectionAnnouncement }}</p>
+    <p class="sr-only" aria-live="polite" data-move-announcement>
+      {{ moveAnnouncement }}
+    </p>
 
     <BoardZone v-for="zone in board.zones" :key="zone.id" :zone="zone" />
 
@@ -1182,7 +1220,7 @@ onBeforeUnmount(() => {
       @click-card="handleCardClick(entry.item.id, $event)"
       @position-commit="handlePositionCommit(entry.item.id, $event)"
       @position-commit-group="handleGroupCommit($event)"
-      @nudge="board.nudgeItem(entry.item.id, $event.x, $event.y)"
+      @nudge="handleNudge(entry.item.id, entry.card, $event)"
       @edit="openEdit(entry.card)"
       @delete="handleDelete(entry.card)"
       @copy-markdown="handleCopyCardMarkdown(entry.item.id)"
@@ -1222,7 +1260,7 @@ onBeforeUnmount(() => {
             <p
               class="brand-subtitle mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-stone-500 dark:text-zinc-500"
             >
-              v1.18.0 · Local-first
+              v1.19.0 · Local-first
             </p>
           </div>
 
@@ -1437,7 +1475,7 @@ onBeforeUnmount(() => {
           </span>
           <span>Local-first · {{ databaseLabel }}</span>
           <span class="text-stone-300 dark:text-zinc-700">·</span>
-          <span>v1.18.0</span>
+          <span>v1.19.0</span>
         </div>
 
         <div class="hidden items-center gap-3 xl:flex">

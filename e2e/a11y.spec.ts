@@ -29,6 +29,9 @@ test('capture traps focus and cards are keyboard movable', async ({ page }) => {
   const after = await card.boundingBox()
   expect(after).not.toBeNull()
   expect(after!.x - before!.x).toBeGreaterThan(4)
+  await expect(page.locator('[data-move-announcement]')).toContainText(
+    '已移动到',
+  )
 })
 
 test('backup capture shortcut avoids browser-reserved Alt+N', async ({

@@ -8,11 +8,7 @@ import {
 } from '../lib/tab-sync'
 import { normalizeTags } from '../lib/tags'
 import { parseAtomicMarkdown, toggleTaskLine } from '../lib/atomic-markdown'
-import {
-  DAILY_TODO_TAG,
-  isDailyTodoCard,
-  isEmptyDailyTodoCard,
-} from '../lib/daily-todo'
+import { isDailyTodoCard, isEmptyDailyTodoCard } from '../lib/daily-todo'
 import { SYNC_META_KEYS } from '../lib/sync/types'
 import type {
   BoardItem,
@@ -940,7 +936,7 @@ export const useBoardStore = defineStore('board', () => {
           id: `card-${crypto.randomUUID()}`,
           title: input.targetTitle,
           content: targetLine,
-          tags: [DAILY_TODO_TAG],
+          tags: [],
           createdAt: now,
           updatedAt: now,
         }
@@ -2199,9 +2195,9 @@ export const useBoardStore = defineStore('board', () => {
 
   function nudgeItem(itemId: string, dx: number, dy: number) {
     const item = items.value.find((entry) => entry.id === itemId)
-    if (!item) return
+    if (!item) return Promise.resolve(false)
 
-    void commitItemPosition(itemId, item.x + dx, item.y + dy)
+    return commitItemPosition(itemId, item.x + dx, item.y + dy)
   }
 
   async function commitItemPositions(
@@ -2275,10 +2271,10 @@ export const useBoardStore = defineStore('board', () => {
   }
 
   async function commitItemPosition(itemId: string, x: number, y: number) {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false
 
     const item = items.value.find((entry) => entry.id === itemId)
-    if (!item || (item.x === x && item.y === y)) return
+    if (!item || (item.x === x && item.y === y)) return false
 
     const previous = { x: item.x, y: item.y }
     const moved = { ...item, x, y }
@@ -2297,9 +2293,11 @@ export const useBoardStore = defineStore('board', () => {
       )
       notifyFailure('卡片位置保存失败，已恢复。', {
         label: '重试',
-        run: () => commitItemPosition(itemId, x, y),
+        run: async () => {
+          await commitItemPosition(itemId, x, y)
+        },
       })
-      return
+      return false
     }
 
     record({
@@ -2315,6 +2313,8 @@ export const useBoardStore = defineStore('board', () => {
         broadcastWorkspaceChange('items', item.boardId)
       },
     })
+
+    return true
   }
 
   // --- history -------------------------------------------------------------

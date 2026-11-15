@@ -1,8 +1,38 @@
 import { expect, test } from '@playwright/test'
 
+const AI_CONFIG_KEY = 'card-canvas:deepseek-config'
+
 test('one-click daily todo creates a reusable task card for today', async ({
   page,
 }) => {
+  let aiRequestCount = 0
+  await page.addInitScript(
+    ([key]) => {
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          apiKey: 'test-deepseek-key',
+          baseUrl: '/api/deepseek',
+          model: 'deepseek-flash',
+          enableWormhole: true,
+          enableAutoTags: true,
+          enableAutoTitle: true,
+        }),
+      )
+    },
+    [AI_CONFIG_KEY],
+  )
+  await page.route('**/api/deepseek', async (route) => {
+    aiRequestCount += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [{ message: { content: '认知科学/节律调节' } }],
+      }),
+    })
+  })
+
   await page.goto('/')
   await expect(page.locator('[data-world-item]')).toHaveCount(3)
 
@@ -38,7 +68,7 @@ test('one-click daily todo creates a reusable task card for today', async ({
 
   const daily = page.locator('[data-world-item]').filter({ hasText: today })
   await expect(daily).toHaveCount(1)
-  await expect(daily.locator('[data-filter-tag="待办/今日"]')).toBeVisible()
+  await expect(daily.locator('[data-filter-tag]')).toHaveCount(0)
   await expect(
     daily.getByRole('button', { name: '完成待办：发布版本' }),
   ).toBeVisible()
@@ -48,6 +78,8 @@ test('one-click daily todo creates a reusable task card for today', async ({
   await expect(
     page.getByRole('button', { name: '行动透镜，2 个待办' }),
   ).toBeVisible()
+  await page.waitForTimeout(300)
+  expect(aiRequestCount).toBe(0)
 
   await dailyButton.click()
   await expect(capture).toBeHidden()
@@ -90,8 +122,6 @@ test('an unfinished historical task moves into today and undoes in one step', as
   await titleField.fill(dates.previous)
   await expect(titleField).toHaveValue(dates.previous)
   await contentField.fill('- [ ] 延迟发布')
-  await capture.getByLabel('添加标签').fill('待办/今日')
-  await capture.getByLabel('添加标签').press('Enter')
   await page.keyboard.press('Control+Enter')
   await expect(capture).toBeHidden()
 
@@ -121,6 +151,7 @@ test('an unfinished historical task moves into today and undoes in one step', as
   await expect(
     todayCard.getByRole('button', { name: '完成待办：延迟发布' }),
   ).toBeVisible()
+  await expect(todayCard.locator('[data-filter-tag]')).toHaveCount(0)
   await expect(
     previousCard.getByRole('button', { name: '完成待办：延迟发布' }),
   ).toHaveCount(0)

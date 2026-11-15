@@ -644,7 +644,7 @@ describe('board store', () => {
       {
         title: '2026-11-11',
         content: '- [ ] 未完成 A\n- [x] 已完成 B',
-        tags: ['待办/今日'],
+        tags: [],
       },
       'board-main',
       { x: 40, y: 40 },
@@ -664,7 +664,7 @@ describe('board store', () => {
     expect(target).toMatchObject({
       title: '2026-11-12',
       content: '- [ ] 未完成 A',
-      tags: ['待办/今日'],
+      tags: [],
     })
     expect(await db.boardItems.get(result!.targetItemId)).toMatchObject({
       cardId: result!.targetCardId,
@@ -692,7 +692,7 @@ describe('board store', () => {
       {
         title: '2026-11-14',
         content: '- [ ] 最后一项',
-        tags: ['待办/今日'],
+        tags: [],
       },
       'board-main',
       { x: 40, y: 40 },
@@ -742,7 +742,7 @@ describe('board store', () => {
       {
         title: '2026-11-14',
         content: '- [ ] 跨板任务',
-        tags: ['待办/今日'],
+        tags: [],
       },
       'board-main',
       { x: 40, y: 40 },
@@ -783,7 +783,7 @@ describe('board store', () => {
       {
         title: '2026-11-14',
         content: '- [ ] 有关联的任务',
-        tags: ['待办/今日'],
+        tags: [],
       },
       'board-main',
       { x: 40, y: 40 },
@@ -808,7 +808,7 @@ describe('board store', () => {
       {
         title: '2026-11-13',
         content: '- [ ] 有附件的任务',
-        tags: ['待办/今日'],
+        tags: [],
       },
       'board-main',
       { x: 40, y: 420 },
@@ -848,7 +848,7 @@ describe('board store', () => {
       {
         title: '2026-11-11',
         content: '- [ ] 重复任务',
-        tags: ['待办/今日'],
+        tags: [],
       },
       'board-main',
       { x: 40, y: 40 },
@@ -857,7 +857,7 @@ describe('board store', () => {
       {
         title: '2026-11-12',
         content: '- [ ] 重复任务\n- [ ] 今日任务',
-        tags: ['待办/今日'],
+        tags: [],
       },
       'board-main',
       { x: 520, y: 40 },
@@ -884,7 +884,7 @@ describe('board store', () => {
       {
         title: '2026-11-11',
         content: '- [ ] 未完成 A\r\n- [x] 已完成 B',
-        tags: ['待办/今日'],
+        tags: [],
       },
       'board-main',
       { x: 40, y: 40 },
@@ -893,7 +893,7 @@ describe('board store', () => {
       {
         title: '2026-11-12',
         content: '- [ ] 已有任务\r\n- [ ] 更早任务',
-        tags: ['待办/今日'],
+        tags: [],
       },
       'board-main',
       { x: 520, y: 40 },

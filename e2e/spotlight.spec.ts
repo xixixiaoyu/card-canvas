@@ -195,9 +195,14 @@ test('starting a card drag clears tag focus and removes ghost opacity', async ({
   ).toHaveCount(0)
   await expect(target).toHaveClass(/is-dragging/)
   await expect(target).toHaveCSS('opacity', '1')
+  await expect(target.getByText('拖动中', { exact: true })).toHaveCount(0)
+  await expect(target.locator('[data-filter-tag]').first()).toBeVisible()
 
   await page.mouse.up()
   await expect(target).not.toHaveClass(/is-dragging/)
+  await expect(page.locator('[data-move-announcement]')).toContainText(
+    '已移动到',
+  )
 })
 
 test('a wheel gesture interrupts the camera flight', async ({ page }) => {

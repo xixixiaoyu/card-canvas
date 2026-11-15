@@ -367,27 +367,10 @@ function tagTone(index: number) {
           </template>
 
           <footer
-            v-if="card.tags.length || isDragging"
-            class="card-footer mt-7 flex items-start justify-between gap-4 border-t border-stone-200/70 pt-4 dark:border-white/[0.08]"
-            :class="isDragging ? 'justify-between' : 'justify-end'"
+            v-if="card.tags.length"
+            class="card-footer mt-7 flex items-start justify-end gap-4 border-t border-stone-200/70 pt-4 dark:border-white/[0.08]"
           >
             <div
-              v-if="isDragging"
-              class="flex shrink-0 items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400"
-            >
-              <span class="relative flex h-1.5 w-1.5" aria-hidden="true">
-                <span
-                  class="absolute inset-0 rounded-full bg-amber-500/30 blur-[3px]"
-                />
-                <span
-                  class="relative h-1.5 w-1.5 rounded-full bg-amber-500/85"
-                />
-              </span>
-              <span>拖动中</span>
-            </div>
-
-            <div
-              v-if="card.tags.length"
               class="card-tags flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1"
             >
               <button

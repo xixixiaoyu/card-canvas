@@ -48,7 +48,6 @@ import { chooseCapturePlacement } from '../../lib/capture-placement'
 import { getItemRect } from '../../lib/card-metrics'
 import {
   DAILY_TODO_CONTENT,
-  DAILY_TODO_TAG,
   formatDailyTodoTitle,
   trimTrailingEmptyDailyTask,
 } from '../../lib/daily-todo'
@@ -879,6 +878,7 @@ function save() {
           ? await autoTitleCapturedCard(card, textContent)
           : card
       if (
+        props.template !== 'daily-todo' &&
         !draft.tags.length &&
         (enriched.title !== UNTITLED_CARD_TITLE || textContent)
       ) {
@@ -968,7 +968,7 @@ watch(
       } else if (props.template === 'daily-todo') {
         title.value = formatDailyTodoTitle()
         content.value = DAILY_TODO_CONTENT
-        tags.value = [DAILY_TODO_TAG]
+        tags.value = []
         tagDraft.value = ''
         pendingAttachments.value = []
         initialAttachments = []
